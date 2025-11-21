@@ -322,9 +322,9 @@ const AiSettings: React.FC<Pick<SettingsProps, 'aiPreferences' | 'setAiPreferenc
                         <div className={`transition-opacity duration-300 ${notificationPreferences.proactiveInsights ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                             <label htmlFor="insight-sensitivity" className="text-xs font-medium text-gray-400 block mb-2">Sensitivity Threshold</label>
                             <select id="insight-sensitivity" value={notificationPreferences.proactiveInsightSensitivity} onChange={e => setNotificationPreferences(prev => ({ ...prev, proactiveInsightSensitivity: e.target.value as NotificationPreferences['proactiveInsightSensitivity'] }))} className="select-base w-full">
-                                <option value="high">High (Notify on >3% drop)</option>
-                                <option value="medium">Medium (Notify on >5% drop)</option>
-                                <option value="low">Low (Notify on >10% drop)</option>
+                                <option value="high">High (Notify on &gt;3% drop)</option>
+                                <option value="medium">Medium (Notify on &gt;5% drop)</option>
+                                <option value="low">Low (Notify on &gt;10% drop)</option>
                             </select>
                         </div>
                     </div>
