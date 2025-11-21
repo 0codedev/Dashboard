@@ -1,0 +1,8 @@
+{
+  "name": "Dashboard  V1",
+  "description": "GITHUB Deploy V1",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

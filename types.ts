@@ -1,0 +1,309 @@
+
+export enum TaskType {
+  StudySession = "Study Session",
+  ProblemPractice = "Problem Practice",
+  Revision = "Revision",
+  MockTest = "Mock Test",
+  Break = "Break",
+}
+
+export enum TaskEffort {
+    Low = "Low (Chore)",
+    Medium = "Medium (Standard)",
+    High = "High (Deep Work)"
+}
+
+export interface DailyTask {
+  id: string;
+  text: string;
+  completed: boolean;
+  linkedTopic?: string;
+  taskType: TaskType;
+  effort?: TaskEffort; // Added
+  estimatedTime: number; // in minutes
+  accomplishment?: string;
+  scheduledTime?: string; // e.g., "09:00", "14:30"
+}
+
+export interface StudyGoal {
+  id: string;
+  text: string;
+  completed: boolean;
+  linkedTopic?: string;
+}
+
+export interface LongTermGoal {
+    id: string;
+    text: string;
+    completed: boolean;
+}
+
+export interface SubjectData {
+  marks: number;
+  rank: number;
+  correct: number;
+  wrong: number;
+  unanswered: number;
+  partial: number;
+  maxMarks?: number; // Added: Max possible marks for this subject in this specific test
+}
+
+export interface CalculatedMetrics {
+  accuracy: number;
+  attemptRate: number;
+  cwRatio: number;
+  spaq: number;
+  unattemptedPercent: number;
+  negativeMarkImpact: number;
+  scorePotentialRealized: number;
+}
+
+export interface SubjectDataWithMetrics extends SubjectData, CalculatedMetrics {}
+
+export enum TestType {
+  FullSyllabusMock = 'Full Syllabus Mock',
+  ChapterTest = 'Chapter Test',
+  PreviousYearPaper = 'Previous Year Paper',
+  PartTest = 'Part Test',
+}
+
+export enum TestSubType {
+  JEEMains = 'JEE Mains',
+  JEEAdvanced = 'JEE Advanced',
+}
+
+export type DifficultyLevel = 'Easy' | 'Medium' | 'Hard';
+
+export interface GlobalFilter {
+  type: TestType | 'all';
+  subType: TestSubType | 'all';
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface TestReport {
+  id: string;
+  testDate: string;
+  testName: string;
+  type?: TestType;
+  subType?: TestSubType;
+  difficulty?: DifficultyLevel; // Added
+  topperScore?: number; // Added: Score of the institute topper
+
+  physics: SubjectData;
+  chemistry: SubjectData;
+  maths: SubjectData;
+  total: SubjectData;
+
+  physicsMetrics?: CalculatedMetrics;
+  chemistryMetrics?: CalculatedMetrics;
+  mathsMetrics?: CalculatedMetrics;
+  totalMetrics?: CalculatedMetrics;
+}
+
+export enum QuestionType {
+  SingleCorrect3 = "Single Correct (+3, -1)",
+  SingleCorrect4 = "Single Correct (+4, -1)",
+  MultipleCorrect = "Multiple Correct (+4, -2)",
+  Integer3 = "Integer (+3, 0)",
+  Integer4 = "Integer (+4, 0)",
+}
+
+export enum QuestionStatus {
+  FullyCorrect = "Fully Correct",
+  PartiallyCorrect = "Partially Correct",
+  Wrong = "Wrong",
+  Unanswered = "Unanswered",
+}
+
+export enum ErrorReason {
+  SillyMistake = "Silly Mistake",
+  ConceptualGap = "Conceptual Gap",
+  TimePressure = "Time Pressure",
+  MisreadQuestion = "Misread Question",
+  Guess = "Guess",
+}
+
+export interface QuestionLog {
+  testId: string;
+  subject: "physics" | "chemistry" | "maths";
+  questionNumber: number;
+  questionType: QuestionType;
+  status: QuestionStatus;
+  marksAwarded: number;
+  topic: string;
+  reasonForError?: ErrorReason;
+  answered?: string;
+  finalKey?: string;
+  timeSpent?: number; // Added: Time spent in Speed vs Accuracy
+}
+
+// --- Advanced Analysis Types ---
+
+export interface PanicEvent {
+    testId: string;
+    testName: string;
+    startQuestion: number;
+    endQuestion: number;
+    length: number;
+    lostMarks: number;
+}
+
+export interface GuessStats {
+    totalGuesses: number;
+    correctGuesses: number;
+    efficiency: number; // %
+    netScoreImpact: number;
+}
+
+export interface DependencyAlert {
+    topic: string;
+    rootCauseTopic: string;
+    errorCount: number;
+}
+
+// --- AI Assistant & Filter Types ---
+
+export type AiFilter = Partial<Pick<QuestionLog, 'subject' | 'reasonForError' | 'status' | 'topic'>> & { testId?: string };
+
+export type GenUIToolType = 'chart' | 'checklist' | 'syllabus_node' | 'none';
+
+export interface GenUIComponentData {
+    type: GenUIToolType;
+    data: any; // Flexible payload
+    id: string;
+}
+
+export type ChatMessageContent =
+  | string
+  | { type: 'testReport'; data: TestReport }
+  | { type: 'testComparison'; data: { testA: TestReport; testB: TestReport } }
+  | { type: 'genUI'; component: GenUIComponentData };
+
+export interface ChatMessage {
+  role: 'user' | 'model';
+  content: ChatMessageContent;
+  timestamp?: number;
+  isThinking?: boolean; // For thinking models
+  thinkingContent?: string;
+}
+
+export interface RootCauseFilter {
+    subject?: string | null;
+}
+
+export interface AiAssistantPreferences {
+  responseLength: 'short' | 'medium' | 'long';
+  tone: 'encouraging' | 'neutral' | 'direct';
+  customInstructions?: string; // Added: Allow user to define persona
+  socraticMode?: boolean; // Added
+}
+
+export interface NotificationPreferences {
+  achievements: boolean;
+  proactiveInsights: boolean;
+  proactiveInsightSensitivity: 'high' | 'medium' | 'low';
+}
+
+export interface AppearancePreferences {
+  disableParticles: boolean;
+  reduceMotion: boolean;
+  highContrast: boolean;
+}
+
+export enum TargetExam {
+    JEEMains = "JEE Mains",
+    JEEAdvanced = "JEE Advanced",
+    BITSAT = "BITSAT",
+    NEET = "NEET",
+    Other = "Other"
+}
+
+export enum SyllabusStatus {
+    NotStarted = "Not Started",
+    InProgress = "In Progress",
+    Completed = "Completed",
+    Revising = "Revising"
+}
+
+export type PriorityQuadrant = 'Critical Focus' | 'Sharpen Sword' | 'Opportunity' | 'Stronghold';
+
+export interface ChapterProgress {
+    status: SyllabusStatus;
+    strength: 'strength' | 'weakness' | null;
+    lectureCompleted: boolean;
+    practiceCompleted: boolean;
+    revisionCount: number;
+    aiSuggestedStrength?: 'strength' | 'weakness' | 'dismissed' | null;
+    lastRevised?: string; // ISO Date string
+    nextRevisionDate?: string; // ISO Date string
+}
+
+export interface UserProfile {
+  name: string;
+  targetExams: TargetExam[];
+  studyTimes: {
+      morning: string;
+      afternoon: string;
+      evening: string;
+  };
+  syllabus: Record<string, Partial<ChapterProgress>>; 
+  cohortSizes: {
+      [TestSubType.JEEMains]: number;
+      [TestSubType.JEEAdvanced]: number;
+  };
+  targetTimePerQuestion: { // In seconds
+      physics: number;
+      chemistry: number;
+      maths: number;
+  };
+}
+
+
+export type Theme = 'cyan' | 'indigo' | 'green' | 'red';
+
+// --- Gamification Types ---
+
+export type AchievementId =
+  | 'firstSteps'
+  | 'taskMaster'
+  | 'streakKeeper'
+  | 'testVeteran'
+  | 'accuracyAce'
+  | 'rankRipper'
+  | 'comebackKid'
+  | 'sillyMistakeSlayer'
+  | 'deepDiver';
+
+
+export interface Achievement {
+  id: AchievementId;
+  title: string;
+  description: string;
+  icon: string;
+  unlocked: boolean;
+  category: 'Performance' | 'Consistency' | 'Diligence';
+  tiers?: { count: number; title: string }[];
+  progress?: number;
+  goal?: number;
+  tier?: number;
+  unlockedAt?: string;
+}
+
+export interface GamificationState {
+  level: number;
+  xp: number;
+  unlockedAchievements: Record<AchievementId, { unlockedAt: string; tier?: number }>;
+  completedTasks: number; 
+  streakData: { count: number; date: string }; 
+  events: Record<string, boolean>; 
+}
+
+export interface Toast {
+  id: number;
+  title: string;
+  message: string;
+  icon: string;
+}
+
+export type View = 'daily-planner' | 'dashboard' | 'detailed-reports' | 'deep-analysis' | 'root-cause' | 'data-entry' | 'ai-assistant' | 'question-log-editor' | 'settings' | 'achievements' | 'syllabus';
