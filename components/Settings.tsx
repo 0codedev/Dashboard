@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import type { AiAssistantPreferences, NotificationPreferences, UserProfile, Theme, AppearancePreferences, TestReport, QuestionLog, LongTermGoal, TestSubType } from '../types';
+import type { AiAssistantPreferences, NotificationPreferences, UserProfile, Theme, AppearancePreferences, TestReport, QuestionLog, LongTermGoal, TestSubType, GamificationState, StudyGoal, ChatMessage } from '../types';
 import { getDailyQuote } from '../services/geminiService';
 import { parseReportsFromCsv, parseLogsFromCsv, downloadReportsForSheet, downloadLogsForSheet, exportReportsToCsv, exportLogsToCsv } from '../services/sheetParser';
 import { SUBJECT_CONFIG } from '../constants';
@@ -32,8 +32,13 @@ interface SettingsProps {
 
     reports: TestReport[];
     logs: QuestionLog[];
-    onSyncData: (data: { reports?: TestReport[]; logs?: QuestionLog[] }) => void;
+    onSyncData: (data: any) => void; // Relaxed type to accept full backup
     addToast: (toast: any) => void;
+
+    // New Props for Full Backup
+    gamificationState: GamificationState;
+    studyGoals: StudyGoal[];
+    chatHistory: ChatMessage[];
 }
 
 type SettingsCategory = 'profile' | 'appearance' | 'ai' | 'connectivity' | 'data';
@@ -424,7 +429,7 @@ const DataHealthWidget: React.FC<{ reports: TestReport[], logs: QuestionLog[] }>
     );
 };
 
-const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleReportsReset'| 'handleChatReset' | 'handleGamificationReset' | 'reports' | 'logs' | 'onSyncData'>> = (props) => {
+const DataSettings: React.FC<SettingsProps> = (props) => {
     const [modalState, setModalState] = useState<{ isOpen: boolean, onConfirm: () => void, title: string, message: React.ReactNode } | null>(null);
 
     const openConfirmation = (action: 'full' | 'reports' | 'chat' | 'gamification') => {
@@ -482,8 +487,8 @@ const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleRepo
 };
 
 
-// Re-integrating DataSync functionality as a sub-component to avoid prop-drilling hell for it
-const DataSyncComponent: React.FC<Pick<SettingsProps, 'reports' | 'logs' | 'onSyncData'> & { setModalState: (state: any) => void }> = (props) => {
+// DataSync functionality
+const DataSyncComponent: React.FC<SettingsProps & { setModalState: (state: any) => void }> = (props) => {
     const [activeTab, setActiveTab] = useState<'local' | 'csv' | 'sheet'>('local');
     return (
          <div className="space-y-4">
@@ -502,23 +507,37 @@ const DataSyncComponent: React.FC<Pick<SettingsProps, 'reports' | 'logs' | 'onSy
     )
 }
 
-// All subcomponents of the former DataSync are now defined inside DataSettings to keep it self-contained
-const LocalBackupTab: React.FC<Pick<SettingsProps, 'reports' | 'logs' | 'onSyncData'> & { setModalState: (state: any) => void }> = ({ reports, logs, onSyncData, setModalState }) => {
+const LocalBackupTab: React.FC<SettingsProps & { setModalState: (state: any) => void }> = ({ 
+    reports, logs, onSyncData, setModalState, 
+    userProfile, studyGoals, longTermGoals, gamificationState, aiPreferences, notificationPreferences, appearancePreferences, chatHistory
+}) => {
     const [lastBackup, setLastBackup] = useState(() => localStorage.getItem('lastLocalBackupDate'));
     const restoreInputRef = useRef<HTMLInputElement>(null);
     const [error, setError] = useState('');
 
     const handleDownloadBackup = () => {
+        // Full application state backup
         const dataToBackup = {
             reports,
             logs,
-            // You might want to include other states like goals, preferences, etc.
+            userProfile,
+            studyGoals,
+            longTermGoals,
+            gamificationState,
+            aiPreferences,
+            notificationPreferences,
+            appearancePreferences,
+            chatHistory,
+            // Versioning for future migrations
+            backupVersion: 2,
+            timestamp: new Date().toISOString()
         };
+        
         const blob = new Blob([JSON.stringify(dataToBackup, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `jee_dashboard_backup_${new Date().toISOString().split('T')[0]}.json`;
+        a.download = `jee_dashboard_full_backup_${new Date().toISOString().split('T')[0]}.json`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -540,16 +559,19 @@ const LocalBackupTab: React.FC<Pick<SettingsProps, 'reports' | 'logs' | 'onSyncD
                     throw new Error("File content is not readable text.");
                 }
                 const restoredData = JSON.parse(result);
-                if (restoredData.reports && Array.isArray(restoredData.reports) && restoredData.logs && Array.isArray(restoredData.logs)) {
+                
+                // Basic validation: check if it looks like our data structure
+                // We check for at least one key property or array
+                if ((restoredData.reports && Array.isArray(restoredData.reports)) || restoredData.userProfile) {
                     setModalState({
                         isOpen: true,
-                        title: 'Confirm Restore',
-                        message: 'This will overwrite your current data with the backup file. Are you sure you want to continue?',
+                        title: 'Confirm Full Restore',
+                        message: 'This will overwrite your current data (Reports, Logs, Syllabus, Profile, Settings) with the backup file. Are you sure?',
                         onConfirm: () => onSyncData(restoredData)
                     });
                     setError('');
                 } else {
-                    throw new Error("Invalid backup file format.");
+                    throw new Error("Invalid backup file format. Missing critical data sections.");
                 }
             } catch (err) {
                 setError(err instanceof Error ? err.message : "Failed to read or parse the backup file.");
@@ -565,11 +587,11 @@ const LocalBackupTab: React.FC<Pick<SettingsProps, 'reports' | 'logs' | 'onSyncD
         <div className="relative">
              <div className="absolute top-0 right-0 text-[10px] text-gray-500">Last Backup: {lastBackup ? new Date(lastBackup).toLocaleString() : 'Never'}</div>
             <div className="flex flex-col gap-3">
-                <p className="text-xs text-gray-400">Complete backup of your data in a raw JSON file. Best for migrations.</p>
+                <p className="text-xs text-gray-400">Complete backup of your entire account state (Reports, Logs, Syllabus, Profile, Settings) in a raw JSON file.</p>
                 {error && <div className="p-2 mb-2 bg-red-900/50 text-red-300 rounded-lg text-sm">{error}</div>}
                 <div className="flex gap-4">
-                    <button onClick={handleDownloadBackup} className="btn btn-secondary flex-1 text-xs">Download</button>
-                    <button onClick={() => restoreInputRef.current?.click()} className="btn btn-secondary flex-1 text-xs">Restore</button>
+                    <button onClick={handleDownloadBackup} className="btn btn-secondary flex-1 text-xs">Download Full Backup</button>
+                    <button onClick={() => restoreInputRef.current?.click()} className="btn btn-secondary flex-1 text-xs">Restore from File</button>
                     <input ref={restoreInputRef} type="file" accept=".json" className="hidden" onChange={handleRestoreFromFile}/>
                 </div>
             </div>

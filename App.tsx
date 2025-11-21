@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import type { TestReport, QuestionLog, StudyGoal, GlobalFilter, AiFilter, ChatMessage, RootCauseFilter, Toast, AiAssistantPreferences, NotificationPreferences, UserProfile, Theme, DailyTask, AppearancePreferences, View } from './types';
+import type { TestReport, QuestionLog, StudyGoal, GlobalFilter, AiFilter, ChatMessage, RootCauseFilter, Toast, AiAssistantPreferences, NotificationPreferences, UserProfile, Theme, DailyTask, AppearancePreferences, View, GamificationState, LongTermGoal } from './types';
 import { TaskType, QuestionStatus, TaskEffort } from './types';
 import { Dashboard } from './components/Dashboard';
 import { OcrProcessor } from './components/OcrProcessor';
@@ -337,18 +337,38 @@ const App: React.FC = () => {
         setView('question-log-editor');
     };
 
-    const handleDataSync = (data: { reports?: TestReport[]; logs?: QuestionLog[] }) => {
-        if (data.reports) {
-            setTestReports(data.reports);
-        }
-    
+    // Enhanced Data Restore Handler
+    const handleDataSync = (data: any) => {
+        if (data.reports) setTestReports(data.reports);
+        
         if (data.logs) {
             setQuestionLogs(data.logs);
         } else if (data.reports) {
-            // If reports are provided but logs are not, clear the logs.
+            // If reports are provided but logs are not, clear the logs to avoid mismatch
             setQuestionLogs([]);
         }
+
+        // Restore Profile & Syllabus
+        if (data.userProfile) {
+            setUserProfile(data.userProfile);
+        }
+
+        // Restore Goals
+        if (data.studyGoals) jeeData.setStudyGoals(data.studyGoals);
+        if (data.longTermGoals) jeeData.setLongTermGoals(data.longTermGoals);
+
+        // Restore Gamification
+        if (data.gamificationState) setGamificationState(data.gamificationState);
+
+        // Restore Preferences
+        if (data.aiPreferences) setAiPreferences(data.aiPreferences);
+        if (data.notificationPreferences) setNotificationPreferences(data.notificationPreferences);
+        if (data.appearancePreferences) setAppearancePreferences(data.appearancePreferences);
+        
+        // Restore Chat
+        if (data.chatHistory) jeeData.setChatHistory(data.chatHistory);
     
+        setToasts(p => [...p, { id: Date.now(), title: 'Restore Complete', message: 'All data including syllabus, reports, and progress has been restored.', icon: '✅' }]);
         setView('dashboard');
     };
 
@@ -379,7 +399,36 @@ const App: React.FC = () => {
                 {view === 'question-log-editor' && <QuestionLogEditor logs={jeeData.questionLogs} reports={jeeData.testReports} setLogs={setQuestionLogs} activeLogFilter={activeLogFilter} setActiveLogFilter={setActiveLogFilter} />}
                 {view === 'data-entry' && <OcrProcessor onAddData={addData} apiKey={apiKey} />}
                 {view === 'achievements' && <Achievements gamificationState={gamificationState} achievements={achievements} levelInfo={levelInfo} />}
-                {view === 'settings' && <Settings apiKey={apiKey!} onKeySubmit={handleKeySubmit} onClearKey={handleClearKey} handleFullReset={handleResetData} handleReportsReset={clearTestReportsAndLogs} handleChatReset={clearChatHistory} handleGamificationReset={clearGamificationState} aiPreferences={aiPreferences} setAiPreferences={setAiPreferences} notificationPreferences={notificationPreferences} setNotificationPreferences={setNotificationPreferences} appearancePreferences={appearancePreferences} setAppearancePreferences={setAppearancePreferences} userProfile={userProfile} setUserProfile={setUserProfile} theme={theme} setTheme={setTheme} addToast={(toast: any) => setToasts(p => [...p, { ...toast, id: Date.now() }])} reports={jeeData.testReports} logs={jeeData.questionLogs} onSyncData={handleDataSync} longTermGoals={jeeData.longTermGoals} setLongTermGoals={jeeData.setLongTermGoals} />}
+                {view === 'settings' && (
+                    <Settings 
+                        apiKey={apiKey!} 
+                        onKeySubmit={handleKeySubmit} 
+                        onClearKey={handleClearKey} 
+                        handleFullReset={handleResetData} 
+                        handleReportsReset={clearTestReportsAndLogs} 
+                        handleChatReset={clearChatHistory} 
+                        handleGamificationReset={clearGamificationState} 
+                        aiPreferences={aiPreferences} 
+                        setAiPreferences={setAiPreferences} 
+                        notificationPreferences={notificationPreferences} 
+                        setNotificationPreferences={setNotificationPreferences} 
+                        appearancePreferences={appearancePreferences} 
+                        setAppearancePreferences={setAppearancePreferences} 
+                        userProfile={userProfile} 
+                        setUserProfile={setUserProfile} 
+                        theme={theme} 
+                        setTheme={setTheme} 
+                        addToast={(toast: any) => setToasts(p => [...p, { ...toast, id: Date.now() }])} 
+                        reports={jeeData.testReports} 
+                        logs={jeeData.questionLogs} 
+                        onSyncData={handleDataSync} 
+                        longTermGoals={jeeData.longTermGoals} 
+                        setLongTermGoals={jeeData.setLongTermGoals} 
+                        gamificationState={gamificationState}
+                        studyGoals={jeeData.studyGoals}
+                        chatHistory={jeeData.chatHistory}
+                    />
+                )}
             </AppShell>
         </div>
     );
