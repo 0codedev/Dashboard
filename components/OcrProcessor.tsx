@@ -1,8 +1,8 @@
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import type { TestReport, SubjectData, QuestionLog } from '../types';
 import { QuestionType, TestType, TestSubType, QuestionStatus, DifficultyLevel } from '../types';
-import { extractDataFromImage } from '../services/geminiService';
+import { extractDataFromImage, validateOCRData, inferTestMetadata } from '../services/geminiService';
 import { exportSingleReportToCsv, exportExtractedQuestionsToCsv } from '../services/sheetParser';
 
 interface OcrProcessorProps {
@@ -180,6 +180,9 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey })
   const [extractedConfidence, setExtractedConfidence] = useState<Record<string, 'high'|'medium'|'low'>>({});
   const [extractedLogs, setExtractedLogs] = useState<Partial<QuestionLog>[]>([]);
   
+  const [validationWarnings, setValidationWarnings] = useState<string[]>([]);
+  const [isValidating, setIsValidating] = useState(false);
+
   const handleReset = () => {
       setEntryMode(null);
       setWorkflowStep('upload');
@@ -189,6 +192,7 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey })
       setExtractedData(initialReportState);
       setExtractedConfidence({});
       setExtractedLogs([]);
+      setValidationWarnings([]);
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -208,9 +212,25 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey })
     
     try {
       const { report, questions, confidence } = await extractDataFromImage(imageFile, apiKey);
+      
+      // Smart Auto-Detection for Test Metadata
+      if (report.testName) {
+          const inferred = await inferTestMetadata(report.testName, apiKey);
+          report.type = inferred.type;
+          report.subType = inferred.subType;
+      }
+
       setExtractedData(prev => ({...prev, ...report}));
       setExtractedConfidence(confidence);
       setExtractedLogs(questions);
+      
+      // Run Sanity Check
+      setIsValidating(true);
+      validateOCRData(report, questions, apiKey).then(warnings => {
+          setValidationWarnings(warnings);
+          setIsValidating(false);
+      });
+
       setWorkflowStep('review');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unknown error occurred.');
@@ -355,6 +375,26 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey })
 
       {workflowStep === 'review' && (
         <div className="animate-fade-in mt-6 space-y-6">
+            {/* AI Validation Banner */}
+            {isValidating ? (
+                <div className="bg-blue-900/20 p-3 rounded-lg border border-blue-700 text-blue-300 text-sm flex items-center gap-2 animate-pulse">
+                    <span className="text-lg">🤖</span> Running AI Sanity Check...
+                </div>
+            ) : validationWarnings.length > 0 ? (
+                <div className="bg-amber-900/20 p-4 rounded-lg border border-amber-700 text-amber-200 text-sm">
+                    <div className="flex items-center gap-2 mb-2 font-bold">
+                        <span className="text-xl">⚠️</span> AI detected potential inconsistencies:
+                    </div>
+                    <ul className="list-disc pl-5 space-y-1 text-amber-100/80">
+                        {validationWarnings.map((w, i) => <li key={i}>{w}</li>)}
+                    </ul>
+                </div>
+            ) : (entryMode === 'ocr' && (
+                <div className="bg-green-900/20 p-3 rounded-lg border border-green-700 text-green-300 text-sm flex items-center gap-2">
+                    <span className="text-lg">✅</span> AI Sanity Check Passed. Data looks consistent.
+                </div>
+            ))}
+
             <div>
                 <h3 className="text-xl font-semibold border-b border-gray-600 pb-2 text-[rgb(var(--color-primary))]">{entryMode === 'ocr' ? 'Step 2: ' : ''}Review & Correct Summary</h3>
                 {entryMode === 'ocr' && <p className="text-sm text-gray-400 mt-2">AI has extracted the following summary. Fields highlighted in yellow had lower confidence and may need your attention.</p>}

@@ -4,13 +4,14 @@ import {
     AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, 
     XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, LabelList, Legend
 } from 'recharts';
-import { TestReport, QuestionLog, QuestionStatus } from '../../types';
+import { TestReport, QuestionLog, QuestionStatus, ErrorReason } from '../../types';
 import { SUBJECT_COLORS } from '../../constants';
 import CustomTooltip from '../common/CustomTooltip';
 
 interface ExecutiveBriefingProps {
     reports: TestReport[];
     logs: QuestionLog[];
+    onDrillDown?: (type: 'subject' | 'errorReason', value: string) => void;
 }
 
 // --- Helper Hooks & Components ---
@@ -45,8 +46,11 @@ const AnimatedNumber: React.FC<{ value: number }> = ({ value }) => {
     return <span className="tabular-nums">{displayValue}</span>;
 };
 
-const InsightCard: React.FC<{ title: string; icon: string; content: React.ReactNode; chart: React.ReactNode }> = ({ title, icon, content, chart }) => (
-    <div className="bg-slate-800/50 border border-slate-700 rounded-xl overflow-hidden shadow-lg flex flex-col h-[400px] transition-all hover:shadow-[0_0_20px_rgba(34,211,238,0.1)] hover:border-slate-600">
+const InsightCard: React.FC<{ title: string; icon: string; content: React.ReactNode; chart: React.ReactNode; onClick?: () => void }> = ({ title, icon, content, chart, onClick }) => (
+    <div 
+        onClick={onClick}
+        className={`bg-slate-800/50 border border-slate-700 rounded-xl overflow-hidden shadow-lg flex flex-col h-[400px] transition-all hover:shadow-[0_0_20px_rgba(34,211,238,0.1)] hover:border-slate-600 ${onClick ? 'cursor-pointer hover:scale-[1.02]' : ''}`}
+    >
         <div className="p-4 border-b border-slate-700/50 bg-slate-900/50 flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-cyan-900/30 border border-cyan-500/20 flex items-center justify-center text-lg">
                 {icon}
@@ -63,7 +67,7 @@ const InsightCard: React.FC<{ title: string; icon: string; content: React.ReactN
 );
 
 // --- Main Component ---
-export const ExecutiveBriefing: React.FC<ExecutiveBriefingProps> = ({ reports, logs }) => {
+export const ExecutiveBriefing: React.FC<ExecutiveBriefingProps> = ({ reports, logs, onDrillDown }) => {
     const analysis = useMemo(() => {
         if (!reports || reports.length === 0) return null;
 
@@ -154,10 +158,12 @@ export const ExecutiveBriefing: React.FC<ExecutiveBriefingProps> = ({ reports, l
         {
             title: "Threat Vector",
             icon: "🎯",
+            onClick: () => onDrillDown?.('subject', analysis.weakestSubjectName),
             content: (
                  <p>
                     Weakest Subject: <strong className="capitalize text-red-400">{analysis.weakestSubjectName}</strong>. 
                     Gap to Strongest: <strong className="text-white"><AnimatedNumber value={analysis.scoreGap} /></strong> points.
+                    <br/><span className="text-[10px] text-gray-500 italic">Click to drill down</span>
                 </p>
             ),
             chart: (
@@ -178,9 +184,11 @@ export const ExecutiveBriefing: React.FC<ExecutiveBriefingProps> = ({ reports, l
         {
             title: "Root Cause",
             icon: "🔬",
+            onClick: () => onDrillDown?.('errorReason', analysis.topError.name),
             content: (
                  <p>
                     Dominant Error: <strong className="text-amber-400">{analysis.topError.name}</strong> (<AnimatedNumber value={analysis.topError.value} /> errors).
+                    <br/><span className="text-[10px] text-gray-500 italic">Click to investigate</span>
                 </p>
             ),
             chart: (
@@ -258,6 +266,7 @@ export const ExecutiveBriefing: React.FC<ExecutiveBriefingProps> = ({ reports, l
                         icon={step.icon}
                         content={step.content}
                         chart={step.chart}
+                        onClick={step.onClick}
                     />
                 ))}
             </div>

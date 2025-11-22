@@ -1,10 +1,10 @@
 
 import { GoogleGenAI, Type, FunctionDeclaration } from "@google/genai";
-import { QuestionStatus, type TestReport, type QuestionLog, QuizQuestion } from "../types";
+import { QuestionStatus, type TestReport, type QuestionLog, QuizQuestion, DailyTask, UserProfile, TestType, TestSubType } from "../types";
 
 
 // Helper function to convert a File object to a a base64 string
-const fileToGenerativePart = async (file: File) => {
+export const fileToGenerativePart = async (file: File) => {
   const base64EncodedDataPromise = new Promise<string>((resolve) => {
     const reader = new FileReader();
     reader.onloadend = () => {
@@ -191,6 +191,47 @@ export const GENUI_TOOLS = [
             },
             required: ["title", "items"]
         }
+    },
+    {
+        name: "renderDiagram",
+        description: "Generates a visual diagram using SVG code. Use this to explain physics concepts (forces, optics), math geometry, or chemistry structures.",
+        parameters: {
+            type: Type.OBJECT,
+            properties: {
+                title: { type: Type.STRING, description: "Title of the diagram" },
+                svgContent: { type: Type.STRING, description: "The full SVG XML code string. Ensure it has a viewBox." },
+                description: { type: Type.STRING, description: "Brief explanation of what the diagram shows." }
+            },
+            required: ["title", "svgContent"]
+        }
+    },
+    {
+        name: "createMindMap",
+        description: "Creates a hierarchical mind map structure to visualize complex topics.",
+        parameters: {
+            type: Type.OBJECT,
+            properties: {
+                root: { 
+                    type: Type.OBJECT,
+                    description: "The root node of the mind map",
+                    properties: {
+                        label: { type: Type.STRING },
+                        children: { 
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    label: { type: Type.STRING },
+                                    children: { type: Type.ARRAY, items: { type: Type.OBJECT } } // simplified recursive definition
+                                }
+                            }
+                        }
+                    },
+                    required: ["label"]
+                }
+            },
+            required: ["root"]
+        }
     }
 ];
 
@@ -233,7 +274,7 @@ export const extractDataFromImage = async (imageFile: File, apiKey: string): Pro
 
     Return the data as a single JSON object that strictly follows the provided schema. If a value is not found, use a reasonable default like 0 for numbers or an empty string for text.`;
 
-    // UPGRADED MODEL: Using gemini-2.5-flash for stability
+    // Using gemini-2.5-flash for OCR as per instructions (fast task)
     const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: { parts: [imagePart, { text: prompt }] },
@@ -326,8 +367,88 @@ export const extractDataFromImage = async (imageFile: File, apiKey: string): Pro
   }
 };
 
+export const validateOCRData = async (report: Partial<TestReport>, logs: Partial<QuestionLog>[], apiKey: string): Promise<string[]> => {
+    try {
+        const ai = new GoogleGenAI({ apiKey });
+        const prompt = `Perform a sanity check on the following extracted JEE test data.
+        
+        Report Summary: ${JSON.stringify(report)}
+        Extracted Question Count: ${logs.length}
+        
+        Check for:
+        1. Mathematical consistency: Does Correct + Wrong + Unanswered roughly match typical paper patterns?
+        2. Scoring logic: Does the score seem consistent with the number of correct/wrong answers (assuming approx +4/-1)?
+        3. Missing data: Are major fields like Total Score or Rank missing?
+        
+        Return a JSON object with a list of warning strings. If everything looks good, return an empty list.
+        `;
 
-export const getAIAnalysis = async (reports: TestReport[], logs: QuestionLog[], apiKey: string): Promise<string> => {
+        // Validation is fast task
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: { parts: [{ text: prompt }] },
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        warnings: {
+                            type: Type.ARRAY,
+                            items: { type: Type.STRING }
+                        }
+                    },
+                    required: ["warnings"]
+                }
+            }
+        });
+
+        const json = JSON.parse(response.text.trim());
+        return json.warnings || [];
+    } catch (e) {
+        console.error("Validation failed", e);
+        return ["Could not perform AI validation."];
+    }
+};
+
+export const inferTestMetadata = async (testName: string, apiKey: string): Promise<{ type: TestType, subType: TestSubType }> => {
+    try {
+        const ai = new GoogleGenAI({ apiKey });
+        const prompt = `Infer the most likely Test Type and Sub-Type from this test name: "${testName}".
+        
+        Options for Type: "Full Syllabus Mock", "Chapter Test", "Part Test", "Previous Year Paper".
+        Options for Sub-Type: "JEE Mains", "JEE Advanced".
+        
+        If ambiguous, default to "Chapter Test" and "JEE Mains".
+        `;
+
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: { parts: [{ text: prompt }] },
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        type: { type: Type.STRING },
+                        subType: { type: Type.STRING }
+                    },
+                    required: ["type", "subType"]
+                }
+            }
+        });
+        
+        const json = JSON.parse(response.text.trim());
+        return { 
+            type: json.type as TestType || TestType.ChapterTest, 
+            subType: json.subType as TestSubType || TestSubType.JEEMains 
+        };
+    } catch (e) {
+        return { type: TestType.ChapterTest, subType: TestSubType.JEEMains };
+    }
+};
+
+
+export const getAIAnalysis = async (reports: TestReport[], logs: QuestionLog[], apiKey: string, model: string = "gemini-2.5-flash"): Promise<string> => {
   try {
     const ai = new GoogleGenAI({ apiKey });
     const simplifiedReports = reports.map(r => ({
@@ -404,9 +525,8 @@ export const getAIAnalysis = async (reports: TestReport[], logs: QuestionLog[], 
 
     Keep the tone professional, encouraging, and highly analytical.`;
 
-    // UPGRADED MODEL: Using gemini-2.5-flash for stability
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: model,
       contents: { parts: [{ text: prompt }] },
     });
 
@@ -418,7 +538,7 @@ export const getAIAnalysis = async (reports: TestReport[], logs: QuestionLog[], 
   }
 };
 
-export const generateStudyPlan = async (reports: TestReport[], logs: QuestionLog[], apiKey: string): Promise<string> => {
+export const generateStudyPlan = async (reports: TestReport[], logs: QuestionLog[], apiKey: string, model: string = "gemini-2.5-flash"): Promise<string> => {
       try {
         const ai = new GoogleGenAI({ apiKey });
         const simplifiedReports = reports.map(r => ({
@@ -461,9 +581,8 @@ export const generateStudyPlan = async (reports: TestReport[], logs: QuestionLog
 
         Format your response in clear Markdown. Use '###' for day headings and '*' for list items. The tone should be motivating and encouraging.`;
 
-        // UPGRADED MODEL: Using gemini-2.5-flash for stability
         const response = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
+          model: model,
           contents: { parts: [{ text: prompt }] },
         });
 
@@ -484,6 +603,7 @@ export const generateContextualInsight = async (prompt: string, apiKey: string):
     
     Insight:`;
 
+    // Contextual insights need to be fast, so use flash
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: { parts: [{ text: fullPrompt }] },
@@ -496,10 +616,45 @@ export const generateContextualInsight = async (prompt: string, apiKey: string):
   }
 };
 
+export const generateDashboardInsight = async (reports: TestReport[], apiKey: string): Promise<string> => {
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+    const recent = reports.slice(-3).map(r => ({ name: r.testName, score: r.total.marks, rank: r.total.rank }));
+    const prompt = `Analyze these last 3 test results for a JEE student: ${JSON.stringify(recent)}.
+    Provide ONE single, high-impact, motivating insight or observation (max 25 words).
+    Example: "Your Physics score has stabilized, but consistency in Maths is key to breaking the top 1000."`;
+
+    // Dashboard banner needs to be fast
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: { parts: [{ text: prompt }] },
+    });
+    return response.text.trim();
+  } catch (e) {
+    return "Consistency is the key to mastery. Keep pushing!";
+  }
+};
+
+export const generateChartAnalysis = async (chartTitle: string, dataSummary: string, apiKey: string): Promise<string> => {
+    try {
+        const ai = new GoogleGenAI({ apiKey });
+        const prompt = `Analyze this data for the chart "${chartTitle}": ${dataSummary}. Provide a single, concise sentence (max 20 words) summarizing the key takeaway for a student.`;
+        // Chart analysis needs to be fast
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: { parts: [{ text: prompt }] },
+        });
+        return response.text.trim();
+    } catch (e) {
+        return "";
+    }
+};
+
 export const getDailyQuote = async (apiKey: string): Promise<string> => {
     try {
         const ai = new GoogleGenAI({ apiKey });
         const prompt = "Give me a short, powerful, and inspiring motivational quote for a student preparing for a highly competitive exam. The quote should be less than 25 words. Do not include the author's name.";
+        // Daily quote needs to be fast
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
             contents: { parts: [{ text: prompt }] },
@@ -520,7 +675,6 @@ export const generateChecklistFromPlan = async (weakTopics: string[], apiKey: st
     const ai = new GoogleGenAI({ apiKey });
     const prompt = `You are an academic coach for a student preparing for the JEE exam. Based on their identified weak topics: ${weakTopics.join(', ')}. Create a short list of 5 concrete, actionable checklist items for their daily plan. The items should be concise phrases.`;
     
-    // UPGRADED MODEL: Using gemini-2.5-flash for stability
     const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: { parts: [{ text: prompt }] },
@@ -576,6 +730,7 @@ export const generateEndOfDaySummary = async (
     - End with a positive and forward-looking statement for tomorrow.
     - Keep the entire summary concise, around 2-4 sentences. Be personal and encouraging.`;
 
+    // Summary can be fast
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: { parts: [{ text: prompt }] },
@@ -590,7 +745,8 @@ export const generateEndOfDaySummary = async (
 
 export const getThematicAnalysis = async (
   weakTopics: { topic: string; count: number }[],
-  apiKey: string
+  apiKey: string,
+  model: string = "gemini-2.5-flash"
 ): Promise<string> => {
   if (weakTopics.length < 2) {
     return "Not enough data for a thematic analysis. Please log more incorrect questions across different topics to use this feature.";
@@ -609,9 +765,8 @@ export const getThematicAnalysis = async (
 
     Provide a concise, insightful analysis in 2-3 sentences that pinpoints the core thematic weakness. Keep the tone professional and analytical.`;
 
-    // UPGRADED MODEL: Using gemini-2.5-flash for stability
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: model,
       contents: { parts: [{ text: prompt }] },
     });
 
@@ -627,7 +782,8 @@ export const getAIChiefAnalystSummary = async (
   errorReasons: { name: string; value: number }[],
   correlationData: { data: { x: string; y: string; value: number }[] },
   apiKey: string,
-  improvise: boolean = false
+  improvise: boolean = false,
+  model: string = "gemini-2.5-flash"
 ): Promise<string> => {
   if (weakTopics.length === 0 && errorReasons.length === 0) {
     return "Not enough data for a chief analysis. Please log more test data to use this feature.";
@@ -660,9 +816,8 @@ export const getAIChiefAnalystSummary = async (
 
   try {
     const ai = new GoogleGenAI({ apiKey });
-    // UPGRADED MODEL: Using gemini-2.5-flash for stability
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: model,
       contents: { parts: [{ text: prompt }] },
     });
     return response.text.trim();
@@ -675,7 +830,8 @@ export const getAIChiefAnalystSummary = async (
 export const generateFocusedStudyPlan = async (
   subject: string,
   weakTopics: string[],
-  apiKey: string
+  apiKey: string,
+  model: string = "gemini-2.5-flash"
 ): Promise<string> => {
   try {
     const ai = new GoogleGenAI({ apiKey });
@@ -692,9 +848,8 @@ export const generateFocusedStudyPlan = async (
 
     Format your response in clear Markdown. Use '###' for day headings. The tone should be supportive and targeted.`;
 
-    // UPGRADED MODEL: Using gemini-2.5-flash for stability
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: model,
       contents: { parts: [{ text: prompt }] },
     });
 
@@ -705,20 +860,23 @@ export const generateFocusedStudyPlan = async (
   }
 };
 
-export const explainTopic = async (topic: string, apiKey: string): Promise<string> => {
+export const explainTopic = async (topic: string, apiKey: string, complexity: 'standard' | 'simple' = 'standard', model: string = "gemini-2.5-flash"): Promise<string> => {
   try {
     const ai = new GoogleGenAI({ apiKey });
-    const prompt = `You are an expert academic tutor for a student preparing for the JEE, a highly competitive engineering entrance exam.
-    
-    Please explain the following topic in a clear, concise, and easy-to-understand manner suitable for a high school student. Use Markdown for formatting, including headings, bold text, and bullet points for key concepts or formulas.
+    const complexityInstruction = complexity === 'simple' 
+        ? "Explain it like I'm 5 years old. Use simple analogies, avoid jargon, and focus on the intuition. Keep it fun and engaging." 
+        : "Explain it clearly for a high school student preparing for JEE. Include core definitions, formulas, and key concepts.";
+
+    const prompt = `You are an expert academic tutor.
     
     Topic: "${topic}"
     
-    Start with a simple definition, explain the core principles, and provide a simple example if applicable. Keep the entire explanation focused and directly relevant to the JEE syllabus.`;
+    ${complexityInstruction}
     
-    // UPGRADED MODEL: Using gemini-2.5-flash for stability
+    Use Markdown for formatting.`;
+    
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: model,
       contents: { parts: [{ text: prompt }] },
     });
     
@@ -730,14 +888,13 @@ export const explainTopic = async (topic: string, apiKey: string): Promise<strin
   }
 };
 
-export const generateGatekeeperQuiz = async (topic: string, apiKey: string): Promise<QuizQuestion[]> => {
+export const generateGatekeeperQuiz = async (topic: string, apiKey: string, model: string = "gemini-2.5-flash"): Promise<QuizQuestion[]> => {
     try {
         const ai = new GoogleGenAI({ apiKey });
         const prompt = `Generate 3 distinct, conceptual multiple-choice questions for the JEE-level chapter "${topic}". The questions must test fundamental understanding, not just rote memorization. For each question, provide four options (A, B, C, D), identify the correct option letter, and give a brief explanation for the correct answer.`;
         
-        // UPGRADED MODEL: Using gemini-2.5-flash for stability
         const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
+            model: model,
             contents: { parts: [{ text: prompt }] },
             config: {
                 responseMimeType: "application/json",
@@ -781,16 +938,15 @@ export const generateGatekeeperQuiz = async (topic: string, apiKey: string): Pro
     }
 };
 
-export const generateTasksFromGoal = async (goalText: string, apiKey: string): Promise<{ task: string, time: number }[]> => {
+export const generateTasksFromGoal = async (goalText: string, apiKey: string, model: string = "gemini-2.5-flash"): Promise<{ task: string, time: number }[]> => {
   try {
     const ai = new GoogleGenAI({ apiKey });
     const prompt = `You are an academic coach for a student preparing for the JEE exam. Their weekly goal is: "${goalText}".
     Break this down into 3-4 concrete, actionable daily tasks. For each task, provide a realistic time estimate in minutes.
     Return a JSON object following the schema.`;
     
-    // UPGRADED MODEL: Using gemini-2.5-flash for stability
     const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: model,
         contents: { parts: [{ text: prompt }] },
         config: {
             responseMimeType: "application/json",
@@ -837,7 +993,7 @@ export const generateTasksFromGoal = async (goalText: string, apiKey: string): P
   }
 };
 
-export const generateSmartTasks = async (weakTopics: string[], apiKey: string): Promise<{ task: string; time: number; topic: string; }[]> => {
+export const generateSmartTasks = async (weakTopics: string[], apiKey: string, model: string = "gemini-2.5-flash"): Promise<{ task: string; time: number; topic: string; }[]> => {
   if (weakTopics.length === 0) {
     return [
       { task: 'Review any challenging chapter from Physics', time: 60, topic: 'General Physics' },
@@ -848,9 +1004,8 @@ export const generateSmartTasks = async (weakTopics: string[], apiKey: string): 
     const ai = new GoogleGenAI({ apiKey });
     const prompt = `You are an academic coach for a JEE student. Based on their identified weak topics: ${weakTopics.slice(0,5).join(', ')}. Create a short list of 2-3 highly specific and actionable tasks for a "Today's Focus" block. For each task, provide a realistic time estimate in minutes and link it to the relevant weak topic. Return a JSON object following the schema.`;
     
-    // UPGRADED MODEL: Using gemini-2.5-flash for stability
     const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: model,
         contents: { parts: [{ text: prompt }] },
         config: {
             responseMimeType: "application/json",
@@ -899,3 +1054,149 @@ export const generateSmartTasks = async (weakTopics: string[], apiKey: string): 
     ];
   }
 };
+
+export const generateSmartTaskOrder = async (tasks: DailyTask[], userProfile: UserProfile, logs: QuestionLog[], apiKey: string, model: string = "gemini-2.5-flash"): Promise<string[]> => {
+    if (tasks.length <= 1) return tasks.map(t => t.id);
+
+    try {
+        const ai = new GoogleGenAI({ apiKey });
+        const taskList = tasks.map(t => ({
+            id: t.id,
+            text: t.text,
+            type: t.taskType,
+            effort: t.effort,
+            time: t.estimatedTime
+        }));
+
+        const prompt = `You are an elite productivity coach for a JEE student. Reorder the following tasks to maximize efficiency.
+        
+        **Student Profile:**
+        - Peak study times: ${JSON.stringify(userProfile.studyTimes)}
+        
+        **Task List:**
+        ${JSON.stringify(taskList)}
+
+        **Strategy:**
+        1. Prioritize "Deep Work" and high-effort tasks for peak hours (Morning/Evening usually).
+        2. Group similar tasks to reduce context switching.
+        3. Place lower effort tasks or breaks between intense sessions.
+        
+        Return ONLY a JSON object containing an array of task IDs in the optimized order.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: { parts: [{ text: prompt }] },
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        orderedIds: {
+                            type: Type.ARRAY,
+                            items: { type: Type.STRING }
+                        }
+                    },
+                    required: ["orderedIds"]
+                }
+            }
+        });
+
+        const json = JSON.parse(response.text.trim());
+        return json.orderedIds || tasks.map(t => t.id);
+
+    } catch (error) {
+        console.error("Error generating smart order:", error);
+        return tasks.map(t => t.id); // Fallback to original order
+    }
+};
+
+export const generateLearningPath = async (topic: string, userWeaknesses: string[], apiKey: string, model: string = "gemini-2.5-flash"): Promise<{ task: string; time: number; topic: string; }[]> => {
+    try {
+        const ai = new GoogleGenAI({ apiKey });
+        const prompt = `You are an elite academic strategist for a JEE student targeting the chapter "${topic}".
+        
+        **Student Context:**
+        - The student has known weaknesses in: ${userWeaknesses.length > 0 ? userWeaknesses.join(', ') : 'None specifically recorded'}.
+        
+        Create a rigorous, step-by-step learning path to master "${topic}". The path should address prerequisites if the student is weak in them, cover core theory, and include targeted problem solving.
+        
+        Return a list of 4-6 actionable tasks.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: { parts: [{ text: prompt }] },
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        path: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    task: { type: Type.STRING, description: "Actionable task description" },
+                                    time: { type: Type.NUMBER, description: "Estimated minutes (30-90)" },
+                                    topic: { type: Type.STRING, description: "Related sub-topic or concept" }
+                                },
+                                required: ["task", "time", "topic"]
+                            }
+                        }
+                    },
+                    required: ["path"]
+                }
+            }
+        });
+
+        const json = JSON.parse(response.text.trim());
+        return json.path;
+    } catch (error) {
+        console.error("Error generating learning path:", error);
+        return [
+            { task: `Review prerequisites for ${topic}`, time: 45, topic: 'Basics' },
+            { task: `Study core concepts of ${topic}`, time: 60, topic: topic },
+            { task: `Solve 20 practice problems for ${topic}`, time: 90, topic: topic }
+        ];
+    }
+};
+
+export const generateNextWhy = async (context: string, previousAnswer: string, step: number, apiKey: string, model: string = "gemini-2.5-flash"): Promise<{ question: string; isFinal: boolean; solution?: string }> => {
+    try {
+        const ai = new GoogleGenAI({ apiKey });
+        const prompt = `You are an expert Socratic investigator helping a student analyze a mistake.
+        
+        **Context:** ${context}
+        **Current Step:** ${step}/5
+        **User's Answer to Previous 'Why':** "${previousAnswer}"
+        
+        If step < 5 and the root cause isn't fully clear yet, ask the next probing "Why?" question.
+        If step == 5 or the user's answer reveals the fundamental root cause (e.g., "I didn't know the formula", "I ran out of time", "I was distracted"), provide a "Final Diagnosis" and a concise "Actionable Solution".
+        
+        Return JSON.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: { parts: [{ text: prompt }] },
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        question: { type: Type.STRING, description: "The next question to ask." },
+                        isFinal: { type: Type.BOOLEAN, description: "True if this is the solution phase." },
+                        solution: { type: Type.STRING, description: "Actionable advice if isFinal is true." }
+                    },
+                    required: ["question", "isFinal"]
+                }
+            }
+        });
+
+        return JSON.parse(response.text.trim());
+    } catch (e) {
+        console.error("Error generating next why:", e);
+        return { question: "Why do you think that happened?", isFinal: false };
+    }
+}

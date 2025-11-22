@@ -23,6 +23,8 @@ interface RootCauseProps {
   rootCauseFilter: { subject?: string | null };
   setRootCauseFilter: (filter: { subject?: string | null }) => void;
   apiKey: string;
+  selectedModel?: string;
+  onAddTask?: (task: { task: string; time: number; topic: string }) => void;
 }
 
 type WidgetId = 'conceptualKnowledgeGraph' | 'weakestTopics' | 'errorReason' | 'questionType' | 'scoreContribution' | 'lostMarksWaterfall' | 'metricScatterPlot' | 'errorTrend' | 'fatigueAnalysis' | 'errorFlowSankey' | 'paretoAnalysis' | 'errorReasonsBySubject' | 'speedVsAccuracy' | 'weakestTopics_full' | 'panicAnalysis' | 'guessingGame' | 'scoreSimulator' | 'dependencyAlerts';
@@ -716,7 +718,8 @@ const AIChiefAnalyst: React.FC<{
   errorReasons: { name: string; value: number }[];
   correlationData: any;
   apiKey: string;
-}> = ({ weakTopics, errorReasons, correlationData, apiKey }) => {
+  model?: string;
+}> = ({ weakTopics, errorReasons, correlationData, apiKey, model }) => {
   const [summary, setSummary] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -728,14 +731,14 @@ const AIChiefAnalyst: React.FC<{
     setError('');
     setSummary('');
     try {
-      const result = await getAIChiefAnalystSummary(weakTopics, errorReasons, correlationData, apiKey, improvise);
+      const result = await getAIChiefAnalystSummary(weakTopics, errorReasons, correlationData, apiKey, improvise, model);
       setSummary(result);
     } catch (e: any) {
       setError(e.message || 'Failed to generate summary.');
     } finally {
       setIsLoading(false);
     }
-  }, [apiKey, weakTopics, errorReasons, correlationData]);
+  }, [apiKey, weakTopics, errorReasons, correlationData, model]);
   
   useEffect(() => {
       setSummary('');
@@ -975,7 +978,7 @@ const WeakestTopicsChart: React.FC<{ data: { topic: string; count: number }[]; o
 
 // --- Main RootCause Component ---
 
-export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFilter, setRootCauseFilter, apiKey }) => {
+export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFilter, setRootCauseFilter, apiKey, selectedModel, onAddTask }) => {
     const [viewMode, setViewMode] = useState<'dashboard' | 'briefing'>('dashboard');
     
     const [isCustomizing, setIsCustomizing] = useState(false);
@@ -996,19 +999,11 @@ export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFi
             const savedLayout = localStorage.getItem('rootCauseWidgetLayout_v7');
             if (savedLayout) {
                 const parsed = JSON.parse(savedLayout);
-                // Robust merge to respect saved order and visibility, but include new defaults
                 const savedWidgetMap = new Map(parsed.map((w: WidgetLayout) => [w.id, w]));
-                
-                const mergedLayout: WidgetLayout[] = parsed.filter((w: WidgetLayout) => 
-                    DEFAULT_ROOT_CAUSE_LAYOUT.some(d => d.id === w.id)
-                );
-
-                DEFAULT_ROOT_CAUSE_LAYOUT.forEach(defaultWidget => {
-                    if (!savedWidgetMap.has(defaultWidget.id)) {
-                        mergedLayout.push(defaultWidget);
-                    }
-                });
-                return mergedLayout;
+                return DEFAULT_ROOT_CAUSE_LAYOUT.map(defaultWidget => {
+                    const savedWidget = savedWidgetMap.get(defaultWidget.id);
+                    return savedWidget && typeof savedWidget === 'object' ? { ...defaultWidget, ...savedWidget } : defaultWidget;
+                }).filter(w => DEFAULT_ROOT_CAUSE_LAYOUT.some(d => d.id === w.id));
             }
         } catch (e) { console.error("Failed to load layout from localStorage", e); }
         return DEFAULT_ROOT_CAUSE_LAYOUT;
@@ -1309,8 +1304,9 @@ export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFi
                     <AIChiefAnalyst
                         weakTopics={analysisData.weakestTopics}
                         errorReasons={analysisData.errorReasonDistribution}
-                        correlationData={{ data: [] }} // Fix: Provide empty data structure to avoid undefined error
+                        correlationData={{ data: [] }}
                         apiKey={apiKey}
+                        model={selectedModel}
                     />
                     
                     <div className="flex gap-6 relative">

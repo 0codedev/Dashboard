@@ -1,11 +1,11 @@
 
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
-import type { TestReport, QuestionLog, RootCauseFilter, LongTermGoal } from '../types';
+import type { TestReport, QuestionLog, RootCauseFilter, LongTermGoal, AiAssistantPreferences } from '../types';
 import {
   LineChart, Line, BarChart, Bar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   Radar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area, PieChart, Pie, Cell
 } from 'recharts';
-import { generateContextualInsight, getAIAnalysis } from '../services/geminiService';
+import { generateContextualInsight, getAIAnalysis, generateDashboardInsight, generateChartAnalysis } from '../services/geminiService';
 import { SUBJECT_CONFIG } from '../constants';
 import Modal from './common/Modal';
 import CustomTooltip from './common/CustomTooltip';
@@ -15,7 +15,13 @@ import {
     StrategicROIWidget, 
     RankPredictorWidget, 
     PercentilePredictorWidget, 
-    VolatilityWidget 
+    VolatilityWidget,
+    PerformanceTrendWidget,
+    SubjectComparisonWidget,
+    SubjectRadarWidget,
+    CalendarHeatmapWidget,
+    RankSimulatorWidget,
+    GoalProgressWidget
 } from './DashboardWidgets';
 import { Button } from './common/Button';
 
@@ -27,9 +33,10 @@ interface DashboardProps {
   setRootCauseFilter: (filter: RootCauseFilter) => void;
   onStartFocusSession: (topic: string) => void;
   longTermGoals: LongTermGoal[];
+  aiPreferences: AiAssistantPreferences;
 }
 
-type WidgetId = 'heatmap' | 'performanceTrend' | 'subjectComparison' | 'subjectStrengthsRadar' | 'percentilePredictor' | 'aiAnalysis' | 'strategicROI' | 'paperStrategy' | 'rankPredictor' | 'volatility';
+type WidgetId = 'heatmap' | 'performanceTrend' | 'subjectComparison' | 'subjectStrengthsRadar' | 'percentilePredictor' | 'aiAnalysis' | 'strategicROI' | 'paperStrategy' | 'rankPredictor' | 'volatility' | 'rankSimulator' | 'goalProgress';
 
 interface WidgetLayout {
     id: WidgetId;
@@ -41,6 +48,8 @@ const DEFAULT_DASHBOARD_LAYOUT: WidgetLayout[] = [
     { id: 'heatmap', visible: true, size: 'wide' },
     { id: 'volatility', visible: true, size: 'normal' },
     { id: 'performanceTrend', visible: true, size: 'normal' },
+    { id: 'rankSimulator', visible: true, size: 'normal' },
+    { id: 'goalProgress', visible: true, size: 'normal' },
     { id: 'strategicROI', visible: true, size: 'wide' },
     { id: 'paperStrategy', visible: true, size: 'wide' },
     { id: 'rankPredictor', visible: true, size: 'wide' },
@@ -50,48 +59,55 @@ const DEFAULT_DASHBOARD_LAYOUT: WidgetLayout[] = [
     { id: 'aiAnalysis', visible: true, size: 'wide' },
 ];
 
-// --- News Ticker Component ---
-const NewsTicker: React.FC<{ messages: string[] }> = ({ messages }) => {
-    const [isPaused, setIsPaused] = useState(false);
+// --- Insight Banner Component ---
+const InsightBanner: React.FC<{ reports: TestReport[], apiKey: string }> = ({ reports, apiKey }) => {
+    const [insight, setInsight] = useState<string | null>(null);
+    const [loading, setLoading] = useState(false);
 
-    if (messages.length === 0) return null;
-    
+    useEffect(() => {
+        const fetchInsight = async () => {
+            // Check cache first (simple session cache for demo)
+            const cached = sessionStorage.getItem('dashboardDailyInsight');
+            const cachedDate = sessionStorage.getItem('dashboardDailyInsightDate');
+            const today = new Date().toDateString();
+
+            if (cached && cachedDate === today) {
+                setInsight(cached);
+                return;
+            }
+
+            if (reports.length === 0) return;
+
+            setLoading(true);
+            const text = await generateDashboardInsight(reports, apiKey);
+            setInsight(text);
+            sessionStorage.setItem('dashboardDailyInsight', text);
+            sessionStorage.setItem('dashboardDailyInsightDate', today);
+            setLoading(false);
+        };
+        fetchInsight();
+    }, [reports, apiKey]);
+
+    if (!insight && !loading) return null;
+
     return (
-        <div 
-            className="w-full overflow-hidden py-2 mb-2 relative group cursor-default"
-            onMouseEnter={() => setIsPaused(true)}
-            onMouseLeave={() => setIsPaused(false)}
-        >
-            <div className="absolute left-0 top-0 bottom-0 w-10 bg-gradient-to-r from-slate-900 to-transparent z-10 pointer-events-none"></div>
-            <div className="absolute right-0 top-0 bottom-0 w-10 bg-gradient-to-l from-slate-900 to-transparent z-10 pointer-events-none"></div>
-            
-            <div 
-                className="whitespace-nowrap animate-marquee inline-block"
-                style={{ animationPlayState: isPaused ? 'paused' : 'running' }}
-            >
-                {messages.map((msg, i) => (
-                    <span key={i} className="mx-8 text-sm text-cyan-300 font-bold inline-flex items-center drop-shadow-md tracking-wide">
-                        <span className="text-lg mr-2">⚡</span>
-                        {msg}
-                    </span>
-                ))}
-                {/* Duplicated for smooth loop */}
-                {messages.map((msg, i) => (
-                    <span key={`dup-${i}`} className="mx-8 text-sm text-cyan-300 font-bold inline-flex items-center drop-shadow-md tracking-wide">
-                        <span className="text-lg mr-2">⚡</span>
-                        {msg}
-                    </span>
-                ))}
+        <div className="w-full mb-6 relative group overflow-hidden rounded-xl border border-indigo-500/30 shadow-lg shadow-indigo-500/10">
+            <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900"></div>
+            <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20"></div>
+            <div className="relative z-10 p-4 flex items-center justify-center text-center">
+                {loading ? (
+                    <div className="flex items-center gap-2 text-indigo-300 text-sm animate-pulse">
+                        <span className="text-xl">✨</span> Analyze Intelligence...
+                    </div>
+                ) : (
+                    <div className="animate-fade-in">
+                        <p className="text-indigo-200 font-medium text-lg tracking-wide leading-relaxed drop-shadow-md">
+                            <span className="mr-2 text-2xl">💡</span> 
+                            {insight}
+                        </p>
+                    </div>
+                )}
             </div>
-            <style>{`
-                @keyframes marquee {
-                    0% { transform: translateX(0); }
-                    100% { transform: translateX(-50%); }
-                }
-                .animate-marquee {
-                    animation: marquee 40s linear infinite;
-                }
-            `}</style>
         </div>
     );
 };
@@ -133,17 +149,11 @@ const ReadinessGauge: React.FC<{ score: number }> = ({ score }) => {
 
 const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
     const renderLine = (line: string) => {
-        // Remove markdown header characters for cleaner display
         const cleanLine = line.replace(/^#+\s/, '');
-        
         const parts = cleanLine.split(/(\*\*.*?\*\*|\*.*?\*)/g).filter(Boolean);
         return parts.map((part, i) => {
-            if (part.startsWith('**') && part.endsWith('**')) {
-                return <strong key={i} className="text-white font-semibold">{part.slice(2, -2)}</strong>;
-            }
-            if (part.startsWith('*') && part.endsWith('*')) {
-                return <em key={i} className="italic text-gray-200">{part.slice(1, -1)}</em>;
-            }
+            if (part.startsWith('**') && part.endsWith('**')) return <strong key={i} className="text-white font-semibold">{part.slice(2, -2)}</strong>;
+            if (part.startsWith('*') && part.endsWith('*')) return <em key={i} className="italic text-gray-200">{part.slice(1, -1)}</em>;
             return part;
         });
     };
@@ -154,63 +164,31 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
 
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-
-        // Handle Headers
         if (line.startsWith('### ') || line.startsWith('#### ')) {
-            if (listItems.length > 0) {
-                elements.push(<ul key={`ul-${i}`} className="list-disc pl-5 my-2 space-y-1">{listItems}</ul>);
-                listItems = [];
-            }
-            elements.push(
-                <h3 key={i} className="text-lg font-bold mt-4 mb-2 text-cyan-300 border-b border-slate-700/50 pb-1">
-                    {renderLine(line)}
-                </h3>
-            );
+            if (listItems.length > 0) { elements.push(<ul key={`ul-${i}`} className="list-disc pl-5 my-2 space-y-1">{listItems}</ul>); listItems = []; }
+            elements.push(<h3 key={i} className="text-lg font-bold mt-4 mb-2 text-cyan-300 border-b border-slate-700/50 pb-1">{renderLine(line)}</h3>);
             continue;
         }
-        
         if (line.startsWith('## ')) {
-             if (listItems.length > 0) {
-                elements.push(<ul key={`ul-${i}`} className="list-disc pl-5 my-2 space-y-1">{listItems}</ul>);
-                listItems = [];
-            }
-            elements.push(
-                <h2 key={i} className="text-xl font-bold mt-6 mb-3 text-white border-b border-slate-600 pb-2">
-                    {renderLine(line)}
-                </h2>
-            );
+             if (listItems.length > 0) { elements.push(<ul key={`ul-${i}`} className="list-disc pl-5 my-2 space-y-1">{listItems}</ul>); listItems = []; }
+            elements.push(<h2 key={i} className="text-xl font-bold mt-6 mb-3 text-white border-b border-slate-600 pb-2">{renderLine(line)}</h2>);
             continue;
         }
-        
         if (line.match(/^\s*[-*]\s/)) { 
             listItems.push(<li key={i} className="text-gray-300">{renderLine(line.replace(/^\s*[-*]\s/, ''))}</li>);
             continue;
         }
-
-        if (listItems.length > 0) {
-            elements.push(<ul key={`ul-${i}`} className="list-disc pl-5 my-2 space-y-1">{listItems}</ul>);
-            listItems = [];
-        }
-
+        if (listItems.length > 0) { elements.push(<ul key={`ul-${i}`} className="list-disc pl-5 my-2 space-y-1">{listItems}</ul>); listItems = []; }
         if (line.trim() === '') {
             const lastElement = elements[elements.length - 1];
-            if (elements.length > 0 && React.isValidElement(lastElement) && lastElement.type === 'div') {
-                 // do nothing
-            } else {
-                elements.push(<div key={i} className="h-2"></div>);
-            }
+            if (!(elements.length > 0 && React.isValidElement(lastElement) && lastElement.type === 'div')) elements.push(<div key={i} className="h-2"></div>);
         } else {
             elements.push(<p key={i} className="my-1 leading-relaxed text-gray-300">{renderLine(line)}</p>);
         }
     }
-    
-    if (listItems.length > 0) {
-        elements.push(<ul key="ul-end" className="list-disc pl-5 my-2 space-y-1">{listItems}</ul>);
-    }
+    if (listItems.length > 0) elements.push(<ul key="ul-end" className="list-disc pl-5 my-2 space-y-1">{listItems}</ul>);
 
-    return (
-        <div className="prose prose-invert text-gray-300 max-w-full text-sm">{elements}</div>
-    );
+    return <div className="prose prose-invert text-gray-300 max-w-full text-sm">{elements}</div>;
 };
 
 const useCountUp = (endValue: number, duration: number = 1500) => {
@@ -254,10 +232,10 @@ interface KPICardProps {
   trendData?: { value: number }[];
   isGauge?: boolean;
   action?: { label: string, onClick: () => void };
+  onClick?: () => void;
 }
 
-// Using React.memo to prevent unnecessary re-renders during parent scroll/updates
-const KPICard: React.FC<KPICardProps> = React.memo(({ title, value, suffix = '', comparison, subtitle, trendData, isGauge, action }) => {
+const KPICard: React.FC<KPICardProps> = React.memo(({ title, value, suffix = '', comparison, subtitle, trendData, isGauge, action, onClick }) => {
   const isNumeric = typeof value === 'number';
   const animatedValue = useCountUp(isNumeric ? value as number : 0);
   const displayValue = isNumeric ? animatedValue : value;
@@ -277,10 +255,9 @@ const KPICard: React.FC<KPICardProps> = React.memo(({ title, value, suffix = '',
   const formattedDiff = comparison ? `${comparison.diff > 0 ? '+' : ''}${isRank ? Math.round(comparison.diff) : comparison.diff.toFixed(1)}` : '';
   const cardId = `kpi-${title.replace(/\s+/g, '-').toLowerCase()}`;
 
-  // Readiness Gauge Variant
   if (isGauge && isNumeric) {
       return (
-          <div className="bg-slate-800/90 p-3 rounded-lg shadow-lg border border-slate-700 flex flex-col relative overflow-hidden h-28">
+          <div className="bg-slate-800/90 p-3 rounded-lg shadow-lg border border-slate-700 flex flex-col relative overflow-hidden h-28 cursor-default">
               <ReadinessGauge score={value as number} />
           </div>
       )
@@ -288,7 +265,8 @@ const KPICard: React.FC<KPICardProps> = React.memo(({ title, value, suffix = '',
 
   return (
     <div 
-      className="group bg-slate-800/90 p-4 rounded-lg shadow-lg border border-slate-700 flex flex-col justify-between flex-1 transition-all duration-300 hover:scale-[1.02] hover:shadow-cyan-500/20 relative overflow-hidden h-28"
+      className={`group bg-slate-800/90 p-4 rounded-lg shadow-lg border border-slate-700 flex flex-col justify-between flex-1 transition-all duration-300 hover:scale-[1.02] hover:shadow-cyan-500/20 relative overflow-hidden h-28 ${onClick ? 'cursor-pointer' : ''}`}
+      onClick={onClick}
     >
       <div className={`relative z-10 flex flex-col h-full justify-between pointer-events-none transition-opacity duration-300 ${trendData ? 'group-hover:opacity-0' : ''}`}>
         <div>
@@ -337,7 +315,6 @@ const KPICard: React.FC<KPICardProps> = React.memo(({ title, value, suffix = '',
                 stroke={chartColor} 
                 strokeWidth={2} 
                 fill={`url(#gradient-${cardId})`} 
-                // If it's rank, fill area from dataMax (bottom) to the line, because reversed Y axis.
                 baseValue={isRank ? "dataMax" : "dataMin"}
                 animationDuration={500} 
                 isAnimationActive={true}
@@ -345,11 +322,7 @@ const KPICard: React.FC<KPICardProps> = React.memo(({ title, value, suffix = '',
               />
             </AreaChart>
           </ResponsiveContainer>
-          {/* Glow effect at the bottom */}
-          <div 
-              className="absolute bottom-0 left-0 right-0 h-[3px] bg-cyan-400/50" 
-              style={{ filter: 'blur(3px)' }}
-          ></div>
+          <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-cyan-400/50" style={{ filter: 'blur(3px)' }}></div>
         </div>
       )}
     </div>
@@ -384,16 +357,12 @@ const ChartCard: React.FC<{
                 <div className="flex gap-2">
                         {onResize && (
                         <button onClick={(e) => { e.stopPropagation(); onResize(); }} className="bg-slate-700 hover:bg-slate-600 text-white p-2 rounded-full shadow-lg transition-colors" title="Toggle Size">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 0h-4m4 0l-5-5" />
-                            </svg>
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 0h-4m4 0l-5-5" /></svg>
                         </button>
                     )}
                     {onHide && (
                         <button onClick={(e) => { e.stopPropagation(); onHide(); }} className="bg-red-600/80 hover:bg-red-600 text-white p-2 rounded-full shadow-lg transition-colors" title="Hide Widget">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59" />
-                            </svg>
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59" /></svg>
                         </button>
                     )}
                 </div>
@@ -439,158 +408,71 @@ const ChartCard: React.FC<{
     </div>
 );
 
-const CustomRadarTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-        const data = payload[0].payload;
-        return (
-            <div className="p-3 bg-slate-800/80 backdrop-blur-sm border border-slate-600/50 rounded-lg shadow-xl text-sm z-50">
-                <p className="font-bold text-white mb-2">{data.subject}</p>
-                <div className="space-y-1">
-                    <p className="text-cyan-400 flex justify-between gap-4"><span>You:</span> <span>{data.A}</span></p>
-                    <p className="text-yellow-400 flex justify-between gap-4"><span>Topper Est:</span> <span>{data.B}</span></p>
-                    <p className="text-gray-500 flex justify-between gap-4"><span>Cohort Avg:</span> <span>{data.C}</span></p>
-                </div>
-            </div>
-        );
-    }
-    return null;
-};
-
-const CalendarHeatmap: React.FC<{ reports: TestReport[] }> = ({ reports }) => {
-    const containerRef = useRef<HTMLDivElement>(null);
-    const [containerWidth, setContainerWidth] = useState(0);
-
-    useEffect(() => {
-        const observer = new ResizeObserver(entries => {
-            if (entries[0]) {
-                const newWidth = entries[0].contentRect.width;
-                setContainerWidth(prev => Math.abs(prev - newWidth) > 1 ? newWidth : prev);
-            }
-        });
-        if (containerRef.current) {
-            observer.observe(containerRef.current);
-        }
-        return () => observer.disconnect();
-    }, []);
-
-  const { days, monthLabels, maxScore, cellSize, cellGap } = useMemo(() => {
-    const dataMap = new Map<string, { count: number; totalScore: number }>();
-    reports.forEach(report => {
-      const date = new Date(report.testDate + "T00:00:00").toISOString().split('T')[0];
-      const existing = dataMap.get(date) || { count: 0, totalScore: 0 };
-      existing.count++;
-      existing.totalScore += report.total.marks;
-      dataMap.set(date, existing);
+// --- KPI Detail Modal ---
+const KPIModal: React.FC<{ title: string, metricKey: string, reports: TestReport[], onClose: () => void }> = ({ title, metricKey, reports, onClose }) => {
+    const data = reports.map(r => {
+        // Resolve dotted paths e.g. 'total.marks'
+        const val = metricKey.split('.').reduce((o: any, i) => o[i], r);
+        return { name: r.testName, value: val };
     });
 
-    let maxScore = 0;
-    for (const value of dataMap.values()) {
-        const avgScore = value.totalScore / value.count;
-        if (avgScore > maxScore) maxScore = avgScore;
-    }
+    const isRank = title.toLowerCase().includes('rank');
 
-    const today = new Date();
-    const endDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const startDate = new Date(endDate);
-    startDate.setDate(startDate.getDate() - 365);
-    
-    const day = startDate.getDay();
-    const diff = startDate.getDate() - day + (day === 0 ? -6 : 1);
-    startDate.setDate(diff);
-    
-    const days = [];
-    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-        const dateStr = d.toISOString().split('T')[0];
-        const data = dataMap.get(dateStr);
-        days.push({ date: new Date(d), data: data ? { ...data, avgScore: data.totalScore / data.count } : null });
-    }
-
-    const WEEKS_IN_YEAR = 53;
-    const cellGap = 2;
-    const PADDING_LEFT = 32;
-    const calculatedCellSize = containerWidth > 0 ? Math.max(1, Math.floor((containerWidth - PADDING_LEFT) / WEEKS_IN_YEAR) - cellGap) : 12;
-
-    const monthLabels = [];
-    let lastMonth = -1;
-    for (let i = 0; i < Math.ceil(days.length / 7); i++) {
-        const firstDayOfWeek = days[i * 7]?.date;
-        if (firstDayOfWeek) {
-            const month = firstDayOfWeek.getMonth();
-            if (month !== lastMonth && (monthLabels.length === 0 || i > monthLabels[monthLabels.length-1].weekIndex + 2)) {
-                monthLabels.push({ month: firstDayOfWeek.toLocaleString('default', { month: 'short' }), weekIndex: i });
-                lastMonth = month;
-            }
-        }
-    }
-    return { days, monthLabels, maxScore: maxScore > 0 ? maxScore : 100, cellSize: calculatedCellSize, cellGap };
-  }, [reports, containerWidth]);
-
-  const getColorClass = (score: number | undefined) => {
-    if (score === undefined || score === null) return 'bg-slate-700/50';
-    const percentage = Math.max(0, score) / maxScore;
-    if (percentage === 0) return 'bg-slate-700'; if (percentage < 0.25) return 'bg-cyan-900';
-    if (percentage < 0.5) return 'bg-cyan-800'; if (percentage < 0.75) return 'bg-cyan-600';
-    return 'bg-cyan-400';
-  };
-
-  return (
-    <div className="flex flex-col h-full" ref={containerRef}>
-        <div className="relative h-5 mb-1" style={{ paddingLeft: '32px' }}>
-            {monthLabels.map(({ month, weekIndex }) => <div key={`${month}-${weekIndex}`} className="absolute text-xs text-gray-400" style={{ left: `${weekIndex * (cellSize + cellGap)}px` }}>{month}</div>)}
-        </div>
-        <div className="flex">
-            <div className="flex flex-col justify-around text-xs text-gray-400 pr-2" style={{ height: `${7 * (cellSize + cellGap) - cellGap}px`}}>
-                <span className="h-full flex items-center">M</span>
-                <span className="h-full flex items-center">W</span>
-                <span className="h-full flex items-center">F</span>
+    return (
+        <Modal isOpen={true} onClose={onClose} title={`${title} Trend Analysis`}>
+            <div className="h-80 w-full p-4">
+                <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={data}>
+                        <defs>
+                            <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#22d3ee" stopOpacity={0.8}/>
+                                <stop offset="95%" stopColor="#22d3ee" stopOpacity={0}/>
+                            </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                        <XAxis dataKey="name" stroke="#94a3b8" />
+                        <YAxis stroke="#94a3b8" reversed={isRank} />
+                        <Tooltip content={<CustomTooltip />} />
+                        <Area type="monotone" dataKey="value" stroke="#22d3ee" fillOpacity={1} fill="url(#colorValue)" />
+                    </AreaChart>
+                </ResponsiveContainer>
             </div>
-            <div className="grid grid-flow-col grid-rows-7" style={{ gap: `${cellGap}px`}}>
-                {days.map((day, index) => (
-                    <div key={index} className="group relative" style={{ width: `${cellSize}px`, height: `${cellSize}px` }}>
-                        <div className={`w-full h-full rounded-sm ${getColorClass(day.data?.avgScore)}`}></div>
-                        {day.date && <div className="absolute z-10 hidden group-hover:block bottom-full mb-2 left-1/2 -translate-x-1/2 p-2 text-xs text-white bg-slate-900/80 backdrop-blur-sm border border-slate-600 rounded-md shadow-lg w-max"><p className="font-bold">{day.date.toLocaleDateString()}</p><p>{day.data ? `${day.data.avgScore.toFixed(1)} score (${day.data.count} test${day.data.count > 1 ? 's' : ''})` : 'No tests'}</p></div>}
-                    </div>
-                ))}
+            <div className="p-4 text-sm text-gray-300 bg-slate-800/50 rounded-lg mx-4 mb-4 border border-slate-700">
+                <p><strong>Analysis:</strong> This detailed view shows the progression of your {title.toLowerCase()} over time. {isRank ? 'Lower is better.' : 'Higher is better.'} Look for consistent upward trends or plateaus to identify focus areas.</p>
             </div>
-        </div>
-        <div className="flex justify-end items-center gap-2 text-xs text-gray-400 mt-2 flex-grow">
-            <span>Less</span><div className="w-3.5 h-3.5 rounded-sm bg-slate-700/50"></div><div className="w-3.5 h-3.5 rounded-sm bg-cyan-900"></div><div className="w-3.5 h-3.5 rounded-sm bg-cyan-800"></div><div className="w-3.5 h-3.5 rounded-sm bg-cyan-600"></div><div className="w-3.5 h-3.5 rounded-sm bg-cyan-400"></div><span>More</span>
-        </div>
-    </div>
-  );
-};
+        </Modal>
+    );
+}
 
-export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, setView, setRootCauseFilter, onStartFocusSession, longTermGoals }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, setView, setRootCauseFilter, onStartFocusSession, longTermGoals, aiPreferences }) => {
     const [isCustomizing, setIsCustomizing] = useState(false);
     const [enableAiInsights, setEnableAiInsights] = useState(false);
     const [contextualInsight, setContextualInsight] = useState<{ widgetId: WidgetId | null; text: string; isLoading: boolean }>({ widgetId: null, text: '', isLoading: false });
     const insightTimeoutRef = useRef<number | null>(null);
     const [aiAnalysis, setAiAnalysis] = useState<{ content: string; isLoading: boolean; error: string | null }>({ content: '', isLoading: false, error: null });
     const [infoModalContent, setInfoModalContent] = useState<{title: string, content: React.ReactNode} | null>(null);
+    const [activeKpiModal, setActiveKpiModal] = useState<{ title: string, metricKey: string } | null>(null);
+    
+    // State for chart summaries
+    const [chartSummaries, setChartSummaries] = useState<{ performance?: string, subject?: string }>({});
 
     const [layout, setLayout] = useState<WidgetLayout[]>(() => {
         try {
             const savedLayout = localStorage.getItem('dashboardWidgetLayout_v7');
             if (savedLayout) {
                 const parsed = JSON.parse(savedLayout);
-                // Create a map of the SAVED layout to preserve order and properties
                 const savedWidgetMap = new Map(parsed.map((w: WidgetLayout) => [w.id, w]));
-                
-                // Start with the saved layout structure
                 const mergedLayout: WidgetLayout[] = parsed.filter((w: WidgetLayout) => 
                     DEFAULT_DASHBOARD_LAYOUT.some(d => d.id === w.id)
                 );
-
-                // Append any new default widgets that weren't in the save (e.g., new features)
                 DEFAULT_DASHBOARD_LAYOUT.forEach(defaultWidget => {
                     if (!savedWidgetMap.has(defaultWidget.id)) {
                         mergedLayout.push(defaultWidget);
                     }
                 });
-                
                 return mergedLayout;
             }
-        } catch (e) { console.error("Failed to load layout from localStorage", e); }
+        } catch (e) { console.error("Failed to load layout", e); }
         return DEFAULT_DASHBOARD_LAYOUT;
     });
 
@@ -601,8 +483,32 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
     const [enlargedWidget, setEnlargedWidget] = useState<WidgetId | null>(null);
 
     useEffect(() => {
-        try { localStorage.setItem('dashboardWidgetLayout_v7', JSON.stringify(layout)); } catch (e) { console.error("Failed to save layout to localStorage", e); }
+        try { localStorage.setItem('dashboardWidgetLayout_v7', JSON.stringify(layout)); } catch (e) { console.error("Failed to save layout", e); }
     }, [layout]);
+
+    // Fetch chart summaries once
+    useEffect(() => {
+        const fetchSummaries = async () => {
+            if (!apiKey || reports.length === 0) return;
+            const sessionKey = `dashboardChartSummaries_${reports.length}`;
+            const cached = sessionStorage.getItem(sessionKey);
+            if (cached) {
+                setChartSummaries(JSON.parse(cached));
+                return;
+            }
+
+            const performanceSummary = await generateChartAnalysis("Performance Trend", `Last 5 scores: ${reports.slice(-5).map(r => r.total.marks).join(', ')}`, apiKey);
+            // Simple heuristic for subject comparison summary to save API calls or could also call API
+            const sub = reports[reports.length - 1];
+            const subjectSummary = `In your latest test, Physics: ${sub.physics.marks}, Chem: ${sub.chemistry.marks}, Maths: ${sub.maths.marks}.`;
+            const subjectAnalysis = await generateChartAnalysis("Subject Comparison", subjectSummary, apiKey);
+
+            const newSummaries = { performance: performanceSummary, subject: subjectAnalysis };
+            setChartSummaries(newSummaries);
+            sessionStorage.setItem(sessionKey, JSON.stringify(newSummaries));
+        };
+        fetchSummaries();
+    }, [reports, apiKey]);
 
     const handleDragStart = (e: React.DragEvent<HTMLDivElement>, id: WidgetId) => { dragItem.current = id; setDraggingId(id); e.dataTransfer.effectAllowed = 'move'; };
     const handleDragEnter = (e: React.DragEvent<HTMLDivElement>, id: WidgetId) => { if (dragItem.current !== id) { dragOverItem.current = id; setDragOverId(id); } };
@@ -612,12 +518,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
                 const newLayout = [...prevLayout];
                 const dragItemIndex = newLayout.findIndex(w => w.id === dragItem.current);
                 const dragOverItemIndex = newLayout.findIndex(w => w.id === dragOverItem.current);
-                
-                // Safety check to ensure indices are valid
-                if (dragItemIndex === -1 || dragOverItemIndex === -1) {
-                    return prevLayout;
-                }
-
+                if (dragItemIndex === -1 || dragOverItemIndex === -1) return prevLayout;
                 const dragItemContent = newLayout[dragItemIndex];
                 newLayout.splice(dragItemIndex, 1);
                 newLayout.splice(dragOverItemIndex, 0, dragItemContent);
@@ -634,34 +535,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
 
     const kpiData = useDashboardKpis(processedReports, logs, longTermGoals);
 
-    // Ticker Logic
-    const tickerMessages = useMemo(() => {
-        const msgs = [];
-        if (kpiData.scoreComparison?.trend === 'up') msgs.push(`Great job! Score up by ${Math.abs(kpiData.scoreComparison.diff).toFixed(0)} points.`);
-        if (kpiData.rankComparison?.trend === 'up') msgs.push(`Rank improved by ${Math.abs(kpiData.rankComparison.diff).toFixed(0)} positions!`);
-        if (kpiData.latestAccuracy > 85) msgs.push(`High Accuracy Alert: ${kpiData.latestAccuracy.toFixed(1)}% in latest test.`);
-        if (kpiData.strongestSubject.avgScore > 0) msgs.push(`Strongest Subject: ${kpiData.strongestSubject.name}`);
-        if (kpiData.strategicROI.length > 0) msgs.push(`Focus: ${kpiData.strategicROI[0].topic} is your top 'Quick Win'.`);
-        return msgs.length > 0 ? msgs : ["Welcome to your Dashboard! Add more test data to see live insights."];
-    }, [kpiData]);
-
-    // Calculate Readiness for Gauge (Approximate heuristic)
+    // Calculate Readiness for Gauge
     const readinessScore = useMemo(() => {
         const accuracyWeight = 0.4;
         const consistencyWeight = 0.3;
         const scoreTrendWeight = 0.3;
-
         const accuracyScore = Math.min(100, kpiData.latestAccuracy);
         const consistency = kpiData.consistencyScore;
-        
-        let trendScore = 50; // Neutral start
+        let trendScore = 50;
         if (kpiData.scoreComparison?.trend === 'up') trendScore += 20;
         if (kpiData.scoreComparison?.trend === 'down') trendScore -= 20;
-        
         return (accuracyScore * accuracyWeight) + (consistency * consistencyWeight) + (trendScore * scoreTrendWeight);
     }, [kpiData]);
 
-    // Calculate historical accuracy for Paper Strategy Widget
     const historicalAccuracy = useMemo(() => {
         const acc = { physics: 0, chemistry: 0, maths: 0 };
         const counts = { physics: 0, chemistry: 0, maths: 0 };
@@ -682,48 +568,25 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
         if (!apiKey) { setAiAnalysis({ content: '', isLoading: false, error: "API Key not set." }); return; }
         setAiAnalysis({ content: '', isLoading: true, error: null });
         try {
-            const result = await getAIAnalysis(reports, logs, apiKey);
+            const result = await getAIAnalysis(reports, logs, apiKey, aiPreferences.selectedModel);
             setAiAnalysis({ content: result, isLoading: false, error: null });
         } catch (e) {
             setAiAnalysis({ content: '', isLoading: false, error: e instanceof Error ? e.message : 'An unknown error occurred.' });
         }
-    }, [apiKey, reports, logs]);
+    }, [apiKey, reports, logs, aiPreferences.selectedModel]);
 
     const WIDGETS: Record<WidgetId, { title: string; component: React.ReactNode; getDataForInsight: () => string; info: React.ReactNode; }> = {
-        heatmap: { title: "Test Activity Heatmap", component: <CalendarHeatmap reports={processedReports} />, getDataForInsight: () => `Analyze activity from ${reports.length} tests over the past year.`, info: "This heatmap shows your test-taking frequency and average score over the past year. Darker shades of cyan indicate higher scores on those days." },
-        performanceTrend: { title: "Performance Trend (Total Score)", component: <ResponsiveContainer width="100%" height="100%"><LineChart data={processedReports} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}><CartesianGrid strokeDasharray="3 3" stroke="#374151" /><XAxis dataKey="testName" stroke="#9CA3AF" tick={{ fontSize: 10 }} /><YAxis stroke="#9CA3AF" domain={['auto', 'auto']} /><Tooltip content={<CustomTooltip />} /><Line type="monotone" dataKey="total.marks" name="Total Score" stroke={SUBJECT_CONFIG.total.color} strokeWidth={2} /></LineChart></ResponsiveContainer>, getDataForInsight: () => `Analyze the score trend: ${processedReports.map(r => r.total.marks).join(', ')}.`, info: "This chart tracks your total score across all tests, showing your overall performance trend over time." },
-        subjectComparison: { title: "Subject Marks Comparison", component: <ResponsiveContainer width="100%" height="100%"><BarChart data={processedReports} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}><CartesianGrid strokeDasharray="3 3" stroke="#374151" /><XAxis dataKey="testName" stroke="#9CA3AF" tick={{ fontSize: 10 }} /><YAxis stroke="#9CA3AF" /><Tooltip content={<CustomTooltip />} /><Legend wrapperStyle={{ fontSize: '12px' }} /><Bar dataKey="physics.marks" name="Physics" stackId="a" fill={SUBJECT_CONFIG.physics.color} /><Bar dataKey="chemistry.marks" name="Chemistry" stackId="a" fill={SUBJECT_CONFIG.chemistry.color} /><Bar dataKey="maths.marks" name="Maths" stackId="a" fill={SUBJECT_CONFIG.maths.color} /></BarChart></ResponsiveContainer>, getDataForInsight: () => `Analyze subject contributions for the latest test.`, info: "This stacked bar chart shows the contribution of each subject to your total score in every test, helping you see subject-wise performance at a glance." },
-        subjectStrengthsRadar: { title: "Latest Test Strengths", component: <ResponsiveContainer width="100%" height="100%"><RadarChart cx="50%" cy="50%" outerRadius="80%" data={kpiData.radarData}><PolarGrid /><PolarAngleAxis dataKey="subject" /><PolarRadiusAxis angle={30} domain={[0, 'dataMax + 10']} /><Radar name="Marks" dataKey="A" stroke={SUBJECT_CONFIG.total.color} fill={SUBJECT_CONFIG.total.color} fillOpacity={0.6} /><Tooltip content={<CustomRadarTooltip />} cursor={false} /></RadarChart></ResponsiveContainer>, getDataForInsight: () => `Latest radar plot data: ${JSON.stringify(kpiData.radarData)}.`, info: "The radar chart visualizes your performance in each subject for the most recent test. A larger area indicates stronger performance in that subject." },
-        percentilePredictor: { 
-            title: "Percentile Predictor", 
-            component: kpiData.percentileData ? <PercentilePredictorWidget percentileData={kpiData.percentileData} /> : <div className="flex items-center justify-center h-full text-gray-500">Not enough data.</div>, 
-            getDataForInsight: () => `Analyze predicted percentile: ${kpiData.percentileData?.predictedPercentile}`, 
-            info: "Shows your trend in percentiles and predicts your future percentile based on current trajectory." 
-        },
-        rankPredictor: {
-             title: "Bayesian Rank Predictor",
-             component: kpiData.rankPrediction ? <RankPredictorWidget rankPrediction={kpiData.rankPrediction} goalProbability={kpiData.goalProbability} /> : <div className="flex items-center justify-center h-full text-gray-500">Not enough data.</div>,
-             getDataForInsight: () => `Analyze rank prediction range: ${kpiData.rankPrediction?.bestCase} - ${kpiData.rankPrediction?.worstCase}`,
-             info: "Uses a probabilistic model (Monte Carlo simulation) to estimate your likely rank range in the final exam based on your consistency and volatility."
-        },
-        strategicROI: {
-            title: "Strategic ROI Engine",
-            component: <StrategicROIWidget data={kpiData.strategicROI} onPointClick={(topic) => onStartFocusSession(topic)}/>,
-            getDataForInsight: () => "Analyze strategic ROI bubble chart.",
-            info: "Classifies topics into 'Quick Wins' (High Impact, Low Effort), 'Big Bets' (High Impact, High Effort), etc. Focus on Quick Wins first."
-        },
-        paperStrategy: {
-            title: "Paper Strategy Simulator",
-            component: <PaperStrategyWidget historicalAccuracy={historicalAccuracy} />,
-            getDataForInsight: () => "Analyze paper strategy simulation.",
-            info: "Simulate different time allocation strategies to see how they might affect your score, factoring in 'panic' induced accuracy drops."
-        },
-        volatility: {
-            title: "Stability Gauge",
-            component: kpiData.volatilityMetrics ? <VolatilityWidget volatilityMetrics={kpiData.volatilityMetrics} /> : <div className="flex items-center justify-center h-full text-gray-500">Not enough data.</div>,
-            getDataForInsight: () => `Analyze volatility sharpe ratio: ${kpiData.volatilityMetrics?.sharpeRatio}`,
-            info: "Measures the stability of your performance. Higher Sharpe Ratio means more consistent high scores."
-        },
+        heatmap: { title: "Test Activity Heatmap", component: <CalendarHeatmapWidget reports={processedReports} />, getDataForInsight: () => `Analyze activity from ${reports.length} tests over the past year.`, info: "This heatmap shows your test-taking frequency and average score over the past year. Darker shades of cyan indicate higher scores on those days." },
+        performanceTrend: { title: "Performance Trend (Total Score)", component: <PerformanceTrendWidget data={processedReports} aiSummary={chartSummaries.performance} />, getDataForInsight: () => `Analyze the score trend: ${processedReports.map(r => r.total.marks).join(', ')}.`, info: "This chart tracks your total score across all tests, showing your overall performance trend over time." },
+        subjectComparison: { title: "Subject Marks Comparison", component: <SubjectComparisonWidget data={processedReports} aiSummary={chartSummaries.subject} />, getDataForInsight: () => `Analyze subject contributions for the latest test.`, info: "This stacked bar chart shows the contribution of each subject to your total score in every test, helping you see subject-wise performance at a glance." },
+        subjectStrengthsRadar: { title: "Latest Test Strengths", component: <SubjectRadarWidget data={kpiData.radarData} />, getDataForInsight: () => `Latest radar plot data: ${JSON.stringify(kpiData.radarData)}.`, info: "The radar chart visualizes your performance in each subject for the most recent test. A larger area indicates stronger performance in that subject." },
+        percentilePredictor: { title: "Percentile Predictor", component: kpiData.percentileData ? <PercentilePredictorWidget percentileData={kpiData.percentileData} /> : <div className="flex items-center justify-center h-full text-gray-500">Not enough data.</div>, getDataForInsight: () => `Analyze predicted percentile: ${kpiData.percentileData?.predictedPercentile}`, info: "Shows your trend in percentiles and predicts your future percentile based on current trajectory." },
+        rankPredictor: { title: "Bayesian Rank Predictor", component: kpiData.rankPrediction ? <RankPredictorWidget rankPrediction={kpiData.rankPrediction} goalProbability={kpiData.goalProbability} /> : <div className="flex items-center justify-center h-full text-gray-500">Not enough data.</div>, getDataForInsight: () => `Analyze rank prediction range: ${kpiData.rankPrediction?.bestCase} - ${kpiData.rankPrediction?.worstCase}`, info: "Uses a probabilistic model (Monte Carlo simulation) to estimate your likely rank range in the final exam based on your consistency and volatility." },
+        strategicROI: { title: "Strategic ROI Engine", component: <StrategicROIWidget data={kpiData.strategicROI} onPointClick={(topic) => onStartFocusSession(topic)}/>, getDataForInsight: () => "Analyze strategic ROI bubble chart.", info: "Classifies topics into 'Quick Wins' (High Impact, Low Effort), 'Big Bets' (High Impact, High Effort), etc. Focus on Quick Wins first." },
+        paperStrategy: { title: "Paper Strategy Simulator", component: <PaperStrategyWidget historicalAccuracy={historicalAccuracy} />, getDataForInsight: () => "Analyze paper strategy simulation.", info: "Simulate different time allocation strategies to see how they might affect your score, factoring in 'panic' induced accuracy drops." },
+        volatility: { title: "Stability Gauge", component: kpiData.volatilityMetrics ? <VolatilityWidget volatilityMetrics={kpiData.volatilityMetrics} /> : <div className="flex items-center justify-center h-full text-gray-500">Not enough data.</div>, getDataForInsight: () => `Analyze volatility sharpe ratio: ${kpiData.volatilityMetrics?.sharpeRatio}`, info: "Measures the stability of your performance. Higher Sharpe Ratio means more consistent high scores." },
+        rankSimulator: { title: "What-If Rank Simulator", component: <RankSimulatorWidget rankModel={kpiData.rankModel} currentAvg={kpiData.avgScores} />, getDataForInsight: () => "Analyze rank simulation potential.", info: "Interactive tool to simulate how improving subject scores impacts your predicted rank." },
+        goalProgress: { title: "Goal Tracker", component: <GoalProgressWidget goals={longTermGoals} />, getDataForInsight: () => `Analyze goal progress. Completed: ${longTermGoals.filter(g=>g.completed).length}.`, info: "Tracks your progress towards defined long-term milestones." },
         aiAnalysis: { title: "AI Performance Analysis", component: (
             <div className="h-full flex flex-col">
                 {aiAnalysis.isLoading && <div className="flex-grow flex items-center justify-center text-gray-400 animate-pulse">Thinking... <span className="text-xs ml-2 text-gray-500">(May take 30s)</span></div>}
@@ -771,15 +634,34 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
                  </div>
             </div>
             
-            <NewsTicker messages={tickerMessages} />
+            <InsightBanner reports={reports} apiKey={apiKey} />
 
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                <KPICard title="Latest Score" value={kpiData.latestScore} comparison={kpiData.scoreComparison} trendData={kpiData.scoreTrend} />
-                <KPICard title="Latest Rank" value={kpiData.latestRank} comparison={kpiData.rankComparison} trendData={kpiData.rankTrend} />
-                <KPICard title="Latest Accuracy" value={kpiData.latestAccuracy} suffix="%" comparison={kpiData.accuracyComparison} trendData={kpiData.accuracyTrend} />
+                <KPICard 
+                    title="Latest Score" 
+                    value={kpiData.latestScore} 
+                    comparison={kpiData.scoreComparison} 
+                    trendData={kpiData.scoreTrend} 
+                    onClick={() => setActiveKpiModal({ title: "Total Score", metricKey: "total.marks" })} 
+                />
+                <KPICard 
+                    title="Latest Rank" 
+                    value={kpiData.latestRank} 
+                    comparison={kpiData.rankComparison} 
+                    trendData={kpiData.rankTrend}
+                    onClick={() => setActiveKpiModal({ title: "Rank", metricKey: "total.rank" })}
+                />
+                <KPICard 
+                    title="Latest Accuracy" 
+                    value={kpiData.latestAccuracy} 
+                    suffix="%" 
+                    comparison={kpiData.accuracyComparison} 
+                    trendData={kpiData.accuracyTrend}
+                    onClick={() => setActiveKpiModal({ title: "Accuracy", metricKey: "totalMetrics.accuracy" })}
+                />
                 <KPICard 
                     title="Weakest Subject" 
-                    value={kpiData.strongestSubject.name === 'Physics' ? 'Maths' : 'Physics'} // Heuristic logic
+                    value={kpiData.strongestSubject.name === 'Physics' ? 'Maths' : 'Physics'} // Heuristic logic placeholder
                     subtitle="Needs Attention"
                     action={{ label: 'Sprint', onClick: () => onStartFocusSession(kpiData.strongestSubject.name === 'Physics' ? 'Maths' : 'Physics') }} 
                 />
@@ -847,6 +729,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
             <Modal isOpen={!!infoModalContent} onClose={() => setInfoModalContent(null)} title={infoModalContent?.title || ''} isInfo={true}>
                 <div className="text-sm text-gray-300 space-y-2">{infoModalContent?.content}</div>
             </Modal>
+            {activeKpiModal && (
+                <KPIModal 
+                    title={activeKpiModal.title} 
+                    metricKey={activeKpiModal.metricKey} 
+                    reports={processedReports} 
+                    onClose={() => setActiveKpiModal(null)} 
+                />
+            )}
         </div>
     );
 };

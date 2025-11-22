@@ -6,6 +6,7 @@ import {
 } from 'recharts';
 import { SUBJECT_CONFIG } from '../constants';
 import CustomTooltip from './common/CustomTooltip';
+import { LongTermGoal } from '../types';
 
 // --- Tooltips ---
 const CustomRadarTooltip = ({ active, payload }: any) => {
@@ -45,6 +46,17 @@ const CustomScatterTooltip = ({ active, payload }: any) => {
         );
     }
     return null;
+};
+
+// --- Reusable AI Footer ---
+const AiChartFooter: React.FC<{ summary?: string }> = ({ summary }) => {
+    if (!summary) return null;
+    return (
+        <div className="mt-2 p-2 bg-slate-900/50 border-t border-slate-700 text-xs text-cyan-200 flex items-start gap-2 animate-fade-in">
+            <span className="text-lg">✨</span>
+            <span className="italic leading-relaxed">{summary}</span>
+        </div>
+    );
 };
 
 // --- Widgets ---
@@ -377,31 +389,37 @@ export const VolatilityWidget: React.FC<{ volatilityMetrics: any }> = ({ volatil
     </div>
 );
 
-export const PerformanceTrendWidget: React.FC<{ data: any[] }> = ({ data }) => (
-    <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-            <XAxis dataKey="testName" stroke="#9CA3AF" tick={{ fontSize: 10 }} />
-            <YAxis stroke="#9CA3AF" domain={['auto', 'auto']} />
-            <Tooltip content={<CustomTooltip />} />
-            <Line type="monotone" dataKey="total.marks" name="Total Score" stroke={SUBJECT_CONFIG.total.color} strokeWidth={2} />
-        </LineChart>
-    </ResponsiveContainer>
+export const PerformanceTrendWidget: React.FC<{ data: any[], aiSummary?: string }> = ({ data, aiSummary }) => (
+    <div className="h-full flex flex-col">
+        <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis dataKey="testName" stroke="#9CA3AF" tick={{ fontSize: 10 }} />
+                <YAxis stroke="#9CA3AF" domain={['auto', 'auto']} />
+                <Tooltip content={<CustomTooltip />} />
+                <Line type="monotone" dataKey="total.marks" name="Total Score" stroke={SUBJECT_CONFIG.total.color} strokeWidth={2} />
+            </LineChart>
+        </ResponsiveContainer>
+        <AiChartFooter summary={aiSummary} />
+    </div>
 );
 
-export const SubjectComparisonWidget: React.FC<{ data: any[] }> = ({ data }) => (
-    <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-            <XAxis dataKey="testName" stroke="#9CA3AF" tick={{ fontSize: 10 }} />
-            <YAxis stroke="#9CA3AF" />
-            <Tooltip content={<CustomTooltip />} />
-            <Legend wrapperStyle={{ fontSize: '12px' }} />
-            <Bar dataKey="physics.marks" name="Physics" stackId="a" fill={SUBJECT_CONFIG.physics.color} />
-            <Bar dataKey="chemistry.marks" name="Chemistry" stackId="a" fill={SUBJECT_CONFIG.chemistry.color} />
-            <Bar dataKey="maths.marks" name="Maths" stackId="a" fill={SUBJECT_CONFIG.maths.color} />
-        </BarChart>
-    </ResponsiveContainer>
+export const SubjectComparisonWidget: React.FC<{ data: any[], aiSummary?: string }> = ({ data, aiSummary }) => (
+    <div className="h-full flex flex-col">
+        <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis dataKey="testName" stroke="#9CA3AF" tick={{ fontSize: 10 }} />
+                <YAxis stroke="#9CA3AF" />
+                <Tooltip content={<CustomTooltip />} />
+                <Legend wrapperStyle={{ fontSize: '12px' }} />
+                <Bar dataKey="physics.marks" name="Physics" stackId="a" fill={SUBJECT_CONFIG.physics.color} />
+                <Bar dataKey="chemistry.marks" name="Chemistry" stackId="a" fill={SUBJECT_CONFIG.chemistry.color} />
+                <Bar dataKey="maths.marks" name="Maths" stackId="a" fill={SUBJECT_CONFIG.maths.color} />
+            </BarChart>
+        </ResponsiveContainer>
+        <AiChartFooter summary={aiSummary} />
+    </div>
 );
 
 export const SubjectRadarWidget: React.FC<{ data: any[] }> = ({ data }) => {
@@ -525,6 +543,113 @@ export const CalendarHeatmapWidget: React.FC<{ reports: any[] }> = ({ reports })
             </div>
             <div className="flex justify-end items-center gap-2 text-xs text-gray-400 mt-2 flex-grow">
                 <span>Less</span><div className="w-3.5 h-3.5 rounded-sm bg-slate-700/50"></div><div className="w-3.5 h-3.5 rounded-sm bg-[rgba(var(--color-primary-rgb),0.2)]"></div><div className="w-3.5 h-3.5 rounded-sm bg-[rgba(var(--color-primary-rgb),0.4)]"></div><div className="w-3.5 h-3.5 rounded-sm bg-[rgba(var(--color-primary-rgb),0.7)]"></div><div className="w-3.5 h-3.5 rounded-sm bg-[rgb(var(--color-primary-rgb))]"></div><span>More</span>
+            </div>
+        </div>
+    );
+};
+
+// --- NEW WIDGET: Rank Simulator ---
+export const RankSimulatorWidget: React.FC<{ rankModel: { slope: number, intercept: number } | null, currentAvg: { physics: number, chemistry: number, maths: number } }> = ({ rankModel, currentAvg }) => {
+    const [improvements, setImprovements] = useState({ physics: 0, chemistry: 0, maths: 0 });
+    
+    const simulatedData = useMemo(() => {
+        if (!rankModel) return null;
+        
+        const baseScore = currentAvg.physics + currentAvg.chemistry + currentAvg.maths;
+        const improvementScore = improvements.physics + improvements.chemistry + improvements.maths;
+        const totalSimScore = baseScore + improvementScore;
+        
+        // Log-linear regression: ln(Rank) = slope * Score + intercept
+        // Rank = exp(slope * Score + intercept)
+        
+        const baseLogRank = rankModel.slope * baseScore + rankModel.intercept;
+        const simLogRank = rankModel.slope * totalSimScore + rankModel.intercept;
+        
+        const baseRank = Math.exp(baseLogRank);
+        const simRank = Math.exp(simLogRank);
+        
+        return {
+            baseRank: Math.round(baseRank),
+            simRank: Math.round(simRank),
+            rankImprovement: Math.round(baseRank - simRank),
+            percentImprovement: baseRank > 0 ? ((baseRank - simRank) / baseRank) * 100 : 0
+        };
+    }, [rankModel, currentAvg, improvements]);
+
+    if (!rankModel) return <div className="flex items-center justify-center h-full text-gray-500">Not enough data for simulation.</div>;
+
+    return (
+        <div className="flex flex-col h-full">
+            <div className="flex justify-between items-center bg-slate-900/50 p-3 rounded-lg border border-slate-700 mb-4">
+                <div>
+                    <p className="text-xs text-gray-400">Current Rank Est.</p>
+                    <p className="text-lg font-bold text-white tabular-nums">#{simulatedData?.baseRank.toLocaleString()}</p>
+                </div>
+                <div className="text-2xl text-gray-600">➔</div>
+                <div className="text-right">
+                    <p className="text-xs text-cyan-400">Simulated Rank</p>
+                    <p className="text-2xl font-bold text-cyan-300 tabular-nums">#{simulatedData?.simRank.toLocaleString()}</p>
+                    {simulatedData && simulatedData.rankImprovement > 0 && (
+                        <p className="text-[10px] text-green-400 font-bold">▲ {simulatedData.rankImprovement.toLocaleString()} spots</p>
+                    )}
+                </div>
+            </div>
+            
+            <div className="flex-grow space-y-4 overflow-y-auto pr-2 custom-scrollbar">
+                {(['physics', 'chemistry', 'maths'] as const).map(subject => (
+                    <div key={subject}>
+                        <div className="flex justify-between text-xs mb-1">
+                            <span className="capitalize text-gray-300">{subject} Improvement</span>
+                            <span className="text-cyan-400">+{improvements[subject]} marks</span>
+                        </div>
+                        <input 
+                            type="range" min="0" max="30" step="1" 
+                            value={improvements[subject]} 
+                            onChange={(e) => setImprovements(prev => ({...prev, [subject]: parseInt(e.target.value)}))}
+                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                        />
+                        <div className="flex justify-between text-[9px] text-gray-500 mt-1">
+                            <span>0</span>
+                            <span>+30</span>
+                        </div>
+                    </div>
+                ))}
+            </div>
+            
+            <div className="mt-4 p-2 bg-blue-900/20 border border-blue-800/30 rounded text-[10px] text-blue-200 text-center">
+                Simulating effect of score boost on predicted rank using regression model.
+            </div>
+        </div>
+    );
+};
+
+// --- NEW WIDGET: Goal Progress ---
+export const GoalProgressWidget: React.FC<{ goals: LongTermGoal[] }> = ({ goals }) => {
+    if (goals.length === 0) return <div className="flex items-center justify-center h-full text-gray-500 text-sm italic">No long term goals set in Settings.</div>;
+
+    return (
+        <div className="h-full flex flex-col">
+            <div className="flex-grow overflow-y-auto pr-2 custom-scrollbar space-y-3">
+                {goals.map(goal => (
+                    <div key={goal.id} className={`p-3 rounded-lg border transition-all ${goal.completed ? 'bg-green-900/20 border-green-500/30' : 'bg-slate-800 border-slate-700'}`}>
+                        <div className="flex items-center gap-3">
+                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${goal.completed ? 'border-green-500 bg-green-500' : 'border-gray-500'}`}>
+                                {goal.completed && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                            </div>
+                            <p className={`text-sm font-medium ${goal.completed ? 'text-green-100 line-through' : 'text-white'}`}>{goal.text}</p>
+                        </div>
+                        
+                        {/* Visual 'Progress' Placeholder - Could be linked to data if parsed */}
+                        {!goal.completed && (
+                            <div className="mt-3 pl-8">
+                                <div className="h-1.5 w-full bg-slate-700 rounded-full overflow-hidden">
+                                    <div className="h-full bg-cyan-500 w-1/3 rounded-full opacity-50"></div> {/* Placeholder progress */}
+                                </div>
+                                <p className="text-[10px] text-gray-500 mt-1 text-right">In Progress</p>
+                            </div>
+                        )}
+                    </div>
+                ))}
             </div>
         </div>
     );

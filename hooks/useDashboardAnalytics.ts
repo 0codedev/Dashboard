@@ -48,7 +48,9 @@ export const useDashboardKpis = (
         latestScore: 0, strongestSubject: {name: 'N/A', avgScore: 0}, latestRank: 0, latestAccuracy: 0, consistencyScore: 0, 
         scoreTrend: [], rankTrend: [], accuracyTrend: [], radarData:[], 
         scoreComparison: undefined, rankComparison: undefined, accuracyComparison: undefined,
-        rankPrediction: null, nextBestAction: null, percentileData: null, strategicROI: [], goalProbability: null, volatilityMetrics: null
+        rankPrediction: null, nextBestAction: null, percentileData: null, strategicROI: [], goalProbability: null, volatilityMetrics: null,
+        rankModel: null,
+        avgScores: { physics: 0, chemistry: 0, maths: 0 }
     };
     
     const latestReport = processedReports[processedReports.length - 1];
@@ -102,6 +104,7 @@ export const useDashboardKpis = (
     // --- 1. Rank Predictor Engine (Monte Carlo with Goal Probability) ---
     let rankPrediction = null;
     let goalProbability = null;
+    let rankModel = null;
     
     if (processedReports.length >= 3) {
         // Log-Linear Regression for Rank
@@ -114,6 +117,8 @@ export const useDashboardKpis = (
         
         const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
         const intercept = (sumY - slope * sumX) / n;
+        
+        rankModel = { slope, intercept };
 
         // Monte Carlo Simulation
         const SIMULATION_COUNT = 5000;
@@ -382,7 +387,9 @@ export const useDashboardKpis = (
         percentileData,
         strategicROI,
         goalProbability,
-        volatilityMetrics
+        volatilityMetrics,
+        rankModel,
+        avgScores
     };
   }, [processedReports, logs, longTermGoals, userProfile]);
 };

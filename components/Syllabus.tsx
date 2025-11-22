@@ -5,7 +5,7 @@ import { TargetExam, SyllabusStatus, QuestionStatus, ErrorReason, TestType } fro
 import { JEE_SYLLABUS, SUBJECT_CONFIG, TOPIC_WEIGHTAGE, TOPIC_DEPENDENCIES, SUBJECT_COLORS } from '../constants';
 import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip as RechartsTooltip } from 'recharts';
 import Modal from './common/Modal';
-import { explainTopic, generateGatekeeperQuiz } from '../services/geminiService';
+import { explainTopic, generateGatekeeperQuiz, generateLearningPath } from '../services/geminiService';
 import { SyllabusSunburst } from './visualizations/SyllabusSunburst';
 import { SyllabusSubwayMap } from './visualizations/SyllabusSubwayMap';
 import { SyllabusRiverFlow } from './visualizations/SyllabusRiverFlow';
@@ -21,6 +21,7 @@ interface SyllabusProps {
     onStartFocusSession: (topic: string) => void;
     setView: (view: any) => void;
     addTasksToPlanner?: (tasks: { task: string, time: number, topic: string }[]) => void; 
+    selectedModel?: string;
 }
 
 const COLORS_PIE: Record<string, string> = {
@@ -34,7 +35,6 @@ const COLORS_PIE: Record<string, string> = {
 // --- Strategic Planner Component ---
 const StrategicPlanner: React.FC<{ userProfile: UserProfile }> = ({ userProfile }) => {
     const { velocity, requiredVelocity, isOnTrack, remainingChapters, daysLeft } = useMemo(() => {
-        // Fix: Explicitly cast Object.values to handle TS inference 'unknown' issue
         const syllabusValues = Object.values(userProfile.syllabus) as Partial<ChapterProgress>[];
         const completed = syllabusValues
             .filter(p => p?.completionDate && (p.status === SyllabusStatus.Completed || p.status === SyllabusStatus.Revising))
@@ -181,6 +181,11 @@ interface ChapterCardProps {
     onCompletionEffect: (coords: { x: number; y: number; }) => void;
     cardRef: (el: HTMLDivElement | null) => void;
     isQuizLoading?: boolean;
+    forceExpanded?: boolean;
+    showAIPath?: boolean;
+    onGeneratePath?: () => void;
+    isGeneratingPath?: boolean;
+    onCardClick?: (topic: string) => void;
 }
 
 const statusColors: Record<SyllabusStatus, string> = {
@@ -424,8 +429,9 @@ const DependencyIndicator: React.FC<{ topic: string, userProfile: UserProfile }>
     );
 }
 
-const ChapterCard: React.FC<ChapterCardProps> = ({ cardRef, chapter, progress, onSyllabusChange, questionLogs, reports, onStartFocusSession, onExplainTopic, userProfile, mastery, onTriggerQuiz, onCompletionEffect, isQuizLoading }) => {
-    const [isExpanded, setIsExpanded] = useState(false);
+const ChapterCard: React.FC<ChapterCardProps> = ({ cardRef, chapter, progress, onSyllabusChange, questionLogs, reports, onStartFocusSession, onExplainTopic, userProfile, mastery, onTriggerQuiz, onCompletionEffect, isQuizLoading, forceExpanded, showAIPath, onGeneratePath, isGeneratingPath, onCardClick }) => {
+    const [isExpandedState, setIsExpandedState] = useState(false);
+    const isExpanded = forceExpanded || isExpandedState;
 
     const weightage = TOPIC_WEIGHTAGE[chapter.name] || 'Low';
     const isHighYield = weightage === 'High';
@@ -557,10 +563,11 @@ const ChapterCard: React.FC<ChapterCardProps> = ({ cardRef, chapter, progress, o
     }
 
     return (
-        <div ref={cardRef} className="relative rounded-lg p-px" style={ringGlowStyle}>
-            <div className={`relative rounded-lg border transition-all duration-300 ${statusColors[progress.status]} overflow-hidden`}>
-                {isHighYield && (
-                    <div className="absolute top-0 right-0 pointer-events-none z-10">
+        <div ref={cardRef} className={`relative rounded-lg p-px ${forceExpanded ? 'h-full' : ''}`} style={ringGlowStyle}>
+            {/* REMOVED overflow-hidden to allow tooltip to show */}
+            <div className={`relative rounded-lg border transition-all duration-300 ${statusColors[progress.status]} ${forceExpanded ? 'bg-slate-900 h-full border-0' : ''}`}>
+                {isHighYield && !forceExpanded && (
+                    <div className="absolute top-0 right-0 pointer-events-none z-10 rounded-tr-lg overflow-hidden">
                         {/* Slimmer corner ribbon */}
                         <div className="bg-amber-500 text-white text-[9px] font-bold px-6 py-0.5 rotate-45 translate-x-4 -translate-y-0.5 shadow-sm text-center">
                             HY
@@ -568,7 +575,18 @@ const ChapterCard: React.FC<ChapterCardProps> = ({ cardRef, chapter, progress, o
                     </div>
                 )}
                 <div className="p-3 relative">
-                    <div className="flex items-center gap-4 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
+                    <div 
+                        className="flex items-center gap-4 cursor-pointer" 
+                        onClick={(e) => {
+                            if (forceExpanded) return;
+                            // Logic: If not expanded (closed), standard click opens modal.
+                            // If expanded (open), clicking header does nothing or collapses?
+                            // User requested: "modal should only open ... when it is closed".
+                            if (!isExpandedState && onCardClick) {
+                                onCardClick(chapter.name);
+                            }
+                        }}
+                    >
                         <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 border shadow-inner ${mastery.bg}`}>
                             <span className="text-lg" style={{color: mastery.color}} title={`Mastery: ${mastery.tier}`}>
                                 {mastery.tier === 'Grandmaster' ? '👑' : mastery.tier === 'Expert' ? '💎' : mastery.tier === 'Adept' ? '⚔️' : mastery.tier === 'Apprentice' ? '🔨' : '🌱'}
@@ -577,7 +595,7 @@ const ChapterCard: React.FC<ChapterCardProps> = ({ cardRef, chapter, progress, o
                         
                         <div className="flex-grow min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                                <p className={`font-semibold truncate ${isHighYield ? 'text-amber-100' : 'text-gray-200'}`}>{chapter.name}</p>
+                                <p className={`font-semibold truncate ${isHighYield ? 'text-amber-100' : 'text-gray-200'} ${forceExpanded ? 'text-lg' : ''}`}>{chapter.name}</p>
                                 <MemoryBattery percentage={memoryHealth.percentage} status={memoryHealth.status} daysAgo={memoryHealth.daysAgo} />
                             </div>
                             <div className="space-y-1.5 mt-2">
@@ -593,8 +611,20 @@ const ChapterCard: React.FC<ChapterCardProps> = ({ cardRef, chapter, progress, o
                                 </div>
                             </div>
                         </div>
-                        {chapterStats.errorCount > 0 && <span className="text-xs bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full font-semibold flex-shrink-0 hidden sm:inline-block">{chapterStats.errorCount} Errors</span>}
-                        <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 text-gray-400 transition-transform duration-300 flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                        {!forceExpanded && chapterStats.errorCount > 0 && <span className="text-xs bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full font-semibold flex-shrink-0 hidden sm:inline-block">{chapterStats.errorCount} Errors</span>}
+                        
+                        {/* Dropdown Arrow - Handles inline expansion */}
+                        {!forceExpanded && (
+                            <div 
+                                onClick={(e) => { 
+                                    e.stopPropagation(); 
+                                    setIsExpandedState(!isExpandedState); 
+                                }}
+                                className="p-1 rounded-full hover:bg-slate-700/50 transition-colors"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 text-gray-400 transition-transform duration-300 flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                            </div>
+                        )}
                     </div>
 
                     {isExpanded && (
@@ -663,6 +693,29 @@ const ChapterCard: React.FC<ChapterCardProps> = ({ cardRef, chapter, progress, o
                                 </div>
                             )}
                             
+                            {/* AI Learning Path Generator */}
+                            {showAIPath && (
+                                <div className="mt-4 pt-4 border-t border-slate-700/50">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <h4 className="text-sm font-semibold text-indigo-300">AI Learning Path</h4>
+                                    </div>
+                                    <div className="bg-indigo-900/20 p-3 rounded-lg border border-indigo-500/30 text-sm">
+                                        <p className="text-gray-300 mb-3 text-xs">Generate a personalized checklist based on your weaknesses and prerequisites.</p>
+                                        <button 
+                                            onClick={onGeneratePath} 
+                                            disabled={isGeneratingPath}
+                                            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-4 rounded shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                        >
+                                            {isGeneratingPath ? (
+                                                <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span> Generating...</>
+                                            ) : (
+                                                <>✨ Generate Smart Path</>
+                                            )}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
                             <div>
                                 <label className="block text-xs text-gray-400 mb-1">Revisions</label>
                                 <div className="flex items-center gap-2">
@@ -730,7 +783,7 @@ const ChapterCard: React.FC<ChapterCardProps> = ({ cardRef, chapter, progress, o
     );
 };
 
-const SubjectSyllabus: React.FC<Omit<SyllabusProps, 'userProfile' | 'apiKey' | 'setView' | 'setUserProfile'> & { subject: 'physics' | 'chemistry' | 'maths', userProfile: UserProfile, onSyllabusChange: (chapter: string, updatedProgress: Partial<ChapterProgress>) => void; onExplainTopic: (topic: string) => void; searchQuery: string; activeUnitFilter?: string | null; onTriggerQuiz: (topic: string) => void; onCompletionEffect: (coords: { x: number; y: number; }) => void; chapterCardRefs: React.MutableRefObject<Record<string, HTMLDivElement | null>>; quizLoadingState: string | null; }> = ({ subject, userProfile, onSyllabusChange, questionLogs, reports, onStartFocusSession, onExplainTopic, searchQuery, activeUnitFilter, onTriggerQuiz, onCompletionEffect, chapterCardRefs, quizLoadingState }) => {
+const SubjectSyllabus: React.FC<Omit<SyllabusProps, 'userProfile' | 'apiKey' | 'setView' | 'setUserProfile'> & { subject: 'physics' | 'chemistry' | 'maths', userProfile: UserProfile, onSyllabusChange: (chapter: string, updatedProgress: Partial<ChapterProgress>) => void; onExplainTopic: (topic: string) => void; searchQuery: string; activeUnitFilter?: string | null; onTriggerQuiz: (topic: string) => void; onCompletionEffect: (coords: { x: number; y: number; }) => void; chapterCardRefs: React.MutableRefObject<Record<string, HTMLDivElement | null>>; quizLoadingState: string | null; onNodeClick: (topic: string) => void; }> = ({ subject, userProfile, onSyllabusChange, questionLogs, reports, onStartFocusSession, onExplainTopic, searchQuery, activeUnitFilter, onTriggerQuiz, onCompletionEffect, chapterCardRefs, quizLoadingState, onNodeClick }) => {
     const [filter, setFilter] = useState<{ status: string, strength: string }>({ status: 'all', strength: 'all' });
     const [sort, setSort] = useState<string>('default');
     const [collapsedUnits, setCollapsedUnits] = useState<Set<string>>(new Set());
@@ -842,22 +895,24 @@ const SubjectSyllabus: React.FC<Omit<SyllabusProps, 'userProfile' | 'apiKey' | '
                                     const mastery = { score: masteryScore, ...masteryInfo };
 
                                     return (
-                                    <ChapterCard 
-                                        key={chapter.name}
-                                        cardRef={el => (chapterCardRefs.current[chapter.name] = el)}
-                                        chapter={chapter} 
-                                        progress={progress} 
-                                        onSyllabusChange={onSyllabusChange} 
-                                        questionLogs={questionLogs} 
-                                        reports={reports} 
-                                        onStartFocusSession={onStartFocusSession}
-                                        onExplainTopic={onExplainTopic}
-                                        userProfile={userProfile}
-                                        mastery={mastery}
-                                        onTriggerQuiz={onTriggerQuiz}
-                                        onCompletionEffect={onCompletionEffect}
-                                        isQuizLoading={quizLoadingState === chapter.name}
-                                    />
+                                    <div key={chapter.name}>
+                                        <ChapterCard 
+                                            cardRef={el => (chapterCardRefs.current[chapter.name] = el)}
+                                            chapter={chapter} 
+                                            progress={progress} 
+                                            onSyllabusChange={onSyllabusChange} 
+                                            questionLogs={questionLogs} 
+                                            reports={reports} 
+                                            onStartFocusSession={onStartFocusSession}
+                                            onExplainTopic={onExplainTopic}
+                                            userProfile={userProfile}
+                                            mastery={mastery}
+                                            onTriggerQuiz={onTriggerQuiz}
+                                            onCompletionEffect={onCompletionEffect}
+                                            isQuizLoading={quizLoadingState === chapter.name}
+                                            onCardClick={() => onNodeClick(chapter.name)}
+                                        />
+                                    </div>
                                 )})}
                             </div>
                         )}
@@ -869,14 +924,48 @@ const SubjectSyllabus: React.FC<Omit<SyllabusProps, 'userProfile' | 'apiKey' | '
     );
 };
 
-export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile, questionLogs, reports, apiKey, onStartFocusSession, setView, addTasksToPlanner }) => {
+const ViewControl: React.FC<{ mode: string; setMode: (m: any) => void }> = ({ mode, setMode }) => {
+    const modes = [
+        { id: 'overview', icon: '☷', label: 'List' },
+        { id: 'sunburst', icon: '◎', label: 'Sunburst' },
+        { id: 'tree', icon: '🌳', label: 'Tree' },
+        { id: 'river', icon: '🌊', label: 'River' },
+        { id: 'subway', icon: '🚇', label: 'Subway' },
+    ];
+
+    return (
+        <div className="flex bg-slate-800 p-1 rounded-lg border border-slate-700 shadow-lg">
+            {modes.map(m => (
+                <button
+                    key={m.id}
+                    onClick={() => setMode(m.id)}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${
+                        mode === m.id 
+                        ? 'bg-cyan-600 text-white shadow-md' 
+                        : 'text-gray-400 hover:text-white hover:bg-slate-700'
+                    }`}
+                    title={m.label}
+                >
+                    <span className="text-lg leading-none">{m.icon}</span>
+                    <span className="hidden sm:inline">{m.label}</span>
+                </button>
+            ))}
+        </div>
+    );
+};
+
+export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile, questionLogs, reports, apiKey, onStartFocusSession, setView, addTasksToPlanner, selectedModel }) => {
     const [activeSubject, setActiveSubject] = useState<'physics' | 'chemistry' | 'maths'>('physics');
     const [activeUnit, setActiveUnit] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
-    const [explainModalData, setExplainModalData] = useState<{ topic: string; content: string; loading: boolean } | null>(null);
+    const [explainModalData, setExplainModalData] = useState<{ topic: string; content: string; loading: boolean; complexity: 'standard' | 'simple' } | null>(null);
     const [vizMode, setVizMode] = useState<'overview' | 'sunburst' | 'tree' | 'river' | 'subway'>('overview');
     const [quizState, setQuizState] = useState<{ topic: string, questions?: QuizQuestion[], loading: boolean, userAnswers?: Record<number, string>, submitted?: boolean, result?: boolean[] } | null>(null);
     
+    // Chapter Detail Modal State
+    const [selectedChapterForModal, setSelectedChapterForModal] = useState<string | null>(null);
+    const [isGeneratingPath, setIsGeneratingPath] = useState(false);
+
     // Particle effect state
     const [completionEffect, setCompletionEffect] = useState<{ x: number, y: number, key: number } | null>(null);
     const particleCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -937,6 +1026,9 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
                     if (cardEl) {
                         const rect = cardEl.getBoundingClientRect();
                         triggerCompletionEffect({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+                    } else {
+                        // Fallback for modal view
+                        triggerCompletionEffect({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
                     }
                 }
             }
@@ -967,10 +1059,10 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
         return scores;
     }, [userProfile.syllabus, questionLogs]);
 
-    const handleExplainTopic = async (topic: string) => {
-        setExplainModalData({ topic, content: '', loading: true });
+    const handleExplainTopic = async (topic: string, complexity: 'standard' | 'simple' = 'standard') => {
+        setExplainModalData({ topic, content: '', loading: true, complexity });
         try {
-            const explanation = await explainTopic(topic, apiKey);
+            const explanation = await explainTopic(topic, apiKey, complexity, selectedModel);
             setExplainModalData(prev => prev ? { ...prev, content: explanation, loading: false } : null);
         } catch (error) {
             setExplainModalData(prev => prev ? { ...prev, content: "Failed to load explanation.", loading: false } : null);
@@ -980,7 +1072,7 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
     const triggerCompletionQuiz = useCallback(async (topic: string) => {
         setQuizState({ topic, loading: true });
         try {
-            const questions = await generateGatekeeperQuiz(topic, apiKey);
+            const questions = await generateGatekeeperQuiz(topic, apiKey, selectedModel);
             if (questions && questions.length > 0) {
                 setQuizState(prev => prev ? { ...prev, questions, loading: false } : null);
             } else {
@@ -988,11 +1080,47 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
             }
         } catch (e) {
             console.error("Failed to generate quiz, aborting completion.", e);
-            // Close modal but do NOT update syllabus status.
             setQuizState(null);
             alert("Failed to generate Gatekeeper Quiz. Please check your internet connection or API key limits. Syllabus status not updated.");
         }
-    }, [apiKey, setUserProfile]);
+    }, [apiKey, selectedModel]);
+
+    const handleGenerateLearningPath = async () => {
+        if (!selectedChapterForModal || !apiKey) return;
+        setIsGeneratingPath(true);
+        try {
+            // Get weak prerequisites
+            const prereqs = TOPIC_DEPENDENCIES[selectedChapterForModal] || [];
+            const weakPrereqs = prereqs.filter(p => {
+                const mastery = allMasteryScores[p];
+                return !mastery || mastery.score < 1200;
+            });
+
+            const path = await generateLearningPath(selectedChapterForModal, weakPrereqs, apiKey, selectedModel);
+            if (addTasksToPlanner) {
+                addTasksToPlanner(path);
+            }
+            // Optional: Show toast or success within modal
+        } catch (e) {
+            console.error(e);
+            alert("Failed to generate learning path.");
+        } finally {
+            setIsGeneratingPath(false);
+        }
+    };
+
+    // Handle Node Clicks from Visualizations
+    const handleNodeClick = (topic: string) => {
+        setSelectedChapterForModal(topic);
+    };
+
+    const handleSunburstClick = (type: 'subject' | 'unit', name: string) => {
+        if (type === 'subject') { setActiveSubject(name.toLowerCase() as 'physics' | 'chemistry' | 'maths'); setActiveUnit(null); setVizMode('overview'); } 
+        else if (type === 'unit') {
+            const subject = ['physics', 'chemistry', 'maths'].find(sub => JEE_SYLLABUS[sub as 'physics'|'chemistry'|'maths'].some((u: any) => u.unit === name));
+            if (subject) { setActiveSubject(subject as 'physics' | 'chemistry' | 'maths'); setActiveUnit(name); setVizMode('overview'); }
+        }
+    };
 
     const revisionStackTopics = useMemo(() => {
         const topics: { name: string, weight: number, reason: string }[] = [];
@@ -1042,30 +1170,17 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
         else { onStartFocusSession(revisionStackTopics[0].name); }
     };
 
-    const handleSunburstClick = (type: 'subject' | 'unit', name: string) => {
-        if (type === 'subject') { setActiveSubject(name.toLowerCase() as 'physics' | 'chemistry' | 'maths'); setActiveUnit(null); } 
-        else if (type === 'unit') {
-            const subject = ['physics', 'chemistry', 'maths'].find(sub => JEE_SYLLABUS[sub as 'physics'|'chemistry'|'maths'].some((u: any) => u.unit === name));
-            if (subject) { setActiveSubject(subject as 'physics' | 'chemistry' | 'maths'); setActiveUnit(name); }
+    // Helper to find chapter object for modal
+    const selectedChapterObj = useMemo(() => {
+        if (!selectedChapterForModal) return null;
+        // @ts-ignore
+        const allUnits = Object.values(JEE_SYLLABUS).flatMap(subject => subject);
+        for (const unit of allUnits) {
+            const chapter = unit.chapters.find((c: any) => c.name === selectedChapterForModal);
+            if (chapter) return chapter;
         }
-    };
-
-    const handleNodeClick = (topic: string) => {
-        let subject: 'physics' | 'chemistry' | 'maths' | undefined;
-        ['physics', 'chemistry', 'maths'].forEach(sub => {
-            const found = JEE_SYLLABUS[sub as 'physics'|'chemistry'|'maths'].some(unit => unit.chapters.some(ch => ch.name === topic));
-            if(found) subject = sub as any;
-        });
-        if(subject) { setActiveSubject(subject); setSearchQuery(topic); setVizMode('overview'); }
-    };
-
-    const vizModes = [
-        { id: 'overview', label: 'Overview' },
-        { id: 'sunburst', label: 'Sunburst' },
-        { id: 'tree', label: 'Tree' },
-        { id: 'river', label: 'River Flow' },
-        { id: 'subway', label: 'Subway Map' },
-    ];
+        return null;
+    }, [selectedChapterForModal]);
 
     return (
         <div className="space-y-6 pb-20">
@@ -1084,18 +1199,9 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
                         <span>🧠</span> Generate Revision Stack
                         {revisionStackTopics.length > 0 && <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{revisionStackTopics.length}</span>}
                     </button>
-                    {/* Unified View Toggle */}
-                    <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-700 shadow-md">
-                        {vizModes.map(mode => (
-                            <button 
-                                key={mode.id}
-                                onClick={() => setVizMode(mode.id as any)} 
-                                className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors flex items-center justify-center gap-2 ${vizMode === mode.id ? 'bg-cyan-600 text-white shadow' : 'text-gray-300 hover:bg-slate-700'}`}
-                            >
-                                {mode.label}
-                            </button>
-                        ))}
-                    </div>
+                    
+                    <ViewControl mode={vizMode} setMode={setVizMode} />
+
                      <input 
                         type="text" 
                         placeholder="Search chapters..." 
@@ -1149,20 +1255,29 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
                     questionLogs={questionLogs} 
                     reports={reports} 
                     onStartFocusSession={onStartFocusSession}
-                    onExplainTopic={handleExplainTopic}
+                    onExplainTopic={(topic) => handleExplainTopic(topic, 'standard')}
                     searchQuery={searchQuery}
                     activeUnitFilter={activeUnit}
                     onTriggerQuiz={triggerCompletionQuiz}
                     onCompletionEffect={triggerCompletionEffect}
                     chapterCardRefs={chapterCardRefs}
                     quizLoadingState={quizState?.loading ? quizState.topic : null}
+                    onNodeClick={handleNodeClick}
                 />
             )}
             
+            {/* Explanation Modal */}
              <Modal isOpen={!!explainModalData} onClose={() => setExplainModalData(null)} title={`Concept: ${explainModalData?.topic}`}>
+                <div className="flex justify-end px-4 pb-2 border-b border-slate-700/50">
+                    <div className="flex bg-slate-800 rounded p-1 gap-1">
+                        <button onClick={() => handleExplainTopic(explainModalData!.topic, 'standard')} className={`px-3 py-1 text-xs rounded ${explainModalData?.complexity === 'standard' ? 'bg-cyan-600 text-white' : 'text-gray-400'}`}>Standard</button>
+                        <button onClick={() => handleExplainTopic(explainModalData!.topic, 'simple')} className={`px-3 py-1 text-xs rounded ${explainModalData?.complexity === 'simple' ? 'bg-pink-600 text-white' : 'text-gray-400'}`}>Explain Like I'm 5</button>
+                    </div>
+                </div>
                 {explainModalData?.loading ? <SkeletonText /> : <div className="p-4 prose prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: explainModalData?.content.replace(/\n/g, '<br/>') || '' }} />}
             </Modal>
 
+            {/* Quiz Modal */}
             <Modal isOpen={!!quizState} onClose={() => setQuizState(null)} title={`Mastery Check: ${quizState?.topic}`}>
                 <GatekeeperQuiz
                     quizState={quizState}
@@ -1174,6 +1289,33 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
                         setQuizState(null);
                     }}
                 />
+            </Modal>
+
+            {/* Unified Chapter Detail Modal */}
+            <Modal isOpen={!!selectedChapterForModal} onClose={() => setSelectedChapterForModal(null)} title="">
+                {selectedChapterForModal && selectedChapterObj && (
+                    <div className="h-full">
+                        <ChapterCard 
+                            cardRef={() => {}}
+                            chapter={selectedChapterObj}
+                            progress={{ status: SyllabusStatus.NotStarted, strength: null, revisionCount: 0, subTopicStatus: {}, ...(userProfile.syllabus[selectedChapterForModal] || {}) } as ChapterProgress}
+                            onSyllabusChange={handleSyllabusChange}
+                            questionLogs={questionLogs}
+                            reports={reports}
+                            onStartFocusSession={onStartFocusSession}
+                            onExplainTopic={(topic) => handleExplainTopic(topic, 'standard')}
+                            userProfile={userProfile}
+                            mastery={{...allMasteryScores[selectedChapterForModal], bg: '', color: allMasteryScores[selectedChapterForModal]?.color || '#ccc'}}
+                            onTriggerQuiz={triggerCompletionQuiz}
+                            onCompletionEffect={triggerCompletionEffect}
+                            isQuizLoading={quizState?.loading}
+                            forceExpanded={true}
+                            showAIPath={true}
+                            onGeneratePath={handleGenerateLearningPath}
+                            isGeneratingPath={isGeneratingPath}
+                        />
+                    </div>
+                )}
             </Modal>
         </div>
     );

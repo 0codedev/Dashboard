@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { GoogleGenAI, LiveServerMessage, Blob as GenAiBlob, GenerateContentResponse, Modality } from "@google/genai";
 import type { TestReport, QuestionLog, AiFilter, ChatMessage, StudyGoal, AiAssistantPreferences, GenUIToolType, GenUIComponentData } from '../types';
-import { generateStudyPlan, explainTopic, retrieveRelevantContext, GENUI_TOOLS, decodeAudioData, encodeAudio, decodeAudio } from '../services/geminiService';
+import { generateStudyPlan, explainTopic, retrieveRelevantContext, GENUI_TOOLS, decodeAudioData, encodeAudio, decodeAudio, fileToGenerativePart } from '../services/geminiService';
 import { QuestionStatus, ErrorReason } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, LineChart, Line } from 'recharts';
 
@@ -88,6 +88,54 @@ const GenUIChecklist: React.FC<{ data: any }> = ({ data }) => {
                     </div>
                 ))}
             </div>
+        </div>
+    );
+};
+
+const GenUIDiagram: React.FC<{ data: any }> = ({ data }) => {
+    const { title, svgContent, description } = data;
+    return (
+        <div className="bg-white p-4 rounded-lg border border-slate-300 my-2 shadow-lg text-black">
+            <h4 className="text-sm font-bold mb-2 text-center text-slate-800">{title}</h4>
+            <div className="w-full flex justify-center my-4" dangerouslySetInnerHTML={{ __html: svgContent }} />
+            <p className="text-xs text-slate-600 text-center italic">{description}</p>
+        </div>
+    );
+};
+
+const MindMapNode: React.FC<{ node: any }> = ({ node }) => {
+    const [expanded, setExpanded] = useState(true);
+    const hasChildren = node.children && node.children.length > 0;
+
+    return (
+        <div className="flex flex-col items-center relative">
+            <div 
+                className={`p-2 rounded-lg border text-sm font-medium cursor-pointer transition-colors ${hasChildren ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-slate-700 text-gray-200 border-slate-600'}`}
+                onClick={() => setExpanded(!expanded)}
+            >
+                {node.label}
+                {hasChildren && <span className="ml-2 text-[10px] opacity-70">{expanded ? '▼' : '▶'}</span>}
+            </div>
+            {hasChildren && expanded && (
+                <div className="flex gap-4 mt-4 relative before:content-[''] before:absolute before:top-0 before:left-1/2 before:-translate-x-1/2 before:w-px before:h-4 before:bg-slate-500">
+                    <div className="absolute -top-4 left-0 right-0 h-px bg-slate-500" style={{left: '25%', right: '25%'}}></div>
+                    {node.children.map((child: any, idx: number) => (
+                        <div key={idx} className="relative pt-4">
+                             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-px h-4 bg-slate-500"></div>
+                             <MindMapNode node={child} />
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
+const GenUIMindMap: React.FC<{ data: any }> = ({ data }) => {
+    const { root } = data;
+    return (
+        <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 my-2 overflow-x-auto shadow-inner min-h-[200px] flex justify-center items-start">
+            <MindMapNode node={root} />
         </div>
     );
 };
@@ -348,7 +396,10 @@ const getSystemInstruction = (reports: TestReport[], logs: QuestionLog[], prefer
         *   Use **bold** for key metrics and emphasis.
         *   Use > blockquotes for key "Coach's Insights" or summaries.
         *   Use ### Headers to separate distinct thoughts.
-    4.  **Tool Usage:** **DO NOT** use the \`renderChart\` or \`createActionPlan\` tools unless the user *explicitly* asks for a "chart", "graph", "plot", "checklist", or "plan". Biasing towards text is mandatory.
+    4.  **Tool Usage:** 
+        * Use \`renderChart\` or \`createActionPlan\` if appropriate for data visualization or planning.
+        * **NEW:** Use \`renderDiagram\` to generate visual explanations (SVG) for physics/math concepts if the user asks.
+        * **NEW:** Use \`createMindMap\` to break down complex topics hierarchically if requested.
     `;
 
     const basePrompt = `
@@ -387,8 +438,11 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
     const [userInput, setUserInput] = useState('');
     const [isStreamingResponse, setIsStreamingResponse] = useState(false);
     const [isInputExpanded, setIsInputExpanded] = useState(true);
+    const [attachedImage, setAttachedImage] = useState<File | null>(null);
+    
     const chatContainerRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const ai = useMemo(() => new GoogleGenAI({ apiKey }), [apiKey]);
 
     // Voice State (Gemini Live)
@@ -434,15 +488,34 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
         e.target.style.height = `${e.target.scrollHeight}px`;
     };
 
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setAttachedImage(file);
+        }
+    };
+
+    const handleRemoveImage = () => {
+        setAttachedImage(null);
+        if(fileInputRef.current) fileInputRef.current.value = '';
+    };
+
     const handleSendMessage = useCallback(async (e?: React.FormEvent) => {
         if(e) e.preventDefault();
-        if (userInput.trim() === '' || isStreamingResponse) return;
+        if ((userInput.trim() === '' && !attachedImage) || isStreamingResponse) return;
 
         const currentInput = userInput;
+        const currentImage = attachedImage;
+        
         setUserInput('');
+        setAttachedImage(null);
         if(inputRef.current) { inputRef.current.style.height = 'auto'; }
         
-        setChatHistory(prev => [...prev, { role: 'user', content: currentInput }]);
+        const userMessageContent = currentImage 
+            ? `[Image Uploaded] ${currentInput}` 
+            : currentInput;
+
+        setChatHistory(prev => [...prev, { role: 'user', content: userMessageContent }]);
         setIsStreamingResponse(true);
 
         // RAG Retrieval
@@ -450,12 +523,19 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
         const systemInstruction = getSystemInstruction(reports, questionLogs, preferences, ragContext);
 
         try {
-            // Using standard Chat with GenUI tools
-            // Downgraded to gemini-2.5-flash for better stability and availability
-            // Removed thinkingConfig as it's not supported in flash
+            // Prepare contents: Text + Optional Image
+            const parts: any[] = [{ text: currentInput || "Analyze this image." }];
+            if (currentImage) {
+                const imagePart = await fileToGenerativePart(currentImage);
+                parts.unshift(imagePart); // Image comes first usually
+            }
+
+            // Use selected model from preferences, defaulting to 2.5 Flash
+            const modelToUse = preferences.selectedModel || 'gemini-2.5-flash';
+
             const response = await ai.models.generateContentStream({
-                model: 'gemini-2.5-flash', 
-                contents: [{ role: 'user', parts: [{ text: currentInput }] }],
+                model: modelToUse, 
+                contents: [{ role: 'user', parts: parts }],
                 config: {
                     systemInstruction,
                     tools: [{ functionDeclarations: GENUI_TOOLS.map(t => ({ name: t.name, description: t.description, parameters: t.parameters })) }],
@@ -469,13 +549,28 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
                 const toolCall = chunk.functionCalls?.[0];
                 if (toolCall) {
                     // GenUI Trigger
+                    let genType: GenUIToolType = 'none';
+                    if (toolCall.name === 'renderChart') genType = 'chart';
+                    else if (toolCall.name === 'createActionPlan') genType = 'checklist';
+                    else if (toolCall.name === 'renderDiagram') genType = 'chart'; // Reusing type string but logic handled in render
+                    else if (toolCall.name === 'createMindMap') genType = 'chart'; // Reusing type string
+
                     const genData: GenUIComponentData = {
-                        type: toolCall.name === 'renderChart' ? 'chart' : toolCall.name === 'createActionPlan' ? 'checklist' : 'none',
+                        type: genType, // We misuse type slightly here for internal mapping, corrected below in renderer logic
                         data: toolCall.args,
                         id: toolCall.id || Date.now().toString()
                     };
                     
-                    if (genData.type !== 'none') {
+                    // Fix manual type overrides for new tools
+                    if (toolCall.name === 'renderDiagram') {
+                        // We need a way to identify this in the renderer. 
+                        // The renderer currently switches on 'chart' | 'checklist'.
+                        // Let's just modify the component content structure or add types.
+                        // For now, we'll wrap it differently.
+                        setChatHistory(prev => [...prev, { role: 'model', content: { type: 'genUI', component: { ...genData, type: 'diagram' as any } } }]);
+                    } else if (toolCall.name === 'createMindMap') {
+                        setChatHistory(prev => [...prev, { role: 'model', content: { type: 'genUI', component: { ...genData, type: 'mindmap' as any } } }]);
+                    } else if (genData.type !== 'none') {
                         setChatHistory(prev => [...prev, { role: 'model', content: { type: 'genUI', component: genData } }]);
                     }
                     continue; 
@@ -500,7 +595,7 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
             setIsStreamingResponse(false);
         }
 
-    }, [userInput, isStreamingResponse, ai, questionLogs, reports, preferences, apiKey]);
+    }, [userInput, attachedImage, isStreamingResponse, ai, questionLogs, reports, preferences, apiKey]);
 
     // --- Gemini Live Implementation ---
     const startLiveSession = async () => {
@@ -637,6 +732,10 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
                                             <GenUIChart data={msg.content.component.data} />
                                         ) : msg.content.component.type === 'checklist' ? (
                                             <GenUIChecklist data={msg.content.component.data} />
+                                        ) : (msg.content.component as any).type === 'diagram' ? (
+                                            <GenUIDiagram data={msg.content.component.data} />
+                                        ) : (msg.content.component as any).type === 'mindmap' ? (
+                                            <GenUIMindMap data={msg.content.component.data} />
                                         ) : null
                                     ) : null}
                                 </div>
@@ -658,24 +757,50 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
                                     ))}
                                 </div>
                             )}
-                            <form onSubmit={handleSendMessage} className="relative">
-                                <textarea
-                                    ref={inputRef}
-                                    value={userInput}
-                                    onChange={handleUserInput}
-                                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e); } }}
-                                    placeholder="Ask your coach..."
-                                    className="w-full bg-slate-800 text-white rounded-xl p-4 pr-14 border border-slate-700 focus:ring-2 focus:ring-cyan-500 focus:outline-none resize-none shadow-inner"
-                                    rows={1}
-                                    disabled={isStreamingResponse}
-                                />
+                            
+                            {attachedImage && (
+                                <div className="mb-2 flex items-center gap-2 bg-slate-800 p-2 rounded-lg border border-slate-600 w-fit animate-scale-in">
+                                    <div className="w-10 h-10 bg-slate-700 rounded overflow-hidden flex items-center justify-center text-xs text-gray-400">
+                                        IMG
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <span className="text-xs text-white font-medium truncate max-w-[150px]">{attachedImage.name}</span>
+                                        <span className="text-[10px] text-gray-400">{(attachedImage.size / 1024).toFixed(1)} KB</span>
+                                    </div>
+                                    <button onClick={handleRemoveImage} className="ml-2 text-gray-400 hover:text-red-400">×</button>
+                                </div>
+                            )}
+
+                            <form onSubmit={handleSendMessage} className="relative flex gap-2 items-end">
                                 <button 
-                                    type="submit" 
-                                    disabled={isStreamingResponse || !userInput.trim()}
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg transition-all disabled:opacity-50 disabled:hover:bg-cyan-600"
+                                    type="button"
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="p-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-gray-400 transition-colors h-full"
+                                    title="Upload Image"
                                 >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg>
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                                 </button>
+                                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileSelect} />
+                                
+                                <div className="relative flex-grow">
+                                    <textarea
+                                        ref={inputRef}
+                                        value={userInput}
+                                        onChange={handleUserInput}
+                                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e); } }}
+                                        placeholder="Ask your coach..."
+                                        className="w-full bg-slate-800 text-white rounded-xl p-4 pr-14 border border-slate-700 focus:ring-2 focus:ring-cyan-500 focus:outline-none resize-none shadow-inner max-h-48"
+                                        rows={1}
+                                        disabled={isStreamingResponse}
+                                    />
+                                    <button 
+                                        type="submit" 
+                                        disabled={isStreamingResponse || (userInput.trim() === '' && !attachedImage)}
+                                        className="absolute right-3 bottom-3 p-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg transition-all disabled:opacity-50 disabled:hover:bg-cyan-600"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg>
+                                    </button>
+                                </div>
                             </form>
                         </div>
                     </div>

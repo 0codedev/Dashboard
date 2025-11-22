@@ -190,6 +190,8 @@ export interface ChatMessage {
 
 export interface RootCauseFilter {
     subject?: string | null;
+    reason?: ErrorReason | null;
+    topic?: string | null;
 }
 
 export interface AiAssistantPreferences {
@@ -197,6 +199,7 @@ export interface AiAssistantPreferences {
   tone: 'encouraging' | 'neutral' | 'direct';
   customInstructions?: string; // Added: Allow user to define persona
   socraticMode?: boolean; // Added
+  selectedModel?: string; // Added for model selection
 }
 
 export interface NotificationPreferences {
