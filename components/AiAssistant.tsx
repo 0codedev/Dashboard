@@ -131,6 +131,20 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
             listItems.push(<li key={i} className="text-gray-300 leading-relaxed pl-2">{renderLine(line.replace(/^\s*[-*]\s/, ''))}</li>);
             continue;
         }
+        
+        // Blockquotes for insights
+        if (line.startsWith('> ')) {
+             if (listItems.length > 0) {
+                elements.push(<ul key={`ul-${i}`} className="list-disc pl-5 my-3 space-y-2">{listItems}</ul>);
+                listItems = [];
+            }
+            elements.push(
+                <div key={i} className="border-l-4 border-cyan-500 pl-4 py-1 my-4 bg-cyan-900/10 italic text-cyan-100">
+                    {renderLine(line.substring(2))}
+                </div>
+            );
+            continue;
+        }
 
         if (listItems.length > 0) {
             elements.push(<ul key={`ul-${i}`} className="list-disc pl-5 my-3 space-y-2">{listItems}</ul>);
@@ -275,7 +289,6 @@ const getSystemInstruction = (reports: TestReport[], logs: QuestionLog[], prefer
     
     const strongestSubject = subjectAvgs[0];
     const weakestSubject = subjectAvgs[2];
-    const subjectImbalance = (strongestSubject.avg - weakestSubject.avg) > 15;
 
     // 3. Deep Error Analysis
     const errorStats = logs.reduce((acc, log) => {
@@ -283,59 +296,68 @@ const getSystemInstruction = (reports: TestReport[], logs: QuestionLog[], prefer
             acc.total++;
             if (log.reasonForError) acc.reasons[log.reasonForError] = (acc.reasons[log.reasonForError] || 0) + 1;
             if (log.topic) acc.topics[log.topic] = (acc.topics[log.topic] || 0) + 1;
-            
-            // Track subject specific error types
-            if (!acc.subjectErrors[log.subject]) acc.subjectErrors[log.subject] = {};
-            if (log.reasonForError) acc.subjectErrors[log.subject][log.reasonForError] = (acc.subjectErrors[log.subject][log.reasonForError] || 0) + 1;
         }
         return acc;
     }, { 
         total: 0, 
         reasons: {} as Record<string, number>, 
         topics: {} as Record<string, number>,
-        subjectErrors: {} as Record<string, Record<string, number>>
     });
 
-    // Find the "Fatal Flaw"
     const topErrorEntry = Object.entries(errorStats.reasons).sort((a, b) => b[1] - a[1])[0];
     const topErrorReason = topErrorEntry ? topErrorEntry[0] : 'None';
     const topErrorPct = topErrorEntry ? Math.round((topErrorEntry[1] / errorStats.total) * 100) : 0;
 
-    // Find the "Money Pit" (Topic with most lost marks)
     const topWeakTopicEntry = Object.entries(errorStats.topics).sort((a, b) => b[1] - a[1])[0];
     const topWeakTopic = topWeakTopicEntry ? `${topWeakTopicEntry[0]} (${topWeakTopicEntry[1]} errors)` : 'None';
 
-    // 4. Construct the System Prompt
-    
+    // 4. Victory Metric Calculation (For Encouraging Persona)
+    const victoryMetric = (() => {
+        if (trendDelta > 5) return `your recent score trajectory is impressive (+${trendDelta.toFixed(0)} points vs average)`;
+        if (consistencyRating.includes('High')) return `your performance stability is excellent, providing a reliable base`;
+        if (strongestSubject.avg > 0) return `your command over ${strongestSubject.name} is a major asset`;
+        return `your dedication to logging ${errorStats.total} errors shows great discipline`;
+    })();
+
+    // 5. Construct the System Prompt
     const socraticModeInstruction = `
     **MODE: SOCRATIC COACHING (ACTIVE)**
-    Your goal is NOT to just provide answers, but to guide the student to realization.
-    
-    1.  **Start with Observation:** State a specific data pattern you see (e.g., "I notice your Chemistry score fluctuates wildly...").
-    2.  **Ask, Don't Tell:** Instead of saying "Study Thermodynamics", ask "Why do you think your accuracy in Thermodynamics drops in the second half of tests?"
-    3.  **One Question at a Time:** Do not overwhelm them. Ask one high-impact probing question to trigger self-reflection.
-    4.  **Wait for Input:** Only provide the solution after they have attempted to answer your guiding question.
+    1.  **Objective:** Do NOT lecture. Do NOT give a full report immediately. Your goal is to guide the student to realization through questioning.
+    2.  **Method:**
+        *   Identify *one* specific, high-impact issue from the data (e.g., "I noticed your Chemistry accuracy drops in the last 30 minutes").
+        *   Ask a probing question about it (e.g., "Do you think this is due to fatigue or topic difficulty?").
+    3.  **Constraint:** Stop there. Do not provide the solution yet. Wait for the user's reply.
+    4.  **No Tools:** Do not generate charts or checklists in this mode unless specifically asked.
     `;
 
     const directModeInstruction = `
     **MODE: DIRECT STRATEGIST**
-    You are a high-performance consultant. Be direct, prescriptive, and data-driven. Tell them exactly what is wrong and exactly how to fix it.
+    You are a high-performance consultant.
+    1.  **Objective:** Provide a clear, comprehensive analysis of the situation.
+    2.  **Method:**
+        *   Synthesize the data into a narrative.
+        *   Highlight specific strengths and weaknesses.
+        *   Provide actionable next steps immediately.
     `;
 
     const formattingInstruction = `
-    **FORMATTING & AESTHETICS (CRITICAL)**
-    - **No Wall of Text:** Break answers into clear, readable paragraphs.
-    - **Narrative Flow:** Write like a human speaking, not a robot listing stats. Connect the data points into a story.
-    - **Beautiful Typography:** 
-      - Use **bold** for key metrics and insights.
-      - Use \`code blocks\` for specific formulas or short lists.
-      - Use ### Headers to separate distinct thoughts.
-    - **Limit Lists:** Do not use bullet points for everything. Use them only for checklists.
-    - **Tone:** Warm, encouraging, yet highly analytical. Always find one "Victory Metric" to praise before critiquing.
+    **OUTPUT STYLE GUIDE (STRICT):**
+    1.  **Text First:** Your response must be primarily text. Use beautiful, well-structured paragraphs.
+    2.  **Narrative:** Tell a story about the student's performance. Connect the dots between different metrics. Do not just list stats.
+    3.  **Typography:**
+        *   Use **bold** for key metrics and emphasis.
+        *   Use > blockquotes for key "Coach's Insights" or summaries.
+        *   Use ### Headers to separate distinct thoughts.
+    4.  **Tool Usage:** **DO NOT** use the \`renderChart\` or \`createActionPlan\` tools unless the user *explicitly* asks for a "chart", "graph", "plot", "checklist", or "plan". Biasing towards text is mandatory.
     `;
 
     const basePrompt = `
-    You are the **Chief Performance Strategist** for an elite JEE aspirant.
+    You are the **Chief Performance Coach** for an elite JEE aspirant.
+    
+    **PERSONA:**
+    - **Role:** Empathetic, data-driven, and highly encouraging mentor.
+    - **Tone:** Warm but rigorous. Use "we" language (e.g., "How can we improve this?").
+    - **Opening:** Always start by acknowledging a specific strength or improvement (Victory Metric: ${victoryMetric}) to build confidence before delivering constructive criticism.
     
     **CORE DATA:**
     - **Trajectory:** ${trendDirection} (Recent Avg: ${recentAvg.toFixed(0)} vs Global: ${avgScore.toFixed(0)}).
@@ -350,8 +372,6 @@ const getSystemInstruction = (reports: TestReport[], logs: QuestionLog[], prefer
     ${preferences.socraticMode ? socraticModeInstruction : directModeInstruction}
 
     ${formattingInstruction}
-
-    **CRITICAL:** If the user asks for a chart, plan, or list, ONLY THEN use the provided tools (\`renderChart\`, \`createActionPlan\`). Otherwise, prioritize text.
     
     ${preferences.customInstructions ? `**USER OVERRIDE:** ${preferences.customInstructions}` : ''}
     `;
@@ -398,7 +418,6 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
     useEffect(() => {
         return () => {
             if (liveSessionRef.current) {
-                // Per guidelines, the session object has a `close()` method to terminate the connection.
                 liveSessionRef.current.close();
                 liveSessionRef.current = null;
             }
@@ -432,13 +451,14 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
 
         try {
             // Using standard Chat with GenUI tools
+            // Downgraded to gemini-2.5-flash for better stability and availability
+            // Removed thinkingConfig as it's not supported in flash
             const response = await ai.models.generateContentStream({
-                model: 'gemini-3-pro-preview', // Use Pro for better reasoning/GenUI
+                model: 'gemini-2.5-flash', 
                 contents: [{ role: 'user', parts: [{ text: currentInput }] }],
                 config: {
                     systemInstruction,
                     tools: [{ functionDeclarations: GENUI_TOOLS.map(t => ({ name: t.name, description: t.description, parameters: t.parameters })) }],
-                    thinkingConfig: { thinkingBudget: 2048 } 
                 }
             });
 
@@ -474,7 +494,8 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
                 }
             }
         } catch (err) {
-            setChatHistory(prev => [...prev, { role: 'model', content: "Error generating response. Please check your API key." }]);
+            console.error("Chat generation error:", err);
+            setChatHistory(prev => [...prev, { role: 'model', content: "Error generating response. Please check your API key, billing status, or network connection." }]);
         } finally {
             setIsStreamingResponse(false);
         }
@@ -564,7 +585,6 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
 
     const stopLiveSession = () => {
         if (liveSessionRef.current) {
-            // FIX: Properly close the session
             liveSessionRef.current.close();
             liveSessionRef.current = null;
         }

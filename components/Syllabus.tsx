@@ -89,7 +89,7 @@ const StrategicPlanner: React.FC<{ userProfile: UserProfile }> = ({ userProfile 
             velocity: actualVel, 
             requiredVelocity: requiredVel, 
             isOnTrack: onTrackStatus, 
-            remainingChapters: remaining,
+            remainingChapters: remaining, 
             daysLeft: days
         };
     }, [userProfile]);
@@ -180,6 +180,7 @@ interface ChapterCardProps {
     onTriggerQuiz: (topic: string) => void;
     onCompletionEffect: (coords: { x: number; y: number; }) => void;
     cardRef: (el: HTMLDivElement | null) => void;
+    isQuizLoading?: boolean;
 }
 
 const statusColors: Record<SyllabusStatus, string> = {
@@ -423,7 +424,7 @@ const DependencyIndicator: React.FC<{ topic: string, userProfile: UserProfile }>
     );
 }
 
-const ChapterCard: React.FC<ChapterCardProps> = ({ cardRef, chapter, progress, onSyllabusChange, questionLogs, reports, onStartFocusSession, onExplainTopic, userProfile, mastery, onTriggerQuiz, onCompletionEffect }) => {
+const ChapterCard: React.FC<ChapterCardProps> = ({ cardRef, chapter, progress, onSyllabusChange, questionLogs, reports, onStartFocusSession, onExplainTopic, userProfile, mastery, onTriggerQuiz, onCompletionEffect, isQuizLoading }) => {
     const [isExpanded, setIsExpanded] = useState(false);
 
     const weightage = TOPIC_WEIGHTAGE[chapter.name] || 'Low';
@@ -532,6 +533,8 @@ const ChapterCard: React.FC<ChapterCardProps> = ({ cardRef, chapter, progress, o
     const handleUpdate = <K extends keyof ChapterProgress>(key: K, value: ChapterProgress[K]) => {
         if (key === 'status' && value === SyllabusStatus.Completed) {
             onTriggerQuiz(chapter.name);
+            // Note: We do NOT call onSyllabusChange here. We wait for the quiz to pass.
+            // React state will not update, so the dropdown should visually revert or stay put until success.
         } else {
             onSyllabusChange(chapter.name, { [key]: value });
         }
@@ -607,9 +610,15 @@ const ChapterCard: React.FC<ChapterCardProps> = ({ cardRef, chapter, progress, o
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                                 <div>
                                     <label className="block text-xs text-gray-400 mb-1">Status</label>
-                                    <select value={progress.status} onChange={e => handleUpdate('status', e.target.value as SyllabusStatus)} className="w-full p-2 bg-slate-700 border border-slate-600 rounded-md">
+                                    <select 
+                                        value={progress.status} 
+                                        onChange={e => handleUpdate('status', e.target.value as SyllabusStatus)} 
+                                        className="w-full p-2 bg-slate-700 border border-slate-600 rounded-md disabled:opacity-50"
+                                        disabled={isQuizLoading}
+                                    >
                                         {Object.values(SyllabusStatus).map(s => <option key={s} value={s}>{s}</option>)}
                                     </select>
+                                    {isQuizLoading && <span className="text-[10px] text-cyan-400 mt-1 animate-pulse">Generating Quiz...</span>}
                                 </div>
                                 <div>
                                     <label className="block text-xs text-gray-400 mb-1">Strength/Weakness</label>
@@ -721,7 +730,7 @@ const ChapterCard: React.FC<ChapterCardProps> = ({ cardRef, chapter, progress, o
     );
 };
 
-const SubjectSyllabus: React.FC<Omit<SyllabusProps, 'userProfile' | 'apiKey' | 'setView' | 'setUserProfile'> & { subject: 'physics' | 'chemistry' | 'maths', userProfile: UserProfile, onSyllabusChange: (chapter: string, updatedProgress: Partial<ChapterProgress>) => void; onExplainTopic: (topic: string) => void; searchQuery: string; activeUnitFilter?: string | null; onTriggerQuiz: (topic: string) => void; onCompletionEffect: (coords: { x: number; y: number; }) => void; chapterCardRefs: React.MutableRefObject<Record<string, HTMLDivElement | null>>; }> = ({ subject, userProfile, onSyllabusChange, questionLogs, reports, onStartFocusSession, onExplainTopic, searchQuery, activeUnitFilter, onTriggerQuiz, onCompletionEffect, chapterCardRefs }) => {
+const SubjectSyllabus: React.FC<Omit<SyllabusProps, 'userProfile' | 'apiKey' | 'setView' | 'setUserProfile'> & { subject: 'physics' | 'chemistry' | 'maths', userProfile: UserProfile, onSyllabusChange: (chapter: string, updatedProgress: Partial<ChapterProgress>) => void; onExplainTopic: (topic: string) => void; searchQuery: string; activeUnitFilter?: string | null; onTriggerQuiz: (topic: string) => void; onCompletionEffect: (coords: { x: number; y: number; }) => void; chapterCardRefs: React.MutableRefObject<Record<string, HTMLDivElement | null>>; quizLoadingState: string | null; }> = ({ subject, userProfile, onSyllabusChange, questionLogs, reports, onStartFocusSession, onExplainTopic, searchQuery, activeUnitFilter, onTriggerQuiz, onCompletionEffect, chapterCardRefs, quizLoadingState }) => {
     const [filter, setFilter] = useState<{ status: string, strength: string }>({ status: 'all', strength: 'all' });
     const [sort, setSort] = useState<string>('default');
     const [collapsedUnits, setCollapsedUnits] = useState<Set<string>>(new Set());
@@ -847,6 +856,7 @@ const SubjectSyllabus: React.FC<Omit<SyllabusProps, 'userProfile' | 'apiKey' | '
                                         mastery={mastery}
                                         onTriggerQuiz={onTriggerQuiz}
                                         onCompletionEffect={onCompletionEffect}
+                                        isQuizLoading={quizLoadingState === chapter.name}
                                     />
                                 )})}
                             </div>
@@ -977,9 +987,10 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
                 throw new Error("No questions generated.");
             }
         } catch (e) {
-            console.error("Failed to generate quiz, completing chapter directly.", e);
-            handleSyllabusChange(topic, { status: SyllabusStatus.Completed });
+            console.error("Failed to generate quiz, aborting completion.", e);
+            // Close modal but do NOT update syllabus status.
             setQuizState(null);
+            alert("Failed to generate Gatekeeper Quiz. Please check your internet connection or API key limits. Syllabus status not updated.");
         }
     }, [apiKey, setUserProfile]);
 
@@ -1144,6 +1155,7 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
                     onTriggerQuiz={triggerCompletionQuiz}
                     onCompletionEffect={triggerCompletionEffect}
                     chapterCardRefs={chapterCardRefs}
+                    quizLoadingState={quizState?.loading ? quizState.topic : null}
                 />
             )}
             

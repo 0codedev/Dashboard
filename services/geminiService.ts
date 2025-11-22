@@ -233,9 +233,9 @@ export const extractDataFromImage = async (imageFile: File, apiKey: string): Pro
 
     Return the data as a single JSON object that strictly follows the provided schema. If a value is not found, use a reasonable default like 0 for numbers or an empty string for text.`;
 
-    // UPGRADED MODEL: Using gemini-3-pro-preview for better vision accuracy on complex tables
+    // UPGRADED MODEL: Using gemini-2.5-flash for stability
     const response = await ai.models.generateContent({
-        model: "gemini-3-pro-preview",
+        model: "gemini-2.5-flash",
         contents: { parts: [imagePart, { text: prompt }] },
         config: {
             responseMimeType: "application/json",
@@ -404,12 +404,10 @@ export const getAIAnalysis = async (reports: TestReport[], logs: QuestionLog[], 
 
     Keep the tone professional, encouraging, and highly analytical.`;
 
+    // UPGRADED MODEL: Using gemini-2.5-flash for stability
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
+      model: "gemini-2.5-flash",
       contents: { parts: [{ text: prompt }] },
-      config: {
-        thinkingConfig: { thinkingBudget: 2048 },
-      },
     });
 
     return response.text;
@@ -463,8 +461,9 @@ export const generateStudyPlan = async (reports: TestReport[], logs: QuestionLog
 
         Format your response in clear Markdown. Use '###' for day headings and '*' for list items. The tone should be motivating and encouraging.`;
 
+        // UPGRADED MODEL: Using gemini-2.5-flash for stability
         const response = await ai.models.generateContent({
-          model: "gemini-3-pro-preview",
+          model: "gemini-2.5-flash",
           contents: { parts: [{ text: prompt }] },
         });
 
@@ -521,9 +520,9 @@ export const generateChecklistFromPlan = async (weakTopics: string[], apiKey: st
     const ai = new GoogleGenAI({ apiKey });
     const prompt = `You are an academic coach for a student preparing for the JEE exam. Based on their identified weak topics: ${weakTopics.join(', ')}. Create a short list of 5 concrete, actionable checklist items for their daily plan. The items should be concise phrases.`;
     
-    // UPGRADED MODEL: Using gemini-3-pro-preview for smarter checklist generation
+    // UPGRADED MODEL: Using gemini-2.5-flash for stability
     const response = await ai.models.generateContent({
-        model: "gemini-3-pro-preview",
+        model: "gemini-2.5-flash",
         contents: { parts: [{ text: prompt }] },
         config: {
             responseMimeType: "application/json",
@@ -610,8 +609,9 @@ export const getThematicAnalysis = async (
 
     Provide a concise, insightful analysis in 2-3 sentences that pinpoints the core thematic weakness. Keep the tone professional and analytical.`;
 
+    // UPGRADED MODEL: Using gemini-2.5-flash for stability
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
+      model: "gemini-2.5-flash",
       contents: { parts: [{ text: prompt }] },
     });
 
@@ -660,8 +660,9 @@ export const getAIChiefAnalystSummary = async (
 
   try {
     const ai = new GoogleGenAI({ apiKey });
+    // UPGRADED MODEL: Using gemini-2.5-flash for stability
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
+      model: "gemini-2.5-flash",
       contents: { parts: [{ text: prompt }] },
     });
     return response.text.trim();
@@ -691,8 +692,9 @@ export const generateFocusedStudyPlan = async (
 
     Format your response in clear Markdown. Use '###' for day headings. The tone should be supportive and targeted.`;
 
+    // UPGRADED MODEL: Using gemini-2.5-flash for stability
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
+      model: "gemini-2.5-flash",
       contents: { parts: [{ text: prompt }] },
     });
 
@@ -714,9 +716,9 @@ export const explainTopic = async (topic: string, apiKey: string): Promise<strin
     
     Start with a simple definition, explain the core principles, and provide a simple example if applicable. Keep the entire explanation focused and directly relevant to the JEE syllabus.`;
     
-    // UPGRADED MODEL: Using gemini-3-pro-preview for better conceptual explanations
+    // UPGRADED MODEL: Using gemini-2.5-flash for stability
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
+      model: "gemini-2.5-flash",
       contents: { parts: [{ text: prompt }] },
     });
     
@@ -733,8 +735,9 @@ export const generateGatekeeperQuiz = async (topic: string, apiKey: string): Pro
         const ai = new GoogleGenAI({ apiKey });
         const prompt = `Generate 3 distinct, conceptual multiple-choice questions for the JEE-level chapter "${topic}". The questions must test fundamental understanding, not just rote memorization. For each question, provide four options (A, B, C, D), identify the correct option letter, and give a brief explanation for the correct answer.`;
         
+        // UPGRADED MODEL: Using gemini-2.5-flash for stability
         const response = await ai.models.generateContent({
-            model: "gemini-3-pro-preview",
+            model: "gemini-2.5-flash",
             contents: { parts: [{ text: prompt }] },
             config: {
                 responseMimeType: "application/json",
@@ -785,9 +788,9 @@ export const generateTasksFromGoal = async (goalText: string, apiKey: string): P
     Break this down into 3-4 concrete, actionable daily tasks. For each task, provide a realistic time estimate in minutes.
     Return a JSON object following the schema.`;
     
-    // UPGRADED MODEL: Using gemini-3-pro-preview for better logical breakdown
+    // UPGRADED MODEL: Using gemini-2.5-flash for stability
     const response = await ai.models.generateContent({
-        model: "gemini-3-pro-preview",
+        model: "gemini-2.5-flash",
         contents: { parts: [{ text: prompt }] },
         config: {
             responseMimeType: "application/json",
@@ -845,9 +848,9 @@ export const generateSmartTasks = async (weakTopics: string[], apiKey: string): 
     const ai = new GoogleGenAI({ apiKey });
     const prompt = `You are an academic coach for a JEE student. Based on their identified weak topics: ${weakTopics.slice(0,5).join(', ')}. Create a short list of 2-3 highly specific and actionable tasks for a "Today's Focus" block. For each task, provide a realistic time estimate in minutes and link it to the relevant weak topic. Return a JSON object following the schema.`;
     
-    // UPGRADED MODEL: Using gemini-3-pro-preview for smarter, more specific task generation
+    // UPGRADED MODEL: Using gemini-2.5-flash for stability
     const response = await ai.models.generateContent({
-        model: "gemini-3-pro-preview",
+        model: "gemini-2.5-flash",
         contents: { parts: [{ text: prompt }] },
         config: {
             responseMimeType: "application/json",
