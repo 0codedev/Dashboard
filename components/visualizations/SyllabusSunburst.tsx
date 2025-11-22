@@ -1,4 +1,3 @@
-
 import React, { useMemo, useState } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Sector } from 'recharts';
 import { JEE_SYLLABUS, SUBJECT_COLORS } from '../../constants';
@@ -31,6 +30,8 @@ const renderActiveShape = (props: any) => {
 export const SyllabusSunburst: React.FC<SyllabusSunburstProps> = ({ userProfile, onSliceClick }) => {
     const [activeInnerIndex, setActiveInnerIndex] = useState<number | undefined>(undefined);
     const [activeOuterIndex, setActiveOuterIndex] = useState<number | undefined>(undefined);
+    // Fix: Cast Pie to any to allow activeIndex prop, which is missing from types.
+    const PieComponent = Pie as any;
 
     const { innerData, outerData } = useMemo(() => {
         const subjects = ['physics', 'chemistry', 'maths'] as const;
@@ -139,7 +140,7 @@ export const SyllabusSunburst: React.FC<SyllabusSunburstProps> = ({ userProfile,
                     />
                     
                     {/* Inner Ring: Subjects */}
-                    <Pie
+                    <PieComponent
                         activeIndex={activeInnerIndex}
                         activeShape={renderActiveShape}
                         data={innerData}
@@ -157,10 +158,10 @@ export const SyllabusSunburst: React.FC<SyllabusSunburstProps> = ({ userProfile,
                         {innerData.map((entry: any, index: number) => (
                             <Cell key={`cell-inner-${index}`} fill={entry.color} stroke={activeInnerIndex === index ? '#fff' : '#0f172a'} strokeWidth={activeInnerIndex === index ? 2 : 2}/>
                         ))}
-                    </Pie>
+                    </PieComponent>
 
                     {/* Outer Ring: Units */}
-                    <Pie
+                    <PieComponent
                         activeIndex={activeOuterIndex}
                         activeShape={renderActiveShape}
                         data={outerData}
@@ -184,7 +185,7 @@ export const SyllabusSunburst: React.FC<SyllabusSunburstProps> = ({ userProfile,
                                 stroke={activeOuterIndex === index ? '#fff' : '#0f172a'}
                             />
                         ))}
-                    </Pie>
+                    </PieComponent>
                 </PieChart>
             </ResponsiveContainer>
             <div className="absolute bottom-4 right-4 text-[10px] text-gray-500 pointer-events-none bg-slate-900/80 px-2 py-1 rounded border border-slate-700">

@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { TestReport, QuestionLog, StudyGoal, GlobalFilter, AiFilter, ChatMessage, RootCauseFilter, Toast, AiAssistantPreferences, NotificationPreferences, UserProfile, Theme, DailyTask, AppearancePreferences, View, GamificationState, LongTermGoal } from './types';
 import { TaskType, QuestionStatus, TaskEffort } from './types';
@@ -337,6 +338,13 @@ const App: React.FC = () => {
         setView('question-log-editor');
     };
 
+    const handleDeleteReport = (reportId: string) => {
+        // Confirmation is now handled by the DeleteConfirmationModal in DetailedReportsView
+        setTestReports(prev => prev.filter(r => r.id !== reportId));
+        setQuestionLogs(prev => prev.filter(l => l.testId !== reportId));
+        setToasts(p => [...p, { id: Date.now(), title: 'Report Deleted', message: 'Test report and logs have been removed.', icon: '🗑️' }]);
+    };
+
     // Enhanced Data Restore Handler
     const handleDataSync = (data: any) => {
         if (data.reports) setTestReports(data.reports);
@@ -392,7 +400,7 @@ const App: React.FC = () => {
                 {view === 'daily-planner' && <DailyPlanner goals={jeeData.studyGoals} setGoals={jeeData.setStudyGoals} apiKey={apiKey} logs={jeeData.questionLogs} proactiveInsight={proactiveInsight} onAcceptPlan={handleAcceptPlan} onDismissInsight={handleDismissInsight} addXp={() => addXp('completeTask')} userProfile={userProfile} prefilledTask={prefilledTask} setPrefilledTask={setPrefilledTask} />}
                 {view === 'dashboard' && <Dashboard reports={jeeData.filteredReports} logs={jeeData.filteredLogs} apiKey={apiKey} setView={setView} setRootCauseFilter={setRootCauseFilter} onStartFocusSession={handleStartFocusSession} longTermGoals={jeeData.longTermGoals} />}
                 {view === 'syllabus' && <Syllabus userProfile={userProfile} setUserProfile={setUserProfile} questionLogs={jeeData.questionLogs} reports={jeeData.filteredReports} apiKey={apiKey} onStartFocusSession={handleStartFocusSession} setView={setView} addTasksToPlanner={addTasksToPlanner}/>}
-                {view === 'detailed-reports' && <DetailedReportsView allReports={jeeData.testReports} filteredReports={jeeData.filteredReports} setReports={setTestReports} onViewQuestionLog={handleViewQuestionLogForTest}/>}
+                {view === 'detailed-reports' && <DetailedReportsView allReports={jeeData.testReports} filteredReports={jeeData.filteredReports} setReports={setTestReports} onViewQuestionLog={handleViewQuestionLogForTest} onDeleteReport={handleDeleteReport}/>}
                 {view === 'deep-analysis' && <DeepAnalysis reports={jeeData.filteredReports} />}
                 {view === 'root-cause' && <RootCause logs={jeeData.filteredLogs} reports={jeeData.filteredReports} rootCauseFilter={rootCauseFilter} setRootCauseFilter={setRootCauseFilter} apiKey={apiKey} />}
                 {view === 'ai-assistant' && <AiAssistant reports={jeeData.filteredReports} questionLogs={jeeData.questionLogs} setView={setView} setActiveLogFilter={setActiveLogFilter} apiKey={apiKey} chatHistory={jeeData.chatHistory} setChatHistory={jeeData.setChatHistory} studyGoals={jeeData.studyGoals} setStudyGoals={jeeData.setStudyGoals} preferences={aiPreferences} />}

@@ -174,9 +174,34 @@ const ProfileSettings: React.FC<Pick<SettingsProps, 'userProfile' | 'setUserProf
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                  <div className="bg-slate-800/30 p-4 rounded-xl border border-slate-700">
-                    <h4 className="text-sm font-bold text-gray-200 mb-4 flex items-center gap-2"><span className="text-lg">👤</span> Identity</h4>
-                    <label htmlFor="user-name" className="block text-xs font-medium text-gray-400 mb-1">Display Name</label>
-                    <input id="user-name" type="text" value={userProfile.name} onChange={handleNameChange} placeholder="Enter your name" className="input-base w-full"/>
+                    <h4 className="text-sm font-bold text-gray-200 mb-4 flex items-center gap-2"><span className="text-lg">👤</span> Identity & Goals</h4>
+                    <div>
+                        <label htmlFor="user-name" className="block text-xs font-medium text-gray-400 mb-1">Display Name</label>
+                        <input id="user-name" type="text" value={userProfile.name} onChange={handleNameChange} placeholder="Enter your name" className="input-base w-full"/>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 mt-4">
+                        <div>
+                            <label htmlFor="exam-date" className="block text-xs font-medium text-gray-400 mb-1">Target Exam Date</label>
+                            <input 
+                                id="exam-date"
+                                type="date" 
+                                value={userProfile.targetExamDate || ''} 
+                                onChange={e => setUserProfile(prev => ({ ...prev, targetExamDate: e.target.value }))} 
+                                className="input-base mt-1 w-full"
+                            />
+                        </div>
+                        <div>
+                            <label htmlFor="buffer-days" className="block text-xs font-medium text-gray-400 mb-1">Syllabus Buffer (Days)</label>
+                            <input 
+                                id="buffer-days"
+                                type="number" 
+                                value={userProfile.syllabusCompletionBufferDays || 90} 
+                                onChange={e => setUserProfile(prev => ({ ...prev, syllabusCompletionBufferDays: parseInt(e.target.value) || 0 }))} 
+                                className="input-base mt-1 w-full"
+                                placeholder="e.g. 90"
+                            />
+                        </div>
+                    </div>
                     
                     <h4 className="text-sm font-bold text-gray-200 mt-6 mb-4 flex items-center gap-2"><span className="text-lg">👥</span> Cohort Calibration</h4>
                     <div className="space-y-3">

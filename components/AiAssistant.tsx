@@ -1,6 +1,6 @@
-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { GoogleGenAI, LiveServerMessage, Blob as GenAiBlob, GenerateContentResponse, LiveSession, Modality } from "@google/genai";
+// FIX: 'LiveSession' is not an exported member of '@google/genai'. The type is internal.
+import { GoogleGenAI, LiveServerMessage, Blob as GenAiBlob, GenerateContentResponse, Modality } from "@google/genai";
 import type { TestReport, QuestionLog, AiFilter, ChatMessage, StudyGoal, AiAssistantPreferences, GenUIToolType, GenUIComponentData } from '../types';
 import { generateStudyPlan, explainTopic, retrieveRelevantContext, GENUI_TOOLS, decodeAudioData, encodeAudio, decodeAudio } from '../services/geminiService';
 import { QuestionStatus, ErrorReason } from '../types';
@@ -288,6 +288,7 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
     // Chat State
     const [userInput, setUserInput] = useState('');
     const [isStreamingResponse, setIsStreamingResponse] = useState(false);
+    const [isInputExpanded, setIsInputExpanded] = useState(true);
     const chatContainerRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const ai = useMemo(() => new GoogleGenAI({ apiKey }), [apiKey]);
@@ -296,7 +297,8 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
     const [isLiveConnected, setIsLiveConnected] = useState(false);
     const [liveStatus, setLiveStatus] = useState<'listening' | 'thinking' | 'speaking'>('listening');
     const [audioVolume, setAudioVolume] = useState(0);
-    const liveSessionRef = useRef<LiveSession | null>(null);
+    // FIX: Using `any` because the session type is not exported.
+    const liveSessionRef = useRef<any | null>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
     const audioWorkletRef = useRef<ScriptProcessorNode | null>(null);
     const nextStartTimeRef = useRef<number>(0);
@@ -312,7 +314,7 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
         if (activeTab === 'chat' && inputRef.current) {
             inputRef.current.focus();
         }
-    }, [activeTab]);
+    }, [activeTab, isInputExpanded]);
 
     // Clean up Live Session on Unmount or Tab Change
     useEffect(() => {
@@ -353,7 +355,7 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
         try {
             // Using standard Chat with GenUI tools
             const response = await ai.models.generateContentStream({
-                model: 'gemini-2.5-pro', // Use Pro for better reasoning/GenUI
+                model: 'gemini-3-pro-preview', // Use Pro for better reasoning/GenUI
                 contents: [{ role: 'user', parts: [{ text: currentInput }] }],
                 config: {
                     systemInstruction,
@@ -490,7 +492,8 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
 
     const stopLiveSession = () => {
         if (liveSessionRef.current) {
-            // No explicit close in typed SDK, assume implicit close by stopping audio processing
+            // FIX: Per guidelines, the session object has a `close()` method to terminate the connection.
+            liveSessionRef.current.close();
             liveSessionRef.current = null;
         }
         if (audioWorkletRef.current) {
@@ -504,7 +507,11 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
         setIsLiveConnected(false);
     };
 
-    const handleSuggestionClick = (suggestion: string) => { setUserInput(suggestion); setTimeout(() => inputRef.current?.focus(), 0); };
+    const handleSuggestionClick = (suggestion: string) => { 
+        setIsInputExpanded(true);
+        setUserInput(suggestion); 
+        setTimeout(() => inputRef.current?.focus(), 0); 
+    };
     
     const suggestions = [ "Analyze my Physics weak areas", "Create a study checklist for Rotational Motion", "Show me my score trend chart", "Why did I lose marks in the last test?" ];
 
@@ -518,8 +525,8 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
             </div>
 
             {activeTab === 'chat' ? (
-                <>
-                    <div ref={chatContainerRef} className="flex-grow p-4 overflow-y-auto space-y-6 custom-scrollbar">
+                <div className="flex-grow relative flex flex-col overflow-hidden">
+                    <div ref={chatContainerRef} className="flex-grow p-4 overflow-y-auto space-y-6 custom-scrollbar pb-24">
                         {chatHistory.length === 0 && (
                             <div className="text-center text-gray-500 mt-20">
                                 <p className="text-lg font-medium mb-2">Your AI Performance Coach</p>
@@ -548,35 +555,51 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
                         )}
                     </div>
 
-                    <div className="p-4 border-t border-slate-700 bg-slate-900/50">
-                        <div className="flex gap-2 mb-3 overflow-x-auto pb-2 hide-scrollbar">
-                            {suggestions.map((s, i) => (
-                                <button key={i} onClick={() => handleSuggestionClick(s)} className="whitespace-nowrap px-3 py-1.5 bg-slate-800 border border-slate-700 hover:border-cyan-500 text-xs text-cyan-400 rounded-full transition-colors">
-                                    {s}
+                    <div className={`absolute bottom-0 left-0 right-0 z-20 transition-transform duration-300 ease-in-out ${isInputExpanded ? 'translate-y-0' : 'translate-y-full'}`}>
+                        <div className="p-4 border-t border-slate-700 bg-slate-900/80 backdrop-blur-sm">
+                            <div className="flex gap-2 mb-3 overflow-x-auto pb-2 hide-scrollbar">
+                                {suggestions.map((s, i) => (
+                                    <button key={i} onClick={() => handleSuggestionClick(s)} className="whitespace-nowrap px-3 py-1.5 bg-slate-800 border border-slate-700 hover:border-cyan-500 text-xs text-cyan-400 rounded-full transition-colors">
+                                        {s}
+                                    </button>
+                                ))}
+                            </div>
+                            <form onSubmit={handleSendMessage} className="relative">
+                                <textarea
+                                    ref={inputRef}
+                                    value={userInput}
+                                    onChange={handleUserInput}
+                                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e); } }}
+                                    placeholder="Ask your coach..."
+                                    className="w-full bg-slate-800 text-white rounded-xl p-4 pr-14 border border-slate-700 focus:ring-2 focus:ring-cyan-500 focus:outline-none resize-none shadow-inner"
+                                    rows={1}
+                                    disabled={isStreamingResponse}
+                                />
+                                <button 
+                                    type="submit" 
+                                    disabled={isStreamingResponse || !userInput.trim()}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg transition-all disabled:opacity-50 disabled:hover:bg-cyan-600"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg>
                                 </button>
-                            ))}
+                            </form>
                         </div>
-                        <form onSubmit={handleSendMessage} className="relative">
-                            <textarea
-                                ref={inputRef}
-                                value={userInput}
-                                onChange={handleUserInput}
-                                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e); } }}
-                                placeholder="Ask your coach..."
-                                className="w-full bg-slate-800 text-white rounded-xl p-4 pr-14 border border-slate-700 focus:ring-2 focus:ring-cyan-500 focus:outline-none resize-none shadow-inner"
-                                rows={1}
-                                disabled={isStreamingResponse}
-                            />
-                            <button 
-                                type="submit" 
-                                disabled={isStreamingResponse || !userInput.trim()}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg transition-all disabled:opacity-50 disabled:hover:bg-cyan-600"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg>
-                            </button>
-                        </form>
                     </div>
-                </>
+
+                    <div className="absolute bottom-4 right-4 z-30">
+                        <button
+                            onClick={() => setIsInputExpanded(p => !p)}
+                            className="w-14 h-14 bg-cyan-600 rounded-full flex items-center justify-center shadow-lg text-white hover:bg-cyan-500 transition-all transform hover:scale-110"
+                            aria-label={isInputExpanded ? "Collapse input area" : "Expand input area"}
+                        >
+                            {isInputExpanded ? (
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                            ) : (
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L16.732 3.732z" /></svg>
+                            )}
+                        </button>
+                    </div>
+                </div>
             ) : (
                 <div className="flex-grow flex flex-col items-center justify-center p-8 relative overflow-hidden">
                     <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-indigo-900/20 via-slate-900 to-slate-900 pointer-events-none"></div>

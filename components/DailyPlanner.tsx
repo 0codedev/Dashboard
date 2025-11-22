@@ -184,7 +184,7 @@ const FocusAnalyticsWidget: React.FC = () => {
                     <BarChart data={heatmapData}>
                         <XAxis dataKey="hour" tick={{ fontSize: 10 }} stroke="#64748b" interval={2} />
                         <Tooltip 
-                            contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', fontSize: '12px' }}
+                            contentStyle={{ backgroundColor: 'rgba(30, 41, 59, 0.9)', borderColor: 'rgba(148, 163, 184, 0.2)', borderRadius: '0.5rem', fontSize: '12px', backdropFilter: 'blur(8px)' }}
                             cursor={{ fill: 'rgba(255,255,255,0.05)' }}
                         />
                         <Bar dataKey="count" radius={[2, 2, 0, 0]}>
@@ -239,8 +239,63 @@ const AccomplishmentModal: React.FC<{ task: DailyTask; onSave: (id: string, acco
     );
 };
 
-const TimeBlockSchedule: React.FC<{ tasks: DailyTask[]; setTasks: React.Dispatch<React.SetStateAction<DailyTask[]>> }> = ({ tasks, setTasks }) => {
-    const timeSlots = Array.from({ length: 16 }, (_, i) => i + 7); // 7 AM to 10 PM
+const TimeBlockSchedule: React.FC<{ tasks: DailyTask[]; setTasks: React.Dispatch<React.SetStateAction<DailyTask[]>>; userProfile: UserProfile }> = ({ tasks, setTasks, userProfile }) => {
+    
+    const { startHour, endHour } = useMemo(() => {
+        const times = Object.values(userProfile.studyTimes);
+        let minH = 24;
+        let maxH = 0;
+
+        const parseTime = (timeStr: string) => {
+            // Try matching "4 AM", "04:00", "4", etc.
+            const match = timeStr.match(/(\d+)(?::(\d+))?\s*(AM|PM)?/i);
+            if (!match) return null;
+            
+            let h = parseInt(match[1], 10);
+            const m = parseInt(match[2] || '0', 10);
+            const ampm = match[3]?.toUpperCase();
+
+            if (ampm === 'PM' && h < 12) h += 12;
+            if (ampm === 'AM' && h === 12) h = 0;
+            return h;
+        };
+
+        times.forEach((tVal) => {
+            const t = String(tVal);
+            // Example string: "7 AM - 10 AM"
+            // Split by hyphen or just take the first found time if range not clear
+            const parts = t.split('-').map(s => s.trim());
+            if (parts.length > 0) {
+                const start = parseTime(parts[0]);
+                if (start !== null) {
+                    minH = Math.min(minH, start);
+                    // Heuristic end time: +3 hours if only start given
+                    maxH = Math.max(maxH, start + 3);
+                }
+                if (parts.length > 1) {
+                    const end = parseTime(parts[1]);
+                    if (end !== null) maxH = Math.max(maxH, end);
+                }
+            }
+        });
+
+        // Fallback if parsing fails
+        if (minH === 24) minH = 7;
+        if (maxH === 0) maxH = 22;
+        
+        // Buffer
+        maxH = Math.min(23, maxH + 1); 
+
+        return { startHour: minH, endHour: maxH };
+    }, [userProfile.studyTimes]);
+
+    const timeSlots = useMemo(() => {
+        const slots = [];
+        for (let i = startHour; i <= endHour; i++) {
+            slots.push(i);
+        }
+        return slots;
+    }, [startHour, endHour]);
 
     const getTaskForSlot = (hour: number) => {
         return tasks.find(t => {
@@ -274,22 +329,31 @@ const TimeBlockSchedule: React.FC<{ tasks: DailyTask[]; setTasks: React.Dispatch
             <div className="space-y-1">
                 {timeSlots.map(hour => {
                     const task = getTaskForSlot(hour);
-                    const timeLabel = `${hour > 12 ? hour - 12 : hour} ${hour >= 12 ? 'PM' : 'AM'}`;
+                    const timeLabel = `${hour > 12 ? hour - 12 : (hour === 0 || hour === 24 ? 12 : hour)} ${hour >= 12 && hour < 24 ? 'PM' : 'AM'}`;
                     
                     return (
                         <div 
                             key={hour} 
-                            className="flex items-start gap-3 group min-h-[3.5rem]"
+                            className="flex items-start gap-3 group min-h-[4rem]"
                             onDragOver={handleDragOver}
                             onDrop={(e) => handleDrop(e, hour)}
                         >
-                            <div className="w-14 text-xs text-gray-500 text-right pt-3 font-mono">{timeLabel}</div>
-                            <div className={`flex-grow border-t border-slate-700/50 pt-1 relative transition-all ${task ? 'border-transparent' : ''}`}>
+                            <div className="w-16 text-xs text-gray-500 text-right pt-2 font-mono">{timeLabel}</div>
+                            <div className={`flex-grow border-t border-slate-700/50 pt-1 relative transition-all h-full flex flex-col justify-start ${task ? 'border-transparent' : ''}`}>
                                 {task ? (
-                                    <div className={`rounded-lg p-2 border border-slate-600 shadow-md text-sm text-gray-200 flex justify-between items-center group-hover:border-cyan-500/50 transition-all ${task.completed ? 'bg-slate-800/40 opacity-60' : 'bg-slate-700'}`}>
-                                        <span className="truncate">{task.text}</span>
+                                    <div 
+                                        className={`rounded-lg p-2 border border-slate-600 shadow-md text-sm text-gray-200 flex justify-between items-center group-hover:border-cyan-500/50 transition-all ${task.completed ? 'bg-slate-800/40 opacity-60' : 'bg-slate-700'}`}
+                                        style={{ 
+                                            minHeight: '3rem',
+                                            height: `${Math.max(3, (task.estimatedTime / 60) * 4)}rem` // Scale height: 1 hour = 4rem
+                                        }}
+                                    >
+                                        <div className="flex flex-col overflow-hidden">
+                                            <span className="truncate font-medium">{task.text}</span>
+                                            <span className="text-[10px] text-gray-400">{task.estimatedTime} min</span>
+                                        </div>
                                         <button 
-                                            className="ml-2 text-xs text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                                            className="ml-2 text-xs text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800/50 rounded-full w-5 h-5 flex items-center justify-center"
                                             onClick={() => setTasks(prev => prev.map(t => t.id === task.id ? { ...t, scheduledTime: undefined } : t))}
                                             title="Remove from schedule"
                                         >
@@ -297,7 +361,7 @@ const TimeBlockSchedule: React.FC<{ tasks: DailyTask[]; setTasks: React.Dispatch
                                         </button>
                                     </div>
                                 ) : (
-                                    <div className="h-10 rounded-lg border-2 border-dashed border-slate-800/50 group-hover:border-slate-700 transition-colors flex items-center justify-center">
+                                    <div className="h-full min-h-[3rem] rounded-lg border-2 border-dashed border-slate-800/50 group-hover:border-slate-700 transition-colors flex items-center justify-center">
                                         <span className="text-[10px] text-gray-700 opacity-0 group-hover:opacity-100 transition-opacity">Drop task here</span>
                                     </div>
                                 )}
@@ -308,7 +372,7 @@ const TimeBlockSchedule: React.FC<{ tasks: DailyTask[]; setTasks: React.Dispatch
             </div>
              <div className="mt-4 p-3 bg-blue-900/20 rounded-lg border border-blue-800/30 text-xs text-blue-200">
                 <p className="flex items-center gap-2">
-                    <span>ℹ️</span> Drag tasks from your list into the time slots to plan your day.
+                    <span>ℹ️</span> Drag tasks from your list into the time slots to plan your day. Time range is based on your Profile settings.
                 </p>
             </div>
         </div>
@@ -625,7 +689,20 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
     const handleGenerateSummary = async () => { setIsSummaryLoading(true); setSummary(''); try { const checklistSummary = dailyTasks.map(t => ({text: t.text, completed: t.completed})); const result = await generateEndOfDaySummary(goals, checklistSummary, apiKey); setSummary(result); } catch (error) { console.error("Failed to generate summary:", error); setSummary("Sorry, I couldn't generate a summary right now."); } finally { setIsSummaryLoading(false); } };
     const handlePlanForGoal = async (goal: StudyGoal) => { setIsSuggestingTasks(true); setSuggestedTasks(null); try { const newTasks = await generateTasksFromGoal(goal.text, apiKey); setSuggestedTasks(newTasks); } catch(e) { console.error(e); } finally { setIsSuggestingTasks(false); } };
     const addSuggestedTask = (task: {task: string, time: number}) => { setDailyTasks(prev => [...prev, { id: `ai-${Date.now()}-${Math.random()}`, text: task.task, completed: false, taskType: TaskType.StudySession, estimatedTime: task.time, effort: TaskEffort.Medium }]); setSuggestedTasks(prev => prev ? prev.filter(t => t.task !== task.task) : null); };
-    const handleGenerateSmartTasks = async () => { setIsGeneratingTasks(true); setSmartTasks(null); try { const newTasks = await generateSmartTasks(prioritizedWeakTopics, apiKey); setSmartTasks(newTasks); } catch (e) { console.error(e); } finally { setIsGeneratingTasks(false); } };
+    
+    const handleGenerateSmartTasks = async () => { 
+        setIsGeneratingTasks(true); 
+        setSmartTasks(null); 
+        try { 
+            const newTasks = await generateSmartTasks(prioritizedWeakTopics, apiKey); 
+            setSmartTasks(newTasks); 
+        } catch (e) { 
+            console.error(e); 
+        } finally { 
+            setIsGeneratingTasks(false); 
+        } 
+    };
+    
     const addSmartTask = (task: { task: string; time: number; topic: string }) => { const newTask = { id: `smart-${Date.now()}`, text: task.task, completed: false, taskType: TaskType.ProblemPractice, estimatedTime: task.time, linkedTopic: task.topic, effort: TaskEffort.High }; setDailyTasks(p => [newTask, ...p]); setSmartTasks(p => p?.filter(t => t.task !== task.task) || null); };
 
     const handleSaveAccomplishment = (taskId: string, accomplishment: string) => {
@@ -723,7 +800,7 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
                             <p className="text-4xl font-bold text-white">{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                         </div>
                     </div>
-                    {quote && <p className="text-center italic text-xl md:text-2xl font-light mt-6 border-t border-slate-700 pt-6 leading-relaxed text-transparent bg-clip-text bg-gradient-to-r from-cyan-200 to-blue-200 drop-shadow-lg">"{quote.text}"</p>}
+                    {quote && <p className="text-center italic text-xl md:text-2xl font-extrabold mt-6 border-t border-slate-700 pt-6 leading-relaxed text-transparent bg-clip-text bg-gradient-to-r from-cyan-100 to-blue-100 drop-shadow-lg tracking-wide" style={{ textShadow: '0 2px 10px rgba(34,211,238,0.3)' }}>"{quote.text}"</p>}
                 </div>
                 
                 {proactiveInsight?.visible && (
@@ -787,6 +864,26 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
                                     <button type="submit" className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-2 px-6 rounded-lg shadow-lg transition-all hover:shadow-cyan-500/20 w-full sm:w-auto">Add Task</button>
                                 </div>
                             </form>
+                            
+                            {smartTasks && (
+                                <div className="p-4 bg-indigo-900/20 rounded-lg border border-indigo-500/30 animate-scale-in">
+                                    <div className="flex justify-between mb-2">
+                                        <h4 className="font-bold text-indigo-300">AI Suggestions based on your weaknesses</h4>
+                                        <button onClick={() => setSmartTasks(null)} className="text-gray-500 hover:text-white text-xl leading-none">&times;</button>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {smartTasks.map((task, i) => (
+                                            <div key={i} className="flex justify-between items-center bg-slate-800/50 p-3 rounded border border-slate-700 hover:border-indigo-500/50 transition-colors">
+                                                <div>
+                                                    <p className="text-sm text-gray-200 font-medium">{task.task}</p>
+                                                    <p className="text-xs text-indigo-300 mt-0.5">Focus: {task.topic} • {task.time} mins</p>
+                                                </div>
+                                                <button onClick={() => addSmartTask(task)} className="text-xs bg-green-600 hover:bg-green-500 text-white px-3 py-1.5 rounded font-bold shadow-lg">Add</button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
 
                             <div className="space-y-3 min-h-[200px]" onDragOver={handleDragOver}>
                                 {dailyTasks.map((task, index) => (
@@ -828,11 +925,16 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
                                     </div>
                                 ))}
                                 
-                                {dailyTasks.length === 0 && (
+                                {dailyTasks.length === 0 && !smartTasks && (
                                     <div className="text-center py-10 border-2 border-dashed border-slate-700 rounded-xl bg-slate-800/30">
                                         <p className="text-gray-500 mb-4">No tasks yet. Start by adding one above or...</p>
-                                        <button onClick={handleGenerateSmartTasks} disabled={isGeneratingTasks} className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold py-2 px-5 rounded-full shadow-lg transition-transform hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50">
-                                            {isGeneratingTasks ? 'Thinking...' : 'Generate AI Suggestions'}
+                                        <button onClick={handleGenerateSmartTasks} disabled={isGeneratingTasks} className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold py-2 px-5 rounded-full shadow-lg transition-transform hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 flex items-center gap-2 mx-auto">
+                                            {isGeneratingTasks ? (
+                                                <>
+                                                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                                    Thinking...
+                                                </>
+                                            ) : 'Generate AI Suggestions'}
                                         </button>
                                     </div>
                                 )}
@@ -882,7 +984,7 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
                     )}
                 </div>
 
-                {showSchedule && <TimeBlockSchedule tasks={dailyTasks} setTasks={setDailyTasks} />}
+                {showSchedule && <TimeBlockSchedule tasks={dailyTasks} setTasks={setDailyTasks} userProfile={userProfile} />}
 
                 <div className="bg-slate-800/50 p-6 rounded-lg shadow-lg border border-slate-700">
                     <h3 className="text-xl font-bold text-cyan-300 mb-4">End of Day Summary</h3>

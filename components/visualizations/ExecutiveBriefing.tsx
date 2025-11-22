@@ -1,11 +1,10 @@
-
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
     AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, 
     XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, LabelList, Legend
 } from 'recharts';
 import { TestReport, QuestionLog, QuestionStatus, ErrorReason } from '../../types';
-import { SUBJECT_COLORS, SUBJECT_CONFIG } from '../../constants';
+import { SUBJECT_COLORS } from '../../constants';
 import CustomTooltip from '../common/CustomTooltip';
 
 interface ExecutiveBriefingProps {
@@ -13,65 +12,105 @@ interface ExecutiveBriefingProps {
     logs: QuestionLog[];
 }
 
+// --- Helper Hooks & Components ---
+
+const useCountUp = (endValue: number, duration: number = 1500) => {
+    const [count, setCount] = useState(0);
+    const frameRate = 1000 / 60;
+    const totalFrames = Math.round(duration / frameRate);
+    
+    useEffect(() => {
+        let frame = 0;
+        const counter = setInterval(() => {
+            frame++;
+            const progress = frame / totalFrames;
+            // Ease-out cubic interpolation
+            const easedProgress = 1 - Math.pow(1 - progress, 3);
+            setCount(endValue * easedProgress);
+
+            if (frame === totalFrames) {
+                clearInterval(counter);
+                setCount(endValue);
+            }
+        }, frameRate);
+        return () => clearInterval(counter);
+    }, [endValue, duration, totalFrames]);
+    
+    return endValue % 1 !== 0 ? count.toFixed(1) : Math.round(count).toLocaleString();
+};
+
+const AnimatedNumber: React.FC<{ value: number }> = ({ value }) => {
+    const displayValue = useCountUp(value);
+    return <span className="tabular-nums">{displayValue}</span>;
+};
+
+// --- Main Component ---
 export const ExecutiveBriefing: React.FC<ExecutiveBriefingProps> = ({ reports, logs }) => {
     const [activeStep, setActiveStep] = useState(0);
+    const [hoveredMetric, setHoveredMetric] = useState<string | null>(null);
 
-    // --- Data Processing ---
     const analysis = useMemo(() => {
         if (reports.length === 0) return null;
 
         const latestReport = reports[reports.length - 1];
-        const totalMarks = reports.reduce((sum, r) => sum + r.total.marks, 0);
-        const avgScore = totalMarks / reports.length;
+        const avgScore = reports.length > 0 ? reports.reduce((sum, r) => sum + r.total.marks, 0) / reports.length : 0;
+        const scoreDelta = latestReport.total.marks - avgScore;
         const scoreTrend = reports.map(r => ({ name: r.testName, score: r.total.marks }));
         
-        // Subject contribution
         const subjectScores = {
-            physics: reports.reduce((sum, r) => sum + r.physics.marks, 0),
-            chemistry: reports.reduce((sum, r) => sum + r.chemistry.marks, 0),
-            maths: reports.reduce((sum, r) => sum + r.maths.marks, 0),
+            physics: reports.reduce((sum, r) => sum + r.physics.marks, 0) / reports.length,
+            chemistry: reports.reduce((sum, r) => sum + r.chemistry.marks, 0) / reports.length,
+            maths: reports.reduce((sum, r) => sum + r.maths.marks, 0) / reports.length,
         };
-        const weakestSubject = Object.entries(subjectScores).sort((a, b) => a[1] - b[1])[0];
+        const sortedSubjects = Object.entries(subjectScores).sort((a, b) => a[1] - b[1]);
+        const weakestSubjectName = sortedSubjects[0][0];
+        const strongestSubjectName = sortedSubjects[2][0];
+        const scoreGap = sortedSubjects[2][1] - sortedSubjects[0][1];
 
-        // Error Reasons
-        const errorCounts: Record<string, number> = {};
-        logs.forEach(l => {
-            if ((l.status === QuestionStatus.Wrong || l.status === QuestionStatus.PartiallyCorrect) && l.reasonForError) {
-                errorCounts[l.reasonForError] = (errorCounts[l.reasonForError] || 0) + 1;
-            }
-        });
-        const sortedErrors = Object.entries(errorCounts)
-            .map(([name, value]) => ({ name, value }))
-            .sort((a, b) => b.value - a.value);
+        const errorLogs = logs.filter(l => l.status === QuestionStatus.Wrong || l.status === QuestionStatus.PartiallyCorrect);
+        const errorCounts = errorLogs.reduce((acc, l) => {
+            if(l.reasonForError) acc[l.reasonForError] = (acc[l.reasonForError] || 0) + 1;
+            return acc;
+        }, {} as Record<string, number>);
+        const sortedErrors = Object.entries(errorCounts).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
         const topError = sortedErrors[0] || { name: 'None', value: 0 };
-
-        // Weakest Topic
-        const topicCounts: Record<string, number> = {};
-        logs.forEach(l => {
-            if ((l.status === QuestionStatus.Wrong) && l.topic && l.topic !== 'N/A') {
-                topicCounts[l.topic] = (topicCounts[l.topic] || 0) + 1;
-            }
-        });
-        const sortedTopics = Object.entries(topicCounts)
-            .map(([topic, count]) => ({ topic, count }))
-            .sort((a, b) => b.count - a.count)
-            .slice(0, 5);
+        
+        const topicCounts = errorLogs.reduce((acc, l) => {
+            if (l.topic && l.topic !== 'N/A') acc[l.topic] = (acc[l.topic] || 0) + 1;
+            return acc;
+        }, {} as Record<string, number>);
+        const sortedTopics = Object.entries(topicCounts).map(([topic, count]) => ({ topic, count })).sort((a, b) => b.count - a.count);
         const topTopic = sortedTopics[0] || { topic: 'None', count: 0 };
+        
+        // Impact Assessment
+        const topTopicLogs = errorLogs.filter(l => l.topic === topTopic.topic);
+        const marksLostInTopTopic = topTopicLogs.reduce((sum, l) => {
+            // Rough estimation: Potential marks (e.g., +4) + penalty (e.g., -1) = 5 marks lost
+            return sum + 5;
+        }, 0);
+
+        const diagnosis = `Primary performance blocker is a **Conceptual Gap** in **${topTopic.topic}**, within your weakest subject, **${weakestSubjectName}**. This is costing you an estimated **${marksLostInTopTopic} marks** per test where this topic appears.`;
+
 
         return {
             latestScore: latestReport.total.marks,
             avgScore,
+            scoreDelta,
             scoreTrend,
             subjectData: [
                 { name: 'Physics', value: subjectScores.physics, fill: SUBJECT_COLORS.physics },
                 { name: 'Chemistry', value: subjectScores.chemistry, fill: SUBJECT_COLORS.chemistry },
                 { name: 'Maths', value: subjectScores.maths, fill: SUBJECT_COLORS.maths },
             ],
-            weakestSubjectName: weakestSubject[0],
+            weakestSubjectName,
+            strongestSubjectName,
+            scoreGap,
             errorData: sortedErrors.slice(0, 4),
             topError,
-            topicData: sortedTopics,
-            topTopic
+            topicData: sortedTopics.slice(0, 5),
+            topTopic,
+            marksLostInTopTopic,
+            diagnosis
         };
     }, [reports, logs]);
 
@@ -79,276 +118,194 @@ export const ExecutiveBriefing: React.FC<ExecutiveBriefingProps> = ({ reports, l
 
     const steps = [
         {
-            title: "The Headline",
-            subtitle: "Performance Trajectory",
+            title: "Situation Report",
+            icon: "📈",
             content: (
-                <div className="space-y-4">
-                    <p className="text-lg text-gray-300 leading-relaxed">
-                        Your latest score is <strong className="text-white text-2xl">{analysis.latestScore}</strong>. 
-                        compared to your average of <span className="text-cyan-400 font-mono">{analysis.avgScore.toFixed(0)}</span>.
-                        {analysis.latestScore > analysis.avgScore 
-                            ? " You are trending upwards. Momentum is on your side." 
-                            : " You are currently dipping below your baseline. Immediate course correction is required."}
-                    </p>
-                </div>
+                <p>
+                    Your latest score is <strong className="text-white text-3xl tabular-nums"><AnimatedNumber value={analysis.latestScore} /></strong>. 
+                    This is a <strong className={`text-2xl ${analysis.scoreDelta >= 0 ? 'text-green-400' : 'text-red-400'}`}>{analysis.scoreDelta >= 0 ? '+' : ''}<AnimatedNumber value={analysis.scoreDelta} /></strong> point deviation from your average, indicating a <strong className="text-white">{analysis.scoreDelta >= 0 ? "positive" : "negative"}</strong> short-term trend.
+                </p>
             ),
             chart: (
-                <div className="h-full w-full p-4">
-                    <h4 className="text-xs uppercase tracking-widest text-gray-500 mb-4">Total Score Trend</h4>
-                    <ResponsiveContainer width="100%" height="85%">
-                        <AreaChart data={analysis.scoreTrend}>
-                            <defs>
-                                <linearGradient id="scoreGradient" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#22d3ee" stopOpacity={0.3}/>
-                                    <stop offset="95%" stopColor="#22d3ee" stopOpacity={0}/>
-                                </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
-                            <XAxis dataKey="name" stroke="#94a3b8" tick={{fontSize: 10}} />
-                            <YAxis stroke="#94a3b8" domain={['dataMin - 10', 'auto']} />
-                            <Tooltip content={<CustomTooltip />} />
-                            <Area type="monotone" dataKey="score" stroke="#22d3ee" strokeWidth={3} fill="url(#scoreGradient)" />
-                            <ReferenceLine y={analysis.avgScore} stroke="#94a3b8" strokeDasharray="3 3" label={{ value: "Avg", fill: "#94a3b8", fontSize: 10 }} />
-                        </AreaChart>
-                    </ResponsiveContainer>
-                </div>
+                <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={analysis.scoreTrend}>
+                        <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#22d3ee" stopOpacity={0.3}/><stop offset="95%" stopColor="#22d3ee" stopOpacity={0}/></linearGradient></defs>
+                        <CartesianGrid strokeDasharray="1 4" stroke="#334155" vertical={false} />
+                        <XAxis dataKey="name" stroke="#64748b" tick={{fontSize: 10}} />
+                        <YAxis stroke="#64748b" domain={['dataMin - 10', 'auto']} tick={{fontSize: 10}} />
+                        <Tooltip content={<CustomTooltip />} />
+                        <Area type="monotone" dataKey="score" stroke="#22d3ee" strokeWidth={3} fill="url(#g)" />
+                        <ReferenceLine y={analysis.avgScore} stroke="#94a3b8" strokeDasharray="3 3" label={{ value: `Avg: ${analysis.avgScore.toFixed(0)}`, fill: "#94a3b8", fontSize: 10, position: 'insideTopLeft' }} />
+                    </AreaChart>
+                </ResponsiveContainer>
             )
         },
         {
-            title: "The Imbalance",
-            subtitle: "Subject Distribution",
+            title: "Threat Vector",
+            icon: "🎯",
             content: (
-                <div className="space-y-4">
-                    <p className="text-lg text-gray-300 leading-relaxed">
-                        <strong className="capitalize text-red-400">{analysis.weakestSubjectName}</strong> is currently your primary drag factor.
-                        The cumulative mark gap between your strongest and weakest subject is substantial.
-                    </p>
-                    <p className="text-sm text-gray-400">
-                        Balancing this distribution is the fastest mathematical way to improve your total rank.
-                    </p>
-                </div>
+                 <p>
+                    Your primary performance drag is <strong className="capitalize text-2xl text-red-400">{analysis.weakestSubjectName}</strong>. 
+                    The cumulative mark gap between this and your strongest subject, <strong className="capitalize text-green-400">{analysis.strongestSubjectName}</strong>, is <strong className="text-white text-2xl"><AnimatedNumber value={analysis.scoreGap} /></strong> points on average. This imbalance is the key strategic vulnerability.
+                </p>
             ),
             chart: (
-                <div className="h-full w-full p-4">
-                    <h4 className="text-xs uppercase tracking-widest text-gray-500 mb-4">Cumulative Marks by Subject</h4>
-                    <ResponsiveContainer width="100%" height="85%">
-                        <BarChart data={analysis.subjectData} layout="vertical">
-                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
-                            <XAxis type="number" stroke="#94a3b8" hide />
-                            <YAxis dataKey="name" type="category" stroke="#fff" tick={{fontSize: 12, fontWeight: 'bold'}} width={80} />
-                            <Tooltip cursor={{fill: 'rgba(255,255,255,0.05)'}} content={<CustomTooltip />} />
-                            <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={40}>
-                                <LabelList dataKey="value" position="right" fill="#fff" fontSize={12} fontWeight="bold" />
-                                {analysis.subjectData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={entry.fill} />
-                                ))}
-                            </Bar>
-                        </BarChart>
-                    </ResponsiveContainer>
-                </div>
+                <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={analysis.subjectData} layout="vertical" margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="1 4" stroke="#334155" horizontal={false} />
+                        <XAxis type="number" stroke="#64748b" hide />
+                        <YAxis dataKey="name" type="category" stroke="#fff" tick={{fontSize: 14, fontWeight: 'bold'}} width={90} axisLine={false} tickLine={false} />
+                        <Tooltip cursor={{fill: 'rgba(255,255,255,0.05)'}} content={<CustomTooltip />} />
+                        <Bar dataKey="value" radius={[0, 8, 8, 0]} barSize={40}>
+                            <LabelList dataKey="value" position="right" fill="#fff" fontSize={14} fontWeight="bold" formatter={(val: number) => val.toFixed(0)} />
+                            {analysis.subjectData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
+                        </Bar>
+                    </BarChart>
+                </ResponsiveContainer>
             )
         },
         {
-            title: "The Root Cause",
-            subtitle: "Error Diagnostics",
+            title: "Root Cause",
+            icon: "🔬",
             content: (
-                <div className="space-y-4">
-                    <p className="text-lg text-gray-300 leading-relaxed">
-                        Your dominant error type is <strong className="text-amber-400">{analysis.topError.name}</strong> ({analysis.topError.value} instances).
-                    </p>
-                    <div className="bg-slate-800/50 p-3 rounded-lg border-l-4 border-amber-500 text-sm text-gray-300">
-                        {analysis.topError.name === 'Silly Mistake' && "This indicates a lack of focus or rushing. Slow down the last 10% of every problem."}
-                        {analysis.topError.name === 'Conceptual Gap' && "You are attempting problems where the fundamental theory is shaky. Review notes before solving."}
-                        {analysis.topError.name === 'Time Pressure' && "Speed is an issue. You might be spending too long on 'ego questions'."}
-                        {!['Silly Mistake', 'Conceptual Gap', 'Time Pressure'].includes(analysis.topError.name) && "Analyze these errors specifically to find the pattern."}
-                    </div>
-                </div>
+                 <p>
+                    Drilling down, the dominant error type is <strong className="text-amber-400 text-2xl">{analysis.topError.name}</strong>, responsible for <strong className="text-white text-2xl"><AnimatedNumber value={analysis.topError.value} /></strong> recorded errors. This signals a systemic issue in your problem-solving process that needs to be addressed.
+                </p>
             ),
             chart: (
-                <div className="h-full w-full p-4 flex flex-col items-center">
-                    <h4 className="text-xs uppercase tracking-widest text-gray-500 mb-4">Error Breakdown</h4>
-                    <ResponsiveContainer width="100%" height="85%">
-                        <PieChart>
-                            <Pie
-                                data={analysis.errorData}
-                                cx="50%"
-                                cy="50%"
-                                innerRadius={60}
-                                outerRadius={90}
-                                paddingAngle={5}
-                                dataKey="value"
-                            >
-                                {analysis.errorData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={['#f59e0b', '#10b981', '#f43f5e', '#8b5cf6'][index % 4]} />
-                                ))}
-                            </Pie>
-                            <Tooltip content={<CustomTooltip />} />
-                            <Legend verticalAlign="bottom" height={36}/>
-                        </PieChart>
-                    </ResponsiveContainer>
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none pt-6">
-                        <div className="text-center">
-                            <span className="block text-3xl font-bold text-white">{analysis.topError.value}</span>
-                            <span className="text-xs text-gray-400">Errors</span>
-                        </div>
-                    </div>
-                </div>
+                <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                        <Pie data={analysis.errorData} cx="50%" cy="50%" innerRadius="70%" outerRadius="90%" paddingAngle={5} dataKey="value">
+                            {analysis.errorData.map((entry, index) => <Cell key={`cell-${index}`} fill={['#f59e0b', '#10b981', '#f43f5e', '#8b5cf6'][index % 4]} />)}
+                        </Pie>
+                        <Tooltip content={<CustomTooltip />} />
+                        <Legend iconType="circle" wrapperStyle={{ fontSize: '10px' }} />
+                    </PieChart>
+                </ResponsiveContainer>
             )
         },
         {
-            title: "The Money Pit",
-            subtitle: "Topic Analysis",
-            content: (
-                <div className="space-y-4">
-                    <p className="text-lg text-gray-300 leading-relaxed">
-                        If you fix only one thing this week, fix <strong className="text-cyan-400">{analysis.topTopic.topic}</strong>.
-                    </p>
-                    <p className="text-gray-400">
-                        This single topic is responsible for <span className="text-white font-bold">{analysis.topTopic.count}</span> recorded errors.
-                        Mastering this will provide the highest Return on Time Invested (ROTI).
-                    </p>
-                </div>
+            title: "Impact Assessment",
+            icon: "💥",
+             content: (
+                 <p>
+                    The highest concentration of errors is in <strong className="text-cyan-400 text-2xl">{analysis.topTopic.topic}</strong>, with <strong className="text-white text-2xl">{analysis.topTopic.count}</strong> critical failures. This single topic is costing you an estimated <strong className="text-red-400 text-2xl"><AnimatedNumber value={analysis.marksLostInTopTopic} /> marks</strong> when it appears.
+                </p>
             ),
             chart: (
-                <div className="h-full w-full p-4">
-                    <h4 className="text-xs uppercase tracking-widest text-gray-500 mb-4">Top 5 Pain Points</h4>
-                    <ResponsiveContainer width="100%" height="85%">
-                        <BarChart data={analysis.topicData} layout="vertical">
-                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
-                            <XAxis type="number" stroke="#94a3b8" hide />
-                            <YAxis dataKey="topic" type="category" stroke="#94a3b8" tick={{fontSize: 11}} width={100} interval={0} />
-                            <Tooltip cursor={{fill: 'rgba(255,255,255,0.05)'}} content={<CustomTooltip />} />
-                            <Bar dataKey="count" fill="#6366f1" radius={[0, 4, 4, 0]} barSize={24}>
-                                <LabelList dataKey="count" position="right" fill="#fff" fontSize={10} />
-                            </Bar>
-                        </BarChart>
-                    </ResponsiveContainer>
-                </div>
+                <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={analysis.topicData} layout="vertical" margin={{ top: 10, right: 30, left: 20, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="1 4" stroke="#334155" horizontal={false} />
+                        <XAxis type="number" stroke="#64748b" hide />
+                        <YAxis dataKey="topic" type="category" stroke="#94a3b8" tick={{fontSize: 11}} width={120} interval={0} />
+                        <Tooltip cursor={{fill: 'rgba(255,255,255,0.05)'}} content={<CustomTooltip />} />
+                        <Bar dataKey="count" fill="#6366f1" radius={[0, 4, 4, 0]} barSize={20}>
+                            <LabelList dataKey="count" position="right" fill="#fff" fontSize={10} />
+                        </Bar>
+                    </BarChart>
+                </ResponsiveContainer>
             )
         },
         {
-            title: "The Prescription",
-            subtitle: "Executive Orders",
+            title: "Strategic Directive",
+            icon: "🧭",
             content: (
-                <div className="space-y-6">
-                    <p className="text-lg text-gray-300">Based on this data, here is your strategic plan for the next cycle:</p>
-                    
-                    <ul className="space-y-3">
-                        <li className="flex items-start gap-3 bg-slate-800/50 p-3 rounded-lg border border-slate-700">
-                            <span className="text-xl">🎯</span>
-                            <div>
-                                <span className="block text-sm font-bold text-white">Focus Session</span>
-                                <span className="text-xs text-gray-400">Schedule 2 hours specifically for <strong className="text-cyan-400">{analysis.topTopic.topic}</strong>.</span>
-                            </div>
-                        </li>
-                        <li className="flex items-start gap-3 bg-slate-800/50 p-3 rounded-lg border border-slate-700">
-                            <span className="text-xl">🚫</span>
-                            <div>
-                                <span className="block text-sm font-bold text-white">Stop The Bleeding</span>
-                                <span className="text-xs text-gray-400">Before the next test, review your notes on <strong className="text-red-300 capitalize">{analysis.weakestSubjectName}</strong> to prevent easy mark loss.</span>
-                            </div>
-                        </li>
-                        <li className="flex items-start gap-3 bg-slate-800/50 p-3 rounded-lg border border-slate-700">
-                            <span className="text-xl">🧠</span>
-                            <div>
-                                <span className="block text-sm font-bold text-white">Mindset Check</span>
-                                <span className="text-xs text-gray-400">Address <strong>{analysis.topError.name}s</strong> by adding a 10-second "sanity check" before marking answers.</span>
-                            </div>
-                        </li>
-                    </ul>
+                <ul className="space-y-4">
+                    <li className="flex items-start gap-4"><strong className="text-cyan-400 font-mono text-xl">01</strong><div><span className="block font-bold text-white">ISOLATE & DESTROY</span><span className="text-sm text-gray-400">Dedicate two full focus sessions to <strong className="text-cyan-300">{analysis.topTopic.topic}</strong>. Do not move on until accuracy hits 80% in practice.</span></div></li>
+                    <li className="flex items-start gap-4"><strong className="text-cyan-400 font-mono text-xl">02</strong><div><span className="block font-bold text-white">SHORE UP DEFENSES</span><span className="text-sm text-gray-400">Raise your baseline in <strong className="capitalize text-red-300">{analysis.weakestSubjectName}</strong>. Review your short notes for this subject daily.</span></div></li>
+                    <li className="flex items-start gap-4"><strong className="text-cyan-400 font-mono text-xl">03</strong><div><span className="block font-bold text-white">SYSTEM DEBUG</span><span className="text-sm text-gray-400">Implement a final answer verification step in your process to combat <strong className="text-amber-300">{analysis.topError.name}s</strong>.</span></div></li>
+                </ul>
+            ),
+             chart: <div className="h-full w-full flex items-center justify-center p-4"><div className="text-center space-y-4"><div className="text-6xl">🚀</div><h3 className="text-2xl font-bold text-white">Ready to Execute?</h3><p className="text-gray-400 max-w-xs mx-auto">Data is a weapon. Use it.</p></div></div>
+        },
+        {
+            title: "Final Diagnosis",
+            icon: "🩺",
+            content: (
+                <div className="flex flex-col justify-center h-full">
+                    <p className="text-xs uppercase tracking-widest text-gray-400">Chief Analyst's Summary</p>
+                    <p className="text-lg text-gray-200 leading-relaxed mt-4" dangerouslySetInnerHTML={{ __html: analysis.diagnosis.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>') }}></p>
                 </div>
             ),
             chart: (
-                <div className="h-full w-full flex items-center justify-center p-4 bg-gradient-to-br from-slate-900 to-slate-800">
-                    <div className="text-center space-y-4">
-                        <div className="text-6xl">🚀</div>
-                        <h3 className="text-2xl font-bold text-white">Ready to Execute?</h3>
-                        <p className="text-gray-400 max-w-xs mx-auto">Data is only useful if acted upon. Switch to the Daily Planner to schedule these tasks.</p>
+                <div className="h-full w-full flex items-center justify-center p-4">
+                    <div className="text-center">
+                        <svg className="w-24 h-24 mx-auto text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        <h3 className="text-2xl font-bold text-white mt-4">Mission Parameters Set</h3>
+                        <p className="text-gray-400">Your path to improvement is clear.</p>
                     </div>
                 </div>
             )
         }
     ];
 
-    return (
-        <div className="flex flex-col lg:flex-row h-[600px] bg-slate-900 rounded-xl overflow-hidden border border-slate-800 shadow-2xl">
-            {/* Left: Narrative Stepper */}
-            <div className="w-full lg:w-1/3 bg-slate-900 border-r border-slate-800 overflow-y-auto custom-scrollbar p-6 flex flex-col gap-2">
-                {steps.map((step, index) => (
-                    <button
-                        key={index}
-                        onClick={() => setActiveStep(index)}
-                        className={`text-left p-4 rounded-xl transition-all duration-300 group border ${
-                            activeStep === index 
-                                ? 'bg-slate-800 border-cyan-500/50 shadow-lg shadow-cyan-900/20' 
-                                : 'bg-transparent border-transparent hover:bg-slate-800/50'
-                        }`}
-                    >
-                        <div className="flex items-center gap-3 mb-1">
-                            <span className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold transition-colors ${
-                                activeStep === index ? 'bg-cyan-500 text-black' : 'bg-slate-700 text-gray-400'
-                            }`}>
-                                {index + 1}
-                            </span>
-                            <span className={`text-xs uppercase tracking-wider font-bold ${
-                                activeStep === index ? 'text-cyan-400' : 'text-gray-500 group-hover:text-gray-400'
-                            }`}>
-                                {step.subtitle}
-                            </span>
-                        </div>
-                        <h3 className={`text-xl font-bold mb-2 ${activeStep === index ? 'text-white' : 'text-gray-400 group-hover:text-gray-200'}`}>
-                            {step.title}
-                        </h3>
-                        <div className={`overflow-hidden transition-all duration-500 ${activeStep === index ? 'max-h-[500px] opacity-100 mt-2' : 'max-h-0 opacity-0'}`}>
-                            {step.content}
-                        </div>
-                    </button>
-                ))}
-            </div>
+    const currentStep = steps[activeStep];
 
-            {/* Right: Visual Focus */}
-            <div className="w-full lg:w-2/3 bg-slate-900/50 relative flex flex-col">
-                <div className="absolute top-0 right-0 p-4 z-10">
-                    <div className="flex gap-1">
-                        {steps.map((_, i) => (
-                            <div key={i} className={`h-1 w-8 rounded-full transition-colors duration-300 ${i === activeStep ? 'bg-cyan-500' : 'bg-slate-700'}`}></div>
+    return (
+        <div className="flex flex-col h-[640px] bg-slate-900 rounded-xl overflow-hidden border border-slate-800 shadow-2xl">
+            <div className="flex-grow flex flex-col lg:flex-row relative">
+                 {/* Background Scanline Effect */}
+                <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(0,0,0,0)_98%,_rgba(var(--color-primary-rgb),0.2)_100%)] bg-[size:100%_3px] animate-[scan_8s_linear_infinite] pointer-events-none z-0"></div>
+                <style>{`@keyframes scan { 0% { background-position: 0 0; } 100% { background-position: 0 100vh; } }`}</style>
+                
+                {/* Left: Narrative */}
+                <div className="w-full lg:w-2/5 bg-black/20 border-r border-slate-800/50 p-8 flex flex-col justify-center relative">
+                     {steps.map((step, index) => (
+                         <div key={index} className={`absolute inset-0 p-8 flex flex-col justify-center transition-all duration-500 ease-in-out ${activeStep === index ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'}`}>
+                             <div className="flex items-center gap-3 mb-4">
+                                <div className="w-8 h-8 rounded-full bg-cyan-900/50 border border-cyan-500/30 flex items-center justify-center text-cyan-400 text-lg">{step.icon}</div>
+                                <h3 className="text-xs uppercase tracking-widest font-bold text-cyan-400">{step.title}</h3>
+                            </div>
+                            <div className={`text-gray-300 leading-relaxed ${hoveredMetric ? 'opacity-50' : 'opacity-100'} transition-opacity`}>
+                                {step.content}
+                            </div>
+                         </div>
+                     ))}
+                </div>
+
+                {/* Right: Visual */}
+                <div className="w-full lg:w-3/5 relative flex flex-col bg-slate-800/20">
+                     <div className="flex-grow relative">
+                        {steps.map((step, index) => (
+                            <div key={index} className={`absolute inset-0 transition-all duration-500 ease-in-out ${activeStep === index ? 'opacity-100 scale-100' : 'opacity-0 scale-105 pointer-events-none'}`}>
+                                {step.chart}
+                            </div>
                         ))}
                     </div>
                 </div>
+            </div>
+
+            {/* Navigation */}
+            <div className="p-4 flex justify-between items-center border-t border-slate-800 bg-slate-900/80 backdrop-blur-sm h-20 flex-shrink-0">
+                <button 
+                    disabled={activeStep === 0}
+                    onClick={() => setActiveStep(p => Math.max(0, p - 1))}
+                    className="px-4 py-2 text-sm text-gray-400 hover:text-white disabled:opacity-30 flex items-center gap-2"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    Previous
+                </button>
                 
-                <div className="flex-grow relative">
-                    {steps.map((step, index) => (
-                        <div 
-                            key={index}
-                            className={`absolute inset-0 p-6 transition-all duration-500 transform ${
-                                activeStep === index 
-                                    ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto' 
-                                    : 'opacity-0 translate-y-4 scale-95 pointer-events-none'
-                            }`}
-                        >
-                            <div className="h-full w-full bg-slate-800/40 rounded-2xl border border-slate-700/50 shadow-xl backdrop-blur-sm overflow-hidden">
-                                {step.chart}
-                            </div>
-                        </div>
+                {/* Timeline Navigator */}
+                <div className="flex items-center gap-3">
+                    {steps.map((step, i) => (
+                        <button key={i} onClick={() => setActiveStep(i)} className="group relative">
+                             <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${activeStep === i ? 'border-cyan-500 bg-cyan-500/20' : 'border-slate-700 group-hover:border-cyan-500/50'}`}>
+                                 {step.icon}
+                             </div>
+                             <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 hidden group-hover:block bg-slate-700 text-white px-2 py-1 text-xs rounded shadow-lg whitespace-nowrap">{step.title}</div>
+                        </button>
                     ))}
                 </div>
-                
-                <div className="p-4 flex justify-between items-center border-t border-slate-800 bg-slate-900/80 backdrop-blur">
-                    <button 
-                        disabled={activeStep === 0}
-                        onClick={() => setActiveStep(p => Math.max(0, p - 1))}
-                        className="px-4 py-2 text-sm text-gray-400 hover:text-white disabled:opacity-30"
-                    >
-                        ← Previous
-                    </button>
-                    <button 
-                        disabled={activeStep === steps.length - 1}
-                        onClick={() => setActiveStep(p => Math.min(steps.length - 1, p + 1))}
-                        className="px-6 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-full text-sm font-bold shadow-lg shadow-cyan-500/20 transition-all disabled:opacity-30 disabled:bg-slate-700 disabled:shadow-none"
-                    >
-                        Next Insight →
-                    </button>
-                </div>
+
+                <button 
+                    disabled={activeStep === steps.length - 1}
+                    onClick={() => setActiveStep(p => Math.min(steps.length - 1, p + 1))}
+                    className="px-6 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-full text-sm font-bold shadow-lg shadow-cyan-500/20 transition-all disabled:opacity-30 disabled:bg-slate-700 disabled:shadow-none flex items-center gap-2"
+                >
+                    Next Insight
+                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
+                </button>
             </div>
         </div>
     );

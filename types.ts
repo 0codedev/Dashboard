@@ -45,7 +45,7 @@ export interface SubjectData {
   wrong: number;
   unanswered: number;
   partial: number;
-  maxMarks?: number; // Added: Max possible marks for this subject in this specific test
+  maxMarks?: number; // Added: Max possible marks for this specific test
 }
 
 export interface CalculatedMetrics {
@@ -231,12 +231,21 @@ export type PriorityQuadrant = 'Critical Focus' | 'Sharpen Sword' | 'Opportunity
 export interface ChapterProgress {
     status: SyllabusStatus;
     strength: 'strength' | 'weakness' | null;
-    lectureCompleted: boolean;
-    practiceCompleted: boolean;
+    subTopicStatus?: Record<string, boolean>;
     revisionCount: number;
     aiSuggestedStrength?: 'strength' | 'weakness' | 'dismissed' | null;
     lastRevised?: string; // ISO Date string
     nextRevisionDate?: string; // ISO Date string
+    lectureCompleted?: boolean;
+    notesCompleted?: boolean;
+    completionDate?: string; // ISO Date string
+}
+
+export interface QuizQuestion {
+  question: string;
+  options: { [key: string]: string }; // e.g., { A: 'Option 1', B: 'Option 2' }
+  answer: string; // The key of the correct option, e.g., 'A'
+  explanation: string;
 }
 
 export interface UserProfile {
@@ -257,6 +266,8 @@ export interface UserProfile {
       chemistry: number;
       maths: number;
   };
+  targetExamDate?: string; // ISO Date string, e.g., "2025-01-26"
+  syllabusCompletionBufferDays?: number; // New: Days before exam to finish syllabus
 }
 
 

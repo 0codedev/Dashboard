@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type, FunctionDeclaration } from "@google/genai";
-import { QuestionStatus, type TestReport, type QuestionLog } from "../types";
+import { QuestionStatus, type TestReport, type QuestionLog, QuizQuestion } from "../types";
 
 
 // Helper function to convert a File object to a a base64 string
@@ -66,11 +66,13 @@ export async function decodeAudioData(
 export const getEmbeddings = async (text: string, apiKey: string): Promise<number[]> => {
     try {
         const ai = new GoogleGenAI({ apiKey });
+        // FIX: The parameter for embedContent is 'contents', not 'content'.
         const response = await ai.models.embedContent({
             model: 'text-embedding-004',
-            content: { parts: [{ text }] },
+            contents: { parts: [{ text }] },
         });
-        return response.embedding?.values || [];
+        // FIX: The response object has an 'embeddings' array. Access the first element for the result.
+        return response.embeddings[0]?.values || [];
     } catch (e) {
         console.error("Embedding failed", e);
         return [];
@@ -404,8 +406,8 @@ export const getAIAnalysis = async (reports: TestReport[], logs: QuestionLog[], 
     Keep the tone professional, encouraging, and highly analytical.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-pro",
-      contents: prompt,
+      model: "gemini-3-pro-preview",
+      contents: { parts: [{ text: prompt }] },
       config: {
         thinkingConfig: { thinkingBudget: 32768 },
       },
@@ -463,8 +465,8 @@ export const generateStudyPlan = async (reports: TestReport[], logs: QuestionLog
         Format your response in clear Markdown. Use '###' for day headings and '*' for list items. The tone should be motivating and encouraging.`;
 
         const response = await ai.models.generateContent({
-          model: "gemini-2.5-pro",
-          contents: prompt,
+          model: "gemini-3-pro-preview",
+          contents: { parts: [{ text: prompt }] },
         });
 
         return response.text;
@@ -486,7 +488,7 @@ export const generateContextualInsight = async (prompt: string, apiKey: string):
 
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: fullPrompt,
+      contents: { parts: [{ text: fullPrompt }] },
     });
 
     return response.text.trim();
@@ -502,7 +504,7 @@ export const getDailyQuote = async (apiKey: string): Promise<string> => {
         const prompt = "Give me a short, powerful, and inspiring motivational quote for a student preparing for a highly competitive exam. The quote should be less than 25 words. Do not include the author's name.";
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
-            contents: prompt,
+            contents: { parts: [{ text: prompt }] },
         });
         return response.text.trim().replace(/"/g, ''); // Clean up quotes from the response
     } catch (error) {
@@ -522,7 +524,7 @@ export const generateChecklistFromPlan = async (weakTopics: string[], apiKey: st
     
     const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
-        contents: prompt,
+        contents: { parts: [{ text: prompt }] },
         config: {
             responseMimeType: "application/json",
             responseSchema: {
@@ -577,7 +579,7 @@ export const generateEndOfDaySummary = async (
 
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: prompt,
+      contents: { parts: [{ text: prompt }] },
     });
 
     return response.text.trim();
@@ -609,8 +611,8 @@ export const getThematicAnalysis = async (
     Provide a concise, insightful analysis in 2-3 sentences that pinpoints the core thematic weakness. Keep the tone professional and analytical.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-pro",
-      contents: prompt,
+      model: "gemini-3-pro-preview",
+      contents: { parts: [{ text: prompt }] },
     });
 
     return response.text.trim();
@@ -659,8 +661,8 @@ export const getAIChiefAnalystSummary = async (
   try {
     const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-pro",
-      contents: prompt,
+      model: "gemini-3-pro-preview",
+      contents: { parts: [{ text: prompt }] },
     });
     return response.text.trim();
   } catch (error) {
@@ -690,8 +692,8 @@ export const generateFocusedStudyPlan = async (
     Format your response in clear Markdown. Use '###' for day headings. The tone should be supportive and targeted.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-pro",
-      contents: prompt,
+      model: "gemini-3-pro-preview",
+      contents: { parts: [{ text: prompt }] },
     });
 
     return response.text;
@@ -714,7 +716,7 @@ export const explainTopic = async (topic: string, apiKey: string): Promise<strin
     
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: prompt,
+      contents: { parts: [{ text: prompt }] },
     });
     
     return response.text;
@@ -723,6 +725,56 @@ export const explainTopic = async (topic: string, apiKey: string): Promise<strin
     console.error(`Error explaining topic "${topic}":`, error);
     throw new Error(`Failed to generate an explanation for "${topic}".`);
   }
+};
+
+export const generateGatekeeperQuiz = async (topic: string, apiKey: string): Promise<QuizQuestion[]> => {
+    try {
+        const ai = new GoogleGenAI({ apiKey });
+        const prompt = `Generate 3 distinct, conceptual multiple-choice questions for the JEE-level chapter "${topic}". The questions must test fundamental understanding, not just rote memorization. For each question, provide four options (A, B, C, D), identify the correct option letter, and give a brief explanation for the correct answer.`;
+        
+        const response = await ai.models.generateContent({
+            model: "gemini-3-pro-preview",
+            contents: { parts: [{ text: prompt }] },
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        quiz: {
+                            type: Type.ARRAY,
+                            description: "An array of 3 quiz questions.",
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    question: { type: Type.STRING },
+                                    options: {
+                                        type: Type.OBJECT,
+                                        properties: {
+                                            A: { type: Type.STRING },
+                                            B: { type: Type.STRING },
+                                            C: { type: Type.STRING },
+                                            D: { type: Type.STRING },
+                                        },
+                                        required: ["A", "B", "C", "D"]
+                                    },
+                                    answer: { type: Type.STRING, description: "The letter of the correct option (A, B, C, or D)." },
+                                    explanation: { type: Type.STRING, description: "A brief explanation for why the answer is correct." }
+                                },
+                                required: ["question", "options", "answer", "explanation"]
+                            }
+                        }
+                    },
+                    required: ["quiz"]
+                }
+            }
+        });
+
+        const parsedJson = JSON.parse(response.text);
+        return parsedJson.quiz;
+    } catch (error) {
+        console.error(`Error generating gatekeeper quiz for "${topic}":`, error);
+        throw new Error(`Failed to generate a quiz for "${topic}".`);
+    }
 };
 
 export const generateTasksFromGoal = async (goalText: string, apiKey: string): Promise<{ task: string, time: number }[]> => {
@@ -734,7 +786,7 @@ export const generateTasksFromGoal = async (goalText: string, apiKey: string): P
     
     const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
-        contents: prompt,
+        contents: { parts: [{ text: prompt }] },
         config: {
             responseMimeType: "application/json",
             responseSchema: {
@@ -793,7 +845,7 @@ export const generateSmartTasks = async (weakTopics: string[], apiKey: string): 
     
     const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
-        contents: prompt,
+        contents: { parts: [{ text: prompt }] },
         config: {
             responseMimeType: "application/json",
             responseSchema: {

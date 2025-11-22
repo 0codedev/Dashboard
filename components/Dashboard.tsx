@@ -52,20 +52,33 @@ const DEFAULT_DASHBOARD_LAYOUT: WidgetLayout[] = [
 
 // --- News Ticker Component ---
 const NewsTicker: React.FC<{ messages: string[] }> = ({ messages }) => {
+    const [isPaused, setIsPaused] = useState(false);
+
     if (messages.length === 0) return null;
+    
     return (
-        <div className="w-full bg-slate-900/50 border-b border-slate-800 overflow-hidden py-1 mb-4">
-            <div className="whitespace-nowrap animate-marquee inline-block">
+        <div 
+            className="w-full overflow-hidden py-2 mb-2 relative group cursor-default"
+            onMouseEnter={() => setIsPaused(true)}
+            onMouseLeave={() => setIsPaused(false)}
+        >
+            <div className="absolute left-0 top-0 bottom-0 w-10 bg-gradient-to-r from-slate-900 to-transparent z-10 pointer-events-none"></div>
+            <div className="absolute right-0 top-0 bottom-0 w-10 bg-gradient-to-l from-slate-900 to-transparent z-10 pointer-events-none"></div>
+            
+            <div 
+                className="whitespace-nowrap animate-marquee inline-block"
+                style={{ animationPlayState: isPaused ? 'paused' : 'running' }}
+            >
                 {messages.map((msg, i) => (
-                    <span key={i} className="mx-8 text-sm text-cyan-300 font-medium inline-flex items-center">
-                        <span className="w-2 h-2 bg-cyan-500 rounded-full mr-2 animate-pulse"></span>
+                    <span key={i} className="mx-8 text-sm text-cyan-300 font-bold inline-flex items-center drop-shadow-md tracking-wide">
+                        <span className="text-lg mr-2">⚡</span>
                         {msg}
                     </span>
                 ))}
                 {/* Duplicated for smooth loop */}
                 {messages.map((msg, i) => (
-                    <span key={`dup-${i}`} className="mx-8 text-sm text-cyan-300 font-medium inline-flex items-center">
-                        <span className="w-2 h-2 bg-cyan-500 rounded-full mr-2 animate-pulse"></span>
+                    <span key={`dup-${i}`} className="mx-8 text-sm text-cyan-300 font-bold inline-flex items-center drop-shadow-md tracking-wide">
+                        <span className="text-lg mr-2">⚡</span>
                         {msg}
                     </span>
                 ))}
@@ -76,10 +89,7 @@ const NewsTicker: React.FC<{ messages: string[] }> = ({ messages }) => {
                     100% { transform: translateX(-50%); }
                 }
                 .animate-marquee {
-                    animation: marquee 30s linear infinite;
-                }
-                .animate-marquee:hover {
-                    animation-play-state: paused;
+                    animation: marquee 40s linear infinite;
                 }
             `}</style>
         </div>
@@ -123,7 +133,10 @@ const ReadinessGauge: React.FC<{ score: number }> = ({ score }) => {
 
 const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
     const renderLine = (line: string) => {
-        const parts = line.split(/(\*\*.*?\*\*|\*.*?\*)/g).filter(Boolean);
+        // Remove markdown header characters for cleaner display
+        const cleanLine = line.replace(/^#+\s/, '');
+        
+        const parts = cleanLine.split(/(\*\*.*?\*\*|\*.*?\*)/g).filter(Boolean);
         return parts.map((part, i) => {
             if (part.startsWith('**') && part.endsWith('**')) {
                 return <strong key={i} className="text-white font-semibold">{part.slice(2, -2)}</strong>;
@@ -142,17 +155,35 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
 
-        if (line.startsWith('### ')) {
+        // Handle Headers
+        if (line.startsWith('### ') || line.startsWith('#### ')) {
             if (listItems.length > 0) {
                 elements.push(<ul key={`ul-${i}`} className="list-disc pl-5 my-2 space-y-1">{listItems}</ul>);
                 listItems = [];
             }
-            elements.push(<h3 key={i} className="text-xl font-bold mt-4 mb-2 text-cyan-300 border-b border-slate-700 pb-1">{renderLine(line.substring(4))}</h3>);
+            elements.push(
+                <h3 key={i} className="text-lg font-bold mt-4 mb-2 text-cyan-300 border-b border-slate-700/50 pb-1">
+                    {renderLine(line)}
+                </h3>
+            );
             continue;
         }
         
-        if (line.match(/^\s*\*\s/)) { 
-            listItems.push(<li key={i}>{renderLine(line.replace(/^\s*\*\s/, ''))}</li>);
+        if (line.startsWith('## ')) {
+             if (listItems.length > 0) {
+                elements.push(<ul key={`ul-${i}`} className="list-disc pl-5 my-2 space-y-1">{listItems}</ul>);
+                listItems = [];
+            }
+            elements.push(
+                <h2 key={i} className="text-xl font-bold mt-6 mb-3 text-white border-b border-slate-600 pb-2">
+                    {renderLine(line)}
+                </h2>
+            );
+            continue;
+        }
+        
+        if (line.match(/^\s*[-*]\s/)) { 
+            listItems.push(<li key={i} className="text-gray-300">{renderLine(line.replace(/^\s*[-*]\s/, ''))}</li>);
             continue;
         }
 
@@ -169,7 +200,7 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
                 elements.push(<div key={i} className="h-2"></div>);
             }
         } else {
-            elements.push(<p key={i} className="my-2 leading-relaxed">{renderLine(line)}</p>);
+            elements.push(<p key={i} className="my-1 leading-relaxed text-gray-300">{renderLine(line)}</p>);
         }
     }
     
@@ -178,7 +209,7 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
     }
 
     return (
-        <div className="prose prose-invert text-gray-300 max-w-full">{elements}</div>
+        <div className="prose prose-invert text-gray-300 max-w-full text-sm">{elements}</div>
     );
 };
 

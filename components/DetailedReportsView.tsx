@@ -1,13 +1,14 @@
-
 import React, { useMemo, useState, useEffect } from 'react';
 import type { TestReport, SubjectData } from '../types';
 import { exportReportsToCsv } from '../services/sheetParser';
+import { SUBJECT_COLORS } from '../constants';
 
 interface DetailedReportsViewProps {
     allReports: TestReport[];
     filteredReports: TestReport[];
     setReports: React.Dispatch<React.SetStateAction<TestReport[]>>;
     onViewQuestionLog: (testId: string) => void;
+    onDeleteReport: (testId: string) => void;
 }
 
 type SortKey =
@@ -42,40 +43,86 @@ const calculateFocusMetrics = (data: SubjectData) => {
 
 // --- Child Components ---
 
-const ComparisonRow: React.FC<{ label: string; valueA: number | string; valueB: number | string; higherIsBetter?: boolean; suffix?: string }> = ({ label, valueA, valueB, higherIsBetter = true, suffix = '' }) => {
-    const numA = parseFloat(String(valueA));
-    const numB = parseFloat(String(valueB));
-    const diff = numB - numA;
-    let trendIcon = '', trendColor = 'text-gray-400';
-    if (diff !== 0 && !isNaN(diff)) {
-        const isImprovement = higherIsBetter ? diff > 0 : diff < 0;
-        trendIcon = isImprovement ? '▲' : '▼';
-        trendColor = isImprovement ? 'text-green-400' : 'text-red-400';
-    }
+const DeleteConfirmationModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    onConfirm: () => void;
+}> = ({ isOpen, onClose, onConfirm }) => {
+    if (!isOpen) return null;
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[60] animate-fade-in" onClick={onClose}>
+            <div className="bg-slate-800 p-6 rounded-lg shadow-2xl w-11/12 max-w-md border border-slate-700 animate-scale-in" onClick={e => e.stopPropagation()}>
+                <h3 className="text-xl font-bold text-red-400 mb-2">Delete Report?</h3>
+                <p className="text-gray-300 mb-6 text-sm">Are you sure you want to delete this test report? This action cannot be undone and will remove all associated data.</p>
+                <div className="flex justify-end gap-3">
+                    <button onClick={onClose} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-md text-sm transition-colors">Cancel</button>
+                    <button onClick={onConfirm} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md text-sm font-bold transition-colors shadow-lg shadow-red-900/20">Delete Permanently</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// Updated Comparison Row to handle N values
+const ComparisonRow: React.FC<{ label: string; values: (number | string)[]; suffix?: string }> = ({ label, values, suffix = '' }) => {
     return (
         <tr className="border-b border-slate-700">
-            <td className="p-3 font-semibold text-gray-300">{label}</td>
-            <td className="p-3 text-center">{valueA}{suffix}</td>
-            <td className="p-3 text-center"><div className="flex items-center justify-center gap-2"><span>{valueB}{suffix}</span><span className={trendColor}>{trendIcon}</span></div></td>
+            <td className="p-3 font-semibold text-gray-300 sticky left-0 bg-slate-800 z-10">{label}</td>
+            {values.map((val, idx) => (
+                <td key={idx} className="p-3 text-center min-w-[120px]">{val}{suffix}</td>
+            ))}
         </tr>
     );
 };
 
-const ComparisonModal: React.FC<{ reports: [TestReport, TestReport] | null, onClose: () => void, isOpen: boolean }> = ({ reports, onClose, isOpen }) => {
-    if (!isOpen || !reports) return null;
-    const [testA, testB] = reports;
+const ComparisonModal: React.FC<{ reports: TestReport[] | null, onClose: () => void, isOpen: boolean }> = ({ reports, onClose, isOpen }) => {
+    if (!isOpen || !reports || reports.length === 0) return null;
+    
+    // Sort reports by date to show progression left-to-right
+    const sortedReports = [...reports].sort((a, b) => new Date(a.testDate).getTime() - new Date(b.testDate).getTime());
+
     return (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 animate-fade-in" onClick={onClose}>
-            <div className="bg-slate-800 p-6 rounded-lg shadow-2xl w-11/12 max-w-4xl border border-slate-700 animate-scale-in" onClick={e => e.stopPropagation()}>
-                <div className="flex justify-between items-center mb-4"><h2 className="text-2xl font-bold text-cyan-300">Test Comparison</h2><button onClick={onClose} className="text-gray-400 hover:text-white text-3xl leading-none">&times;</button></div>
-                <div className="overflow-x-auto"><table className="min-w-full bg-slate-800 rounded-lg text-sm"><thead className="bg-slate-700/50"><tr><th className="p-3 text-left">Metric</th><th className="p-3 text-center">{testA.testName}</th><th className="p-3 text-center">{testB.testName}</th></tr></thead><tbody>
-                    <ComparisonRow label="Total Marks" valueA={testA.total.marks} valueB={testB.total.marks} />
-                    <ComparisonRow label="Total Rank" valueA={testA.total.rank} valueB={testB.total.rank} higherIsBetter={false}/>
-                    <ComparisonRow label="Accuracy" valueA={testA.totalMetrics?.accuracy.toFixed(1) ?? 'N/A'} valueB={testB.totalMetrics?.accuracy.toFixed(1) ?? 'N/A'} suffix="%" />
-                    <ComparisonRow label="Physics Marks" valueA={testA.physics.marks} valueB={testB.physics.marks} />
-                    <ComparisonRow label="Chemistry Marks" valueA={testA.chemistry.marks} valueB={testB.chemistry.marks} />
-                    <ComparisonRow label="Maths Marks" valueA={testA.maths.marks} valueB={testB.maths.marks} />
-                </tbody></table></div>
+            <div className="bg-slate-800 p-6 rounded-lg shadow-2xl w-11/12 max-w-6xl border border-slate-700 animate-scale-in flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-2xl font-bold text-cyan-300">Multi-Test Comparison</h2>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white text-3xl leading-none">&times;</button>
+                </div>
+                <div className="overflow-auto flex-grow custom-scrollbar">
+                    <table className="min-w-full bg-slate-800 rounded-lg text-sm border-collapse">
+                        <thead className="bg-slate-700/50 sticky top-0 z-20">
+                            <tr>
+                                <th className="p-3 text-left sticky left-0 bg-slate-700 z-30 shadow-lg">Metric</th>
+                                {sortedReports.map(r => (
+                                    <th key={r.id} className="p-3 text-center min-w-[120px] whitespace-nowrap">
+                                        <div className="font-bold text-white">{r.testName}</div>
+                                        <div className="text-xs text-gray-400 font-normal">{new Date(r.testDate).toLocaleDateString()}</div>
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <ComparisonRow label="Total Marks" values={sortedReports.map(r => r.total.marks)} />
+                            <ComparisonRow label="Total Rank" values={sortedReports.map(r => r.total.rank)} />
+                            <ComparisonRow label="Accuracy" values={sortedReports.map(r => r.totalMetrics?.accuracy.toFixed(1) ?? 'N/A')} suffix="%" />
+                            
+                            <tr className="bg-slate-700/30"><td colSpan={sortedReports.length + 1} className="p-2 text-xs font-bold text-cyan-400 uppercase tracking-wider sticky left-0 bg-slate-700/30">Physics</td></tr>
+                            <ComparisonRow label="Marks" values={sortedReports.map(r => r.physics.marks)} />
+                            <ComparisonRow label="Correct" values={sortedReports.map(r => r.physics.correct)} />
+                            <ComparisonRow label="Wrong" values={sortedReports.map(r => r.physics.wrong)} />
+
+                            <tr className="bg-slate-700/30"><td colSpan={sortedReports.length + 1} className="p-2 text-xs font-bold text-emerald-400 uppercase tracking-wider sticky left-0 bg-slate-700/30">Chemistry</td></tr>
+                            <ComparisonRow label="Marks" values={sortedReports.map(r => r.chemistry.marks)} />
+                            <ComparisonRow label="Correct" values={sortedReports.map(r => r.chemistry.correct)} />
+                            <ComparisonRow label="Wrong" values={sortedReports.map(r => r.chemistry.wrong)} />
+
+                            <tr className="bg-slate-700/30"><td colSpan={sortedReports.length + 1} className="p-2 text-xs font-bold text-red-400 uppercase tracking-wider sticky left-0 bg-slate-700/30">Maths</td></tr>
+                            <ComparisonRow label="Marks" values={sortedReports.map(r => r.maths.marks)} />
+                            <ComparisonRow label="Correct" values={sortedReports.map(r => r.maths.correct)} />
+                            <ComparisonRow label="Wrong" values={sortedReports.map(r => r.maths.wrong)} />
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     );
@@ -274,16 +321,17 @@ const ReportCard: React.FC<{
     isDropTarget: boolean;
     onCardClick: () => void;
     onViewQuestionLog: (testId: string) => void;
+    onDelete: () => void;
     onDeepDive: () => void;
     isComparisonMode: boolean;
     dragProps: any;
-}> = ({ report, subjectAverages, subjectMaxScores, getConditionalClass, isSelected, isDragged, isDropTarget, onCardClick, onViewQuestionLog, onDeepDive, isComparisonMode, dragProps }) => {
+}> = ({ report, subjectAverages, subjectMaxScores, getConditionalClass, isSelected, isDragged, isDropTarget, onCardClick, onViewQuestionLog, onDelete, onDeepDive, isComparisonMode, dragProps }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     
     const indicatorData = [
-        { name: 'Physics', score: report.physics.marks, average: subjectAverages.physics, max: subjectMaxScores.physics, color: '#3B82F6' },
-        { name: 'Chemistry', score: report.chemistry.marks, average: subjectAverages.chemistry, max: subjectMaxScores.chemistry, color: '#34D399' },
-        { name: 'Maths', score: report.maths.marks, average: subjectAverages.maths, max: subjectMaxScores.maths, color: '#F87171' },
+        { name: 'Physics', score: report.physics.marks, average: subjectAverages.physics, max: subjectMaxScores.physics, color: SUBJECT_COLORS.physics },
+        { name: 'Chemistry', score: report.chemistry.marks, average: subjectAverages.chemistry, max: subjectMaxScores.chemistry, color: SUBJECT_COLORS.chemistry },
+        { name: 'Maths', score: report.maths.marks, average: subjectAverages.maths, max: subjectMaxScores.maths, color: SUBJECT_COLORS.maths },
     ];
     
     const subjects: ('physics' | 'chemistry' | 'maths' | 'total')[] = ['physics', 'chemistry', 'maths', 'total'];
@@ -299,9 +347,11 @@ const ReportCard: React.FC<{
                     <h3 className="text-lg font-bold text-cyan-300">{report.testName}</h3>
                     <p className="text-xs text-gray-400">{new Date(report.testDate + "T00:00:00").toLocaleDateString()}</p>
                 </div>
-                <button onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }} className="p-1 rounded-full hover:bg-slate-700">
-                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                </button>
+                <div className="flex items-center gap-1">
+                    <button onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }} className="p-1 rounded-full hover:bg-slate-700">
+                        <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                    </button>
+                </div>
             </div>
             
             <div className="grid grid-cols-3 gap-4 text-center my-4">
@@ -342,29 +392,40 @@ const ReportCard: React.FC<{
                     <button onClick={(e) => { e.stopPropagation(); onViewQuestionLog(report.id); }} className="flex-1 text-xs bg-indigo-600/50 hover:bg-indigo-600 text-white font-semibold py-1 px-3 rounded-full">View Question Log</button>
                     <button onClick={(e) => { e.stopPropagation(); onDeepDive(); }} className="flex-1 text-xs bg-cyan-600/50 hover:bg-cyan-600 text-white font-semibold py-1 px-3 rounded-full">Deep Dive</button>
                  </div>
+                 <div className="mt-4 pt-2 border-t border-slate-700/30 flex justify-end">
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                        className="text-[10px] text-red-400/60 hover:text-red-400 hover:underline transition-colors flex items-center gap-1"
+                        title="Permanently delete this report"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        Delete Report
+                    </button>
+                 </div>
             </div>
         </div>
     );
 };
 
 
-export const DetailedReportsView: React.FC<DetailedReportsViewProps> = ({ allReports, filteredReports, setReports, onViewQuestionLog }) => {
+export const DetailedReportsView: React.FC<DetailedReportsViewProps> = ({ allReports, filteredReports, setReports, onViewQuestionLog, onDeleteReport }) => {
     const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: SortDirection }>({ key: 'testDate', direction: 'descending' });
     const [selectedForCompare, setSelectedForCompare] = useState<Set<string>>(new Set());
     const [isCompareModalOpen, setIsCompareModalOpen] = useState(false);
     const [enableConditionalFormatting, setEnableConditionalFormatting] = useState(true);
     const [isComparisonModeEnabled, setIsComparisonModeEnabled] = useState(false); // Changed default to false
     const [focusReport, setFocusReport] = useState<TestReport | null>(null);
+    const [reportToDelete, setReportToDelete] = useState<string | null>(null);
 
     const [draggedReportId, setDraggedReportId] = useState<string | null>(null);
     const [dropTargetId, setDropTargetId] = useState<string | null>(null);
 
     const comparisonReports = useMemo(() => {
-        if (selectedForCompare.size !== 2) return null;
+        if (selectedForCompare.size < 2) return null;
         const ids = Array.from(selectedForCompare);
-        const reportA = filteredReports.find(r => r.id === ids[0]);
-        const reportB = filteredReports.find(r => r.id === ids[1]);
-        return reportA && reportB ? [reportA, reportB] as [TestReport, TestReport] : null;
+        return filteredReports.filter(r => ids.includes(r.id));
     }, [selectedForCompare, filteredReports]);
 
     const requestSort = (key: SortKey) => {
@@ -380,7 +441,7 @@ export const DetailedReportsView: React.FC<DetailedReportsViewProps> = ({ allRep
                 if (newSet.has(report.id)) {
                     newSet.delete(report.id);
                 } else {
-                    if (newSet.size < 2) newSet.add(report.id);
+                    newSet.add(report.id);
                 }
                 return newSet;
             });
@@ -391,7 +452,14 @@ export const DetailedReportsView: React.FC<DetailedReportsViewProps> = ({ allRep
 
     const handleExport = () => { exportReportsToCsv(filteredReports); };
     
-    // --- Drag & Drop Handlers ---
+    const confirmDelete = () => {
+        if (reportToDelete) {
+            onDeleteReport(reportToDelete);
+            setReportToDelete(null);
+        }
+    };
+
+    // --- Drag & Drop Handlers (Strictly for 2-item comparison) ---
     const handleDragStart = (e: React.DragEvent, reportId: string) => { e.dataTransfer.setData('text/plain', reportId); setDraggedReportId(reportId); };
     const handleDragOver = (e: React.DragEvent, reportId: string) => { e.preventDefault(); if (reportId !== draggedReportId) setDropTargetId(reportId); };
     const handleDragLeave = () => setDropTargetId(null);
@@ -399,6 +467,7 @@ export const DetailedReportsView: React.FC<DetailedReportsViewProps> = ({ allRep
         e.preventDefault();
         const dragReportId = e.dataTransfer.getData('text/plain');
         if (dragReportId && dragReportId !== dropReportId) {
+            // Strictly set only these two for Drag & Drop comparison
             setSelectedForCompare(new Set([dragReportId, dropReportId]));
             setIsCompareModalOpen(true);
         }
@@ -493,7 +562,7 @@ export const DetailedReportsView: React.FC<DetailedReportsViewProps> = ({ allRep
                         /> 
                         Enable Comparison
                     </label>
-                    <button onClick={() => setIsCompareModalOpen(true)} disabled={selectedForCompare.size !== 2 || !isComparisonModeEnabled} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Compare Selected ({selectedForCompare.size}/2)</button>
+                    <button onClick={() => setIsCompareModalOpen(true)} disabled={selectedForCompare.size < 2 || !isComparisonModeEnabled} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Compare Selected ({selectedForCompare.size})</button>
                     <button onClick={handleExport} title="Export to CSV" className="bg-green-600 hover:bg-green-700 text-white font-bold p-2 rounded-full h-10 w-10 flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg></button>
                 </div>
             </div>
@@ -534,6 +603,7 @@ export const DetailedReportsView: React.FC<DetailedReportsViewProps> = ({ allRep
                             isDropTarget={dropTargetId === report.id}
                             onCardClick={() => handleCardClick(report)}
                             onViewQuestionLog={onViewQuestionLog}
+                            onDelete={() => setReportToDelete(report.id)}
                             onDeepDive={() => setFocusReport(report)}
                             isComparisonMode={isComparisonModeEnabled}
                             dragProps={dragProps}
@@ -544,8 +614,9 @@ export const DetailedReportsView: React.FC<DetailedReportsViewProps> = ({ allRep
 
             {sortedData.length === 0 && <p className="text-center text-gray-400 py-8">No reports found for the selected criteria.</p>}
             
-            <ComparisonModal isOpen={isCompareModalOpen && !!comparisonReports} reports={comparisonReports} onClose={() => { setIsCompareModalOpen(false); setSelectedForCompare(new Set()); }}/>
+            <ComparisonModal isOpen={isCompareModalOpen && !!comparisonReports} reports={comparisonReports} onClose={() => { setIsCompareModalOpen(false); }}/>
             <FocusModeModal report={focusReport} allReports={allReports} setReports={setReports} onClose={() => setFocusReport(null)} />
+            <DeleteConfirmationModal isOpen={!!reportToDelete} onClose={() => setReportToDelete(null)} onConfirm={confirmDelete} />
         </div>
     );
 };

@@ -54,58 +54,62 @@ export const PaperStrategyWidget: React.FC<{
     userTargetTimes?: { physics: number, chemistry: number, maths: number } 
 }> = ({ historicalAccuracy, userTargetTimes }) => {
     const [examType, setExamType] = useState<'mains' | 'advanced'>('mains');
-    // Default Strategy: 60 mins each if no user setting
-    const [timeAlloc, setTimeAlloc] = useState({ 
-        physics: 60, 
-        chemistry: 60, 
-        maths: 60 
-    });
+    const [subjectOrder, setSubjectOrder] = useState<('physics' | 'chemistry' | 'maths')[]>(['physics', 'chemistry', 'maths']);
+    
+    const [timeAlloc, setTimeAlloc] = useState({ physics: 60, chemistry: 60, maths: 60 });
     const [attemptTarget, setAttemptTarget] = useState({ physics: 20, chemistry: 20, maths: 15 });
+    const [confidence, setConfidence] = useState({ physics: 50, chemistry: 50, maths: 50 });
 
     useEffect(() => {
         if (examType === 'mains') {
-            // Mains: 25 attempts is max to score (out of 30 available)
             setAttemptTarget({ physics: 20, chemistry: 20, maths: 15 });
         } else {
-            // Advanced: ~18-20 q total per subject, usually 60 marks
             setAttemptTarget({ physics: 12, chemistry: 12, maths: 8 });
         }
     }, [examType]);
 
-    const maxAttempts = examType === 'mains' ? 25 : 18; // Cap sliders
+    const maxAttempts = examType === 'mains' ? 25 : 18;
 
     const stats = useMemo(() => {
-        const subjects = ['physics', 'chemistry', 'maths'] as const;
         let totalScore = 0;
         let maxPotential = 0;
+        let riskScore = 0; // 0 to 100
         
-        // Safe defaults if user profile not set
-        const safeTargetTimes: { physics: number; chemistry: number; maths: number } = userTargetTimes || { physics: 120, chemistry: 60, maths: 150 }; // Defaults in seconds
+        const safeTargetTimes: { physics: number; chemistry: number, maths: number } = userTargetTimes || { physics: 120, chemistry: 60, maths: 150 }; 
 
-        const subjectStats = subjects.map(sub => {
+        const subjectStats = subjectOrder.map((sub, index) => {
             const time = timeAlloc[sub];
             const attempts = attemptTarget[sub];
-            const timePerQ = attempts > 0 ? time / attempts : 0; // in minutes
+            const conf = confidence[sub] / 100;
+            const timePerQ = attempts > 0 ? time / attempts : 0; // minutes
             
-            // Panic Factor: Logic updated to use user-defined targets (converted to minutes)
-            const panicThreshold = safeTargetTimes[sub] / 60; 
+            const idealTimePerQ = safeTargetTimes[sub] / 60; 
+            
+            // Non-linear Panic Factor: Exponential decay if time is compressed
+            // Adjusted by confidence: Higher confidence mitigates panic
             
             let panicFactor = 1;
-            if (timePerQ < panicThreshold) {
-                // Linearly decay accuracy if rushing below target
-                panicFactor = Math.max(0.5, timePerQ / panicThreshold);
+            if (timePerQ < idealTimePerQ) {
+                const ratio = timePerQ / idealTimePerQ;
+                // Steep drop off below 70% of ideal time, mitigated by confidence
+                // If confidence is 1.0, exponent is smaller -> less drop
+                const panicExponent = 1.5 * (1 - (conf * 0.5)); 
+                panicFactor = Math.pow(ratio, panicExponent); 
             }
 
+            // Fatigue Factor based on order
+            // 1st subject: 1.0, 2nd: 0.95, 3rd: 0.90 (Simple decay)
+            const fatigueFactor = 1 - (index * 0.05);
+
             const baseAcc = (historicalAccuracy[sub] || 50) / 100;
-            const effectiveAcc = baseAcc * panicFactor;
+            
+            // Effective accuracy heavily influenced by panic and fatigue
+            // Confidence slightly boosts base accuracy interpretation (better mindset)
+            const effectiveAcc = Math.min(1, (baseAcc + (conf * 0.05)) * panicFactor * fatigueFactor);
             
             const expectedCorrect = attempts * effectiveAcc;
             const expectedWrong = attempts * (1 - effectiveAcc);
             
-            // Score Calc: +4, -1 logic
-            // Mains: 4/-1. Advanced: Varies, but often 3/-1 or 4/-1. Using 4/-1 as base for simulation.
-            // For Advanced (Total ~180), typical max mark per question is ~3 or 4. 
-            // If Total is 180 for 54 questions -> ~3.33 marks/q. Let's use +4/-1 for Mains, +3/-1 for Advanced estimation.
             const marksPerCorrect = examType === 'mains' ? 4 : 3;
             const marksPerWrong = 1;
 
@@ -114,90 +118,116 @@ export const PaperStrategyWidget: React.FC<{
             totalScore += score;
             maxPotential += attempts * marksPerCorrect;
 
+            // Risk Calc: High attempts with low time contributes massively to risk
+            if (attempts > 0) {
+                const subjectRisk = (idealTimePerQ - timePerQ) > 0 ? (idealTimePerQ - timePerQ) / idealTimePerQ : 0;
+                riskScore += subjectRisk * (attempts / maxAttempts) * 33 * (1 - conf); // High confidence reduces risk perception
+            }
+
             return {
                 subject: sub,
                 score: Math.round(score),
                 timePerQ: timePerQ.toFixed(1),
-                panicFactor: Math.round((1 - panicFactor) * 100), // % drop due to panic
-                targetTime: panicThreshold.toFixed(1)
+                panicDrop: Math.round((1 - panicFactor) * 100),
+                fatigueDrop: Math.round((1 - fatigueFactor) * 100),
+                targetTime: idealTimePerQ.toFixed(1)
             };
         });
 
-        return { totalScore: Math.round(totalScore), maxPotential, subjectStats };
-    }, [timeAlloc, attemptTarget, historicalAccuracy, userTargetTimes, examType]);
+        return { totalScore: Math.round(totalScore), maxPotential, subjectStats, riskScore: Math.min(100, Math.max(0, riskScore)) };
+    }, [timeAlloc, attemptTarget, confidence, historicalAccuracy, userTargetTimes, examType, subjectOrder]);
 
-    const totalTime: number = (Object.values(timeAlloc) as number[]).reduce((a, b) => a + b, 0);
+    const totalTime = (Object.values(timeAlloc) as number[]).reduce((a, b) => a + b, 0);
     
     const handleTimeChange = (sub: string, val: number) => setTimeAlloc(p => ({...p, [sub]: val}));
     const handleAttemptChange = (sub: string, val: number) => setAttemptTarget(p => ({...p, [sub]: val}));
+    const handleConfidenceChange = (sub: string, val: number) => setConfidence(p => ({...p, [sub]: val}));
+    
+    const cycleOrder = () => {
+        // Rotate array: [P, C, M] -> [M, P, C] -> [C, M, P]
+        setSubjectOrder(prev => [prev[2], prev[0], prev[1]]);
+    };
 
     return (
         <div className="flex flex-col h-full gap-4">
             <div className="flex justify-between items-center border-b border-slate-700 pb-2">
                 <div className="flex gap-2">
-                    <button 
-                        onClick={() => setExamType('mains')} 
-                        className={`text-[10px] px-2 py-1 rounded transition-colors ${examType === 'mains' ? 'bg-cyan-600 text-white' : 'bg-slate-700 text-gray-400'}`}
-                    >
-                        Mains (300)
-                    </button>
-                    <button 
-                        onClick={() => setExamType('advanced')} 
-                        className={`text-[10px] px-2 py-1 rounded transition-colors ${examType === 'advanced' ? 'bg-cyan-600 text-white' : 'bg-slate-700 text-gray-400'}`}
-                    >
-                        Adv (180)
-                    </button>
+                    <button onClick={() => setExamType('mains')} className={`text-[10px] px-2 py-1 rounded transition-colors ${examType === 'mains' ? 'bg-cyan-600 text-white' : 'bg-slate-700 text-gray-400'}`}>Mains</button>
+                    <button onClick={() => setExamType('advanced')} className={`text-[10px] px-2 py-1 rounded transition-colors ${examType === 'advanced' ? 'bg-cyan-600 text-white' : 'bg-slate-700 text-gray-400'}`}>Advanced</button>
                 </div>
-                <div className="text-right">
-                    <p className="text-xs text-gray-400">Projected Score</p>
-                    <p className="text-2xl font-bold text-cyan-300 tabular-nums">{stats.totalScore} <span className="text-xs text-gray-500 font-normal">/ {examType === 'mains' ? '300' : '180'}</span></p>
+                
+                <div className="flex items-center gap-2">
+                    <div className="text-right">
+                        <p className="text-[10px] text-gray-400">Strategy Risk</p>
+                        <div className="w-20 h-1.5 bg-slate-700 rounded-full mt-1">
+                            <div className={`h-full rounded-full ${stats.riskScore > 60 ? 'bg-red-500' : stats.riskScore > 30 ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${stats.riskScore}%` }}></div>
+                        </div>
+                    </div>
+                    <div className="text-right pl-4 border-l border-slate-700">
+                        <p className="text-xs text-gray-400">Est. Score</p>
+                        <p className="text-xl font-bold text-cyan-300 tabular-nums">{stats.totalScore}</p>
+                    </div>
                 </div>
             </div>
             
+            <div className="flex justify-between items-center px-1">
+                <span className="text-xs text-gray-400">Order: <strong className="text-white uppercase tracking-wider">{subjectOrder.map(s => s[0]).join(' > ')}</strong></span>
+                <button onClick={cycleOrder} className="text-[10px] bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded">Rotate</button>
+            </div>
+
             <div className="flex-grow grid grid-cols-1 md:grid-cols-3 gap-4 overflow-y-auto pr-2 custom-scrollbar">
-                {stats.subjectStats.map(stat => (
-                    <div key={stat.subject} className="bg-slate-900/50 p-2 rounded border border-slate-700 space-y-2">
-                        <div className="flex justify-between items-center">
+                {stats.subjectStats.map((stat, idx) => (
+                    <div key={stat.subject} className="bg-slate-900/50 p-3 rounded border border-slate-700 relative">
+                        <div className="absolute top-2 right-2 text-[10px] font-bold text-gray-600">#{idx + 1}</div>
+                        <div className="flex justify-between items-center mb-2">
                             <span className="capitalize font-semibold text-gray-300 text-sm">{stat.subject}</span>
-                            <span className={`text-xs px-1.5 rounded ${stat.panicFactor > 10 ? 'bg-red-900 text-red-300' : 'bg-green-900 text-green-300'}`}>
-                                {stat.timePerQ} m/Q
+                            <span className={`text-[10px] px-1.5 rounded ${stat.panicDrop > 15 ? 'bg-red-900/50 text-red-300' : 'bg-slate-800 text-gray-400'}`}>
+                                -{stat.fatigueDrop + stat.panicDrop}% Eff.
                             </span>
                         </div>
                         
-                        <div>
-                            <label className="text-[10px] text-gray-500 flex justify-between"><span>Time (min)</span> <span>{timeAlloc[stat.subject as keyof typeof timeAlloc]}</span></label>
-                            <input 
-                                type="range" min="0" max="120" step="5" 
-                                value={timeAlloc[stat.subject as keyof typeof timeAlloc]} 
-                                onChange={(e) => handleTimeChange(stat.subject, parseInt(e.target.value))} 
-                                className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[rgb(var(--color-primary-rgb))]"
-                            />
+                        <div className="space-y-2">
+                            <div>
+                                <label className="text-[10px] text-gray-500 flex justify-between"><span>Time (min)</span> <span>{timeAlloc[stat.subject as keyof typeof timeAlloc]}</span></label>
+                                <input 
+                                    type="range" min="0" max="120" step="5" 
+                                    value={timeAlloc[stat.subject as keyof typeof timeAlloc]} 
+                                    onChange={(e) => handleTimeChange(stat.subject, parseInt(e.target.value))} 
+                                    className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[rgb(var(--color-primary-rgb))]"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[10px] text-gray-500 flex justify-between"><span>Attempts</span> <span>{attemptTarget[stat.subject as keyof typeof attemptTarget]}</span></label>
+                                <input 
+                                    type="range" min="0" max={maxAttempts} step="1" 
+                                    value={attemptTarget[stat.subject as keyof typeof attemptTarget]} 
+                                    onChange={(e) => handleAttemptChange(stat.subject, parseInt(e.target.value))} 
+                                    className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[rgb(var(--color-primary-rgb))]"
+                                />
+                            </div>
+                            <div className="pt-1 border-t border-slate-800/50">
+                                <label className="text-[10px] text-gray-500 flex justify-between"><span>Confidence</span> <span className={confidence[stat.subject as keyof typeof confidence] > 70 ? 'text-green-400' : 'text-gray-400'}>{confidence[stat.subject as keyof typeof confidence]}%</span></label>
+                                <input 
+                                    type="range" min="0" max="100" step="10" 
+                                    value={confidence[stat.subject as keyof typeof confidence]} 
+                                    onChange={(e) => handleConfidenceChange(stat.subject, parseInt(e.target.value))} 
+                                    className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                                />
+                            </div>
                         </div>
-                        <div>
-                            <label className="text-[10px] text-gray-500 flex justify-between"><span>Attempts</span> <span>{attemptTarget[stat.subject as keyof typeof attemptTarget]}</span></label>
-                            <input 
-                                type="range" min="0" max={maxAttempts} step="1" 
-                                value={attemptTarget[stat.subject as keyof typeof attemptTarget]} 
-                                onChange={(e) => handleAttemptChange(stat.subject, parseInt(e.target.value))} 
-                                className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[rgb(var(--color-primary-rgb))]"
-                            />
-                        </div>
-                         <div className="flex justify-between items-end pt-1">
-                             <div className="text-[10px] text-gray-400">
-                                 Est. Score: <span className="text-white font-bold">{stat.score}</span>
-                             </div>
-                             {stat.panicFactor > 0 ? (
-                                <span className="text-[9px] text-red-400 animate-pulse" title={`Target: >${stat.targetTime}m`}>Panic: -{stat.panicFactor}% acc</span>
-                             ) : (
-                                <span className="text-[9px] text-gray-500" title={`Target: >${stat.targetTime}m`}>Pace: OK</span>
-                             )}
+                         <div className="flex justify-between items-end pt-2 mt-1 border-t border-slate-700/30">
+                             <span className="text-[10px] text-gray-400">Score: <strong className="text-white">{stat.score}</strong></span>
+                             <span className={`text-[9px] ${parseFloat(stat.timePerQ) < parseFloat(stat.targetTime) ? 'text-red-400' : 'text-green-400'}`}>
+                                {stat.timePerQ}m / {stat.targetTime}m
+                             </span>
                          </div>
                     </div>
                 ))}
             </div>
-            <div className="flex justify-between items-center text-[10px] text-gray-500">
-                <span>Total Time: <span className={`${totalTime > 180 ? 'text-red-400' : 'text-green-400'}`}>{totalTime}/180m</span></span>
-                <span>Adjust targets in Settings.</span>
+            
+            <div className="flex justify-between items-center text-[10px] text-gray-500 bg-slate-800/30 p-2 rounded">
+                <span>Total Time: <span className={`${totalTime > 180 ? 'text-red-400' : 'text-green-400 font-bold'}`}>{totalTime}</span> / 180 min</span>
+                <span>{totalTime > 180 ? 'Over limit!' : `${180 - totalTime}m buffer`}</span>
             </div>
         </div>
     );

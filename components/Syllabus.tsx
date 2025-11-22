@@ -1,12 +1,16 @@
 
-import React, { useState, useMemo, useCallback } from 'react';
-import type { UserProfile, QuestionLog, ChapterProgress, TestReport } from '../types';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import type { UserProfile, QuestionLog, ChapterProgress, TestReport, QuizQuestion } from '../types';
 import { TargetExam, SyllabusStatus, QuestionStatus, ErrorReason, TestType } from '../types';
 import { JEE_SYLLABUS, SUBJECT_CONFIG, TOPIC_WEIGHTAGE, TOPIC_DEPENDENCIES, SUBJECT_COLORS } from '../constants';
 import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip as RechartsTooltip } from 'recharts';
 import Modal from './common/Modal';
-import { explainTopic } from '../services/geminiService';
+import { explainTopic, generateGatekeeperQuiz } from '../services/geminiService';
 import { SyllabusSunburst } from './visualizations/SyllabusSunburst';
+import { SyllabusSubwayMap } from './visualizations/SyllabusSubwayMap';
+import { SyllabusRiverFlow } from './visualizations/SyllabusRiverFlow';
+import { SyllabusTree } from './visualizations/SyllabusTree';
+
 
 interface SyllabusProps {
     userProfile: UserProfile;
@@ -27,16 +31,153 @@ const COLORS_PIE: Record<string, string> = {
     [ErrorReason.Guess]: '#A78BFA', // violet-400
 };
 
+// --- Strategic Planner Component ---
+const StrategicPlanner: React.FC<{ userProfile: UserProfile }> = ({ userProfile }) => {
+    const { velocity, requiredVelocity, isOnTrack, remainingChapters, daysLeft } = useMemo(() => {
+        const completed = Object.values(userProfile.syllabus)
+            .filter(p => p?.completionDate && (p.status === SyllabusStatus.Completed || p.status === SyllabusStatus.Revising))
+            .map(p => ({ date: new Date(p!.completionDate!) }))
+            .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+        const allChaptersCount = Object.values(JEE_SYLLABUS).flatMap(subject => subject.flatMap(unit => unit.chapters)).length;
+        const remaining = allChaptersCount - completed.length;
+
+        let actualVel = 0;
+        if (completed.length >= 2) {
+            const firstDate = completed[0].date;
+            const lastDate = completed[completed.length - 1].date;
+            const daysElapsed = (lastDate.getTime() - firstDate.getTime()) / (1000 * 60 * 60 * 24) || 1;
+            actualVel = (completed.length / daysElapsed) * 7;
+        }
+
+        let requiredVel: number | null = null;
+        let onTrackStatus: 'ahead' | 'behind' | 'on_track' | null = null;
+        let days = 0;
+
+        if (userProfile.targetExamDate) {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            const examDate = new Date(userProfile.targetExamDate);
+            examDate.setHours(0,0,0,0);
+            
+            const diffTime = examDate.getTime() - today.getTime();
+            days = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            if (remaining > 0) {
+                const bufferDays = userProfile.syllabusCompletionBufferDays ?? 90;
+                const targetCompletionDate = new Date(examDate);
+                targetCompletionDate.setDate(examDate.getDate() - bufferDays);
+
+                const daysForStudy = (targetCompletionDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
+
+                if (daysForStudy > 0) {
+                    requiredVel = (remaining / daysForStudy) * 7;
+                    if (actualVel > requiredVel) onTrackStatus = 'ahead';
+                    else if (actualVel < requiredVel * 0.9) onTrackStatus = 'behind';
+                    else onTrackStatus = 'on_track';
+                } else {
+                    requiredVel = Infinity;
+                    onTrackStatus = 'behind';
+                }
+            }
+        }
+        
+        return { 
+            velocity: actualVel, 
+            requiredVelocity: requiredVel, 
+            isOnTrack: onTrackStatus, 
+            remainingChapters: remaining,
+            daysLeft: days
+        };
+    }, [userProfile]);
+
+    const statusConfig = {
+        ahead: { text: 'Ahead', color: 'text-green-400', icon: '🚀' },
+        on_track: { text: 'On Track', color: 'text-cyan-400', icon: '👍' },
+        behind: { text: 'Behind', color: 'text-red-400', icon: '⚠️' },
+        null: { text: 'N/A', color: 'text-gray-400', icon: '❓' },
+    };
+    const currentStatus = statusConfig[isOnTrack || 'null'];
+
+    return (
+        <div className="glass-panel p-4 rounded-xl mb-6 relative overflow-hidden transition-all text-center">
+             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 items-center justify-around relative z-10">
+                <div><p className="text-xs text-gray-400">Actual Velocity</p><p className="text-2xl font-bold text-white tabular-nums">{velocity.toFixed(1)} <span className="text-sm text-gray-400">ch/wk</span></p></div>
+                <div><p className="text-xs text-gray-400">Required Velocity</p><p className="text-2xl font-bold text-white tabular-nums">{requiredVelocity === null ? 'N/A' : isFinite(requiredVelocity) ? requiredVelocity.toFixed(1) : '∞'} <span className="text-sm text-gray-400">ch/wk</span></p></div>
+                <div><p className="text-xs text-gray-400">Chapters Left</p><p className="text-2xl font-bold text-white tabular-nums">{remainingChapters}</p></div>
+                <div className="flex flex-col items-center">
+                    <div className="flex items-center gap-4">
+                        <div>
+                            <p className="text-xs text-gray-400">Status</p>
+                            <p className={`text-xl font-bold flex items-center justify-center gap-2 ${currentStatus.color}`}>
+                                <span>{currentStatus.icon}</span>
+                                <span>{currentStatus.text}</span>
+                            </p>
+                        </div>
+                        <div className="w-px h-8 bg-slate-700 mx-2"></div>
+                        <div>
+                            <p className="text-xs text-gray-400">Days Left</p>
+                            <p className="text-xl font-bold text-white tabular-nums">{daysLeft > 0 ? daysLeft : 'Set Date'}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
+// --- Skeleton Loader for AI Explanation ---
+const SkeletonText: React.FC = () => (
+    <div className="space-y-4 animate-shimmer p-4">
+        <div className="h-4 bg-slate-700/50 rounded w-3/4"></div>
+        <div className="h-4 bg-slate-700/50 rounded w-full"></div>
+        <div className="h-4 bg-slate-700/50 rounded w-full"></div>
+        <div className="h-4 bg-slate-700/50 rounded w-5/6"></div>
+    </div>
+);
+
+
+// Mastery Calculation Helpers
+const calculateMasteryScore = (topic: string, logs: QuestionLog[], status: SyllabusStatus | undefined) => {
+    let score = 1000; // Base ELO for Novice
+    
+    const topicLogs = logs.filter(l => l.topic === topic);
+    topicLogs.forEach(l => {
+        if (l.status === QuestionStatus.FullyCorrect) score += 20;
+        else if (l.status === QuestionStatus.PartiallyCorrect) score += 5;
+        else if (l.status === QuestionStatus.Wrong) score -= 10;
+    });
+
+    if (status === SyllabusStatus.Completed) score += 200;
+    if (status === SyllabusStatus.Revising) score += 300;
+    if (status === SyllabusStatus.InProgress) score += 50;
+
+    return Math.max(0, score);
+};
+
+const getMasteryTier = (score: number) => {
+    if (score > 2000) return { tier: 'Grandmaster', color: '#f59e0b', bg: 'bg-amber-500/20 border-amber-500/50' };
+    if (score > 1500) return { tier: 'Expert', color: '#a855f7', bg: 'bg-purple-500/20 border-purple-500/50' };
+    if (score > 1200) return { tier: 'Adept', color: '#22c55e', bg: 'bg-green-500/20 border-green-500/50' };
+    if (score > 1000) return { tier: 'Apprentice', color: '#3b82f6', bg: 'bg-blue-500/20 border-blue-500/50' };
+    return { tier: 'Novice', color: '#94a3b8', bg: 'bg-slate-700/50 border-slate-600' };
+};
+
 interface ChapterCardProps {
-    chapter: { name: string, topics: string[] };
+    chapter: { name: string, subTopics: string[] };
     progress: ChapterProgress;
     onSyllabusChange: (chapter: string, updatedProgress: Partial<ChapterProgress>) => void;
     questionLogs: QuestionLog[];
     reports: TestReport[];
     onStartFocusSession: (topic: string) => void;
-    pyqAttemptedCount: number;
     onExplainTopic: (topic: string) => void;
-    userProfile: UserProfile; // needed for dependency checks
+    userProfile: UserProfile; 
+    mastery: { score: number, tier: string, color: string, bg: string };
+    onTriggerQuiz: (topic: string) => void;
+    onCompletionEffect: (coords: { x: number; y: number; }) => void;
+    cardRef: (el: HTMLDivElement | null) => void;
 }
 
 const statusColors: Record<SyllabusStatus, string> = {
@@ -54,13 +195,15 @@ const SubjectDonutCard: React.FC<{
 }> = ({ subject, chapters, userProfile, questionLogs }) => {
     
     const { data, totalChapters, completion } = useMemo(() => {
-        const innerRingData = { strength: 0, weakness: 0, completed: 0, inProgress: 0, notStarted: 0 };
-        const outerRingData = { highAcc: 0, midAcc: 0, lowAcc: 0, noData: 0 };
+        const innerRingData: {name: string, value: number, color: string}[] = [];
+        const outerRingData: {name: string, value: number, color: string}[] = [];
+
+        const innerRingCounts = { strength: 0, weakness: 0, completed: 0, inProgress: 0, notStarted: 0 };
+        const outerRingCounts = { highAcc: 0, midAcc: 0, lowAcc: 0, noData: 0 };
         
         const chapterAccuracies = new Map<string, number>();
         const chapterLogs = new Map<string, QuestionLog[]>();
 
-        // Pre-process logs for this subject's chapters
         questionLogs.forEach(log => {
             if (log.topic && log.topic !== 'N/A' && chapters.includes(log.topic)) {
                 if (!chapterLogs.has(log.topic)) chapterLogs.set(log.topic, []);
@@ -78,101 +221,105 @@ const SubjectDonutCard: React.FC<{
 
         chapters.forEach(chapter => {
             const progress = userProfile.syllabus[chapter];
+            if (progress?.strength === 'strength') innerRingCounts.strength++;
+            else if (progress?.strength === 'weakness') innerRingCounts.weakness++;
+            else if (progress?.status === SyllabusStatus.Completed || progress?.status === SyllabusStatus.Revising) innerRingCounts.completed++;
+            else if (progress?.status === SyllabusStatus.InProgress) innerRingCounts.inProgress++;
+            else innerRingCounts.notStarted++;
 
-            // Inner Ring (Status)
-            if (progress?.strength === 'strength') innerRingData.strength++;
-            else if (progress?.strength === 'weakness') innerRingData.weakness++;
-            else if (progress?.status === SyllabusStatus.Completed || progress?.status === SyllabusStatus.Revising) innerRingData.completed++;
-            else if (progress?.status === SyllabusStatus.InProgress) innerRingData.inProgress++;
-            else innerRingData.notStarted++;
-
-            // Outer Ring (Performance)
             const accuracy = chapterAccuracies.get(chapter);
-            if (accuracy === undefined) outerRingData.noData++;
-            else if (accuracy >= 80) outerRingData.highAcc++;
-            else if (accuracy >= 50) outerRingData.midAcc++;
-            else outerRingData.lowAcc++;
+            if (accuracy === undefined) outerRingCounts.noData++;
+            else if (accuracy >= 80) outerRingCounts.highAcc++;
+            else if (accuracy >= 50) outerRingCounts.midAcc++;
+            else outerRingCounts.lowAcc++;
         });
+        
+        if (innerRingCounts.strength > 0) innerRingData.push({ name: 'Strength', value: innerRingCounts.strength, color: '#22c55e' });
+        if (innerRingCounts.weakness > 0) innerRingData.push({ name: 'Weakness', value: innerRingCounts.weakness, color: '#ef4444' });
+        if (innerRingCounts.completed > 0) innerRingData.push({ name: 'Done', value: innerRingCounts.completed, color: '#3b82f6' });
+        if (innerRingCounts.inProgress > 0) innerRingData.push({ name: 'In Progress', value: innerRingCounts.inProgress, color: '#eab308' });
+        if (innerRingCounts.notStarted > 0) innerRingData.push({ name: 'Not Started', value: innerRingCounts.notStarted, color: '#334155' });
+        
+        if (outerRingCounts.highAcc > 0) outerRingData.push({ name: 'High Acc (>80%)', value: outerRingCounts.highAcc, color: '#10b981' });
+        if (outerRingCounts.midAcc > 0) outerRingData.push({ name: 'Med Acc (50-80%)', value: outerRingCounts.midAcc, color: '#f59e0b' });
+        if (outerRingCounts.lowAcc > 0) outerRingData.push({ name: 'Low Acc (<50%)', value: outerRingCounts.lowAcc, color: '#f43f5e' });
+        if (outerRingCounts.noData > 0) outerRingData.push({ name: 'No Data', value: outerRingCounts.noData, color: '#1e293b' });
 
-        const weightedCompletion = ( (innerRingData.strength + innerRingData.weakness + innerRingData.completed) + (innerRingData.inProgress * 0.5) ) / chapters.length * 100;
+        const weightedCompletion = ( (innerRingCounts.strength + innerRingCounts.weakness + innerRingCounts.completed) + (innerRingCounts.inProgress * 0.5) ) / chapters.length * 100;
 
         return {
-            data: {
-                inner: [
-                    { name: 'Strength', value: innerRingData.strength, color: '#22c55e' },
-                    { name: 'Weakness', value: innerRingData.weakness, color: '#ef4444' },
-                    { name: 'Done', value: innerRingData.completed, color: '#3b82f6' },
-                    { name: 'In Progress', value: innerRingData.inProgress, color: '#eab308' },
-                    { name: 'Not Started', value: innerRingData.notStarted, color: '#334155' },
-                ].filter(d => d.value > 0),
-                outer: [
-                    { name: 'High Acc (>80%)', value: outerRingData.highAcc, color: '#10b981' },
-                    { name: 'Med Acc (50-80%)', value: outerRingData.midAcc, color: '#f59e0b' },
-                    { name: 'Low Acc (<50%)', value: outerRingData.lowAcc, color: '#f43f5e' },
-                    { name: 'No Data', value: outerRingData.noData, color: '#1e293b' },
-                ].filter(d => d.value > 0)
-            },
+            data: { inner: innerRingData, outer: outerRingData },
             totalChapters: chapters.length,
             completion: weightedCompletion
         };
     }, [subject, chapters, userProfile, questionLogs]);
+    
+    const CustomTooltip = ({ active, payload }: any) => {
+        if (active && payload && payload.length) {
+            const dataPoint = payload[0].payload;
+            const dataName = payload[0].name;
+            const dataValue = payload[0].value;
+            
+            const isInner = data.inner.some((d: any) => d.name === dataName);
+            const ringData = isInner ? data.inner : data.outer;
+            const totalRingValue = ringData.reduce((sum: number, entry: any) => sum + entry.value, 0);
+            const percent = totalRingValue > 0 ? (dataValue / totalRingValue) * 100 : 0;
+
+            return (
+                <div className="glass-panel p-2 rounded-lg shadow-xl text-xs z-50">
+                    <p className="font-bold text-white mb-1 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: dataPoint.color }}></span>
+                        {dataName}
+                    </p>
+                    <p className="text-gray-300">Chapters: <span className="text-white font-mono font-bold">{dataValue}</span></p>
+                    <p className="text-gray-400 text-[10px]">({percent.toFixed(0)}% of total)</p>
+                </div>
+            );
+        }
+        return null;
+    };
+
 
     return (
         <div className="bg-slate-800 border border-slate-600 shadow-lg rounded-xl p-4 flex flex-col h-full">
             <h4 className="text-lg font-bold text-center mb-2 capitalize" style={{ color: SUBJECT_CONFIG[subject]?.color || 'white' }}>{subject}</h4>
             
-            <div className="flex-grow relative min-h-[180px]">
+            <div className="flex-grow relative min-h-[200px]">
                 <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                         <RechartsTooltip 
                             wrapperStyle={{ zIndex: 1000 }}
-                            contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '0.5rem', fontSize: '12px', padding: '8px' }}
-                            itemStyle={{ color: '#e2e8f0' }}
+                            content={<CustomTooltip />}
                         />
-                        {/* Inner Ring */}
                         <Pie 
                             data={data.inner} 
                             dataKey="value" 
                             cx="50%" cy="50%" 
-                            outerRadius={50} 
-                            innerRadius={35} 
+                            outerRadius="65%" 
+                            innerRadius="45%" 
                             stroke="none"
                         >
                             {data.inner.map((entry, index) => <Cell key={`inner-${index}`} fill={entry.color} />)}
                         </Pie>
-                        {/* Outer Ring */}
                         <Pie 
                             data={data.outer} 
                             dataKey="value" 
                             cx="50%" cy="50%" 
-                            innerRadius={55} 
-                            outerRadius={75} 
+                            innerRadius="70%" 
+                            outerRadius="95%" 
                             stroke="none"
                         >
                             {data.outer.map((entry, index) => <Cell key={`outer-${index}`} fill={entry.color} />)}
                         </Pie>
                     </PieChart>
                 </ResponsiveContainer>
-                {/* Central Completion Text */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <span className="text-sm font-bold text-gray-300">{completion.toFixed(0)}%</span>
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className="text-2xl font-bold text-white">{completion.toFixed(0)}%</span>
+                    <span className="text-xs text-gray-400">{totalChapters} Ch.</span>
                 </div>
             </div>
 
-            <div className="mt-3">
-                <div className="flex justify-between items-center text-xs text-gray-400 mb-1">
-                    <span>Completion</span>
-                    <span>{completion.toFixed(1)}%</span>
-                </div>
-                <div className="w-full bg-slate-700 rounded-full h-1.5 overflow-hidden">
-                    <div 
-                        className="h-full rounded-full transition-all duration-500" 
-                        style={{ width: `${completion}%`, backgroundColor: SUBJECT_CONFIG[subject]?.color || 'white' }}
-                    ></div>
-                </div>
-            </div>
-            
-            <div className="mt-3 flex flex-wrap justify-center gap-2 text-[10px] text-gray-500">
+            <div className="mt-3 flex flex-wrap justify-center gap-x-3 gap-y-1 text-[10px] text-gray-500">
                 <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span>Strength</div>
                 <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500"></span>Weakness</div>
                 <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span>Done</div>
@@ -224,7 +371,6 @@ const MemoryBattery: React.FC<{ percentage: number; status: 'good' | 'fading' | 
             </div>
             <div className="w-[2px] h-1.5 bg-slate-500 rounded-r-sm"></div>
             
-            {/* Tooltip */}
             <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 hidden group-hover:block bg-slate-900 text-xs text-white p-3 rounded-lg shadow-xl z-50 w-40 border border-slate-600 pointer-events-none">
                 <p className="font-bold mb-1 flex justify-between items-center">
                     <span>Retention</span>
@@ -275,7 +421,7 @@ const DependencyIndicator: React.FC<{ topic: string, userProfile: UserProfile }>
     );
 }
 
-const ChapterCard: React.FC<ChapterCardProps> = ({ chapter, progress, onSyllabusChange, questionLogs, reports, onStartFocusSession, pyqAttemptedCount, onExplainTopic, userProfile }) => {
+const ChapterCard: React.FC<ChapterCardProps> = ({ cardRef, chapter, progress, onSyllabusChange, questionLogs, reports, onStartFocusSession, onExplainTopic, userProfile, mastery, onTriggerQuiz, onCompletionEffect }) => {
     const [isExpanded, setIsExpanded] = useState(false);
 
     const weightage = TOPIC_WEIGHTAGE[chapter.name] || 'Low';
@@ -353,140 +499,227 @@ const ChapterCard: React.FC<ChapterCardProps> = ({ chapter, progress, onSyllabus
         return { totalQuestions: logs.length, errorCount: errors.length, errorReasons: errorReasonData, accuracy, attemptRate, spaq, accuracyTrend };
     }, [questionLogs, reports, chapter.name]);
 
+    const theoryProgress = useMemo(() => {
+        const lecture = progress.lectureCompleted ? 1 : 0;
+        const notes = progress.notesCompleted ? 1 : 0;
+        
+        if (!chapter.subTopics || chapter.subTopics.length === 0) {
+            return (lecture + notes) / 2 * 100;
+        }
+        
+        const subTopicsDone = Object.values(progress.subTopicStatus || {}).filter(Boolean).length;
+        const subTopicRatio = chapter.subTopics.length > 0 ? subTopicsDone / chapter.subTopics.length : 1;
+        
+        return (lecture * 0.2 + notes * 0.2 + subTopicRatio * 0.6) * 100;
+    }, [progress, chapter.subTopics]);
+
+    const applicationProgress = useMemo(() => {
+        const logs = questionLogs.filter(l => l.topic === chapter.name);
+        const attempts = logs.length;
+        if (attempts === 0) return 0;
+        
+        const correct = logs.filter(l => l.status === QuestionStatus.FullyCorrect).length;
+        const attemptedWithOutcome = logs.filter(l => l.status === QuestionStatus.FullyCorrect || l.status === QuestionStatus.Wrong).length;
+        
+        const accuracy = attemptedWithOutcome > 0 ? correct / attemptedWithOutcome : 0;
+        const confidence = 1 - Math.exp(-attempts / 10);
+        
+        return accuracy * confidence * 100;
+    }, [questionLogs, chapter.name]);
+
     const handleUpdate = <K extends keyof ChapterProgress>(key: K, value: ChapterProgress[K]) => {
-        onSyllabusChange(chapter.name, { [key]: value });
+        if (key === 'status' && value === SyllabusStatus.Completed) {
+            onTriggerQuiz(chapter.name);
+        } else {
+            onSyllabusChange(chapter.name, { [key]: value });
+        }
     };
 
-    const weightedProgress = useMemo(() => {
-        let weight = 0;
-        if (progress.lectureCompleted) weight += 0.25;
-        if (progress.practiceCompleted) weight += 0.25;
-        if (pyqAttemptedCount > 0) weight += 0.3 * Math.min(1, pyqAttemptedCount / 10);
-        if (Number(progress.revisionCount || 0) > 0) weight += 0.2 * Math.min(1, Number(progress.revisionCount || 0) / 2);
-        return Math.min(1, weight) * 100;
-    }, [progress, pyqAttemptedCount]);
+    const handleSubTopicToggle = (subTopicName: string, isChecked: boolean) => {
+        const currentSubTopicStatus = progress.subTopicStatus || {};
+        const newSubTopicStatus = {
+            ...currentSubTopicStatus,
+            [subTopicName]: isChecked
+        };
+        onSyllabusChange(chapter.name, { subTopicStatus: newSubTopicStatus });
+    };
+    
+    const ringGlowStyle: React.CSSProperties = {};
+    if (progress.strength === 'strength') {
+        ringGlowStyle.boxShadow = '0 0 0 2px rgba(34, 197, 94, 0.5)';
+    } else if (progress.strength === 'weakness') {
+        ringGlowStyle.boxShadow = '0 0 0 2px rgba(239, 68, 68, 0.5)';
+    }
 
     return (
-        <div className={`relative rounded-lg border transition-all duration-300 ${statusColors[progress.status]} ${isHighYield ? 'shadow-[0_0_15px_rgba(245,158,11,0.15)] border-amber-500/40' : ''}`}>
-             <div className="absolute inset-0 overflow-hidden rounded-lg pointer-events-none">
-                 {isHighYield && (
-                    <div className="absolute -right-6 top-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white text-[10px] font-bold px-8 py-1 rotate-45 shadow-md z-10">
-                        HIGH YIELD
+        <div ref={cardRef} className="relative rounded-lg p-px" style={ringGlowStyle}>
+            <div className={`relative rounded-lg border transition-all duration-300 ${statusColors[progress.status]} overflow-hidden`}>
+                {isHighYield && (
+                    <div className="absolute top-0 right-0 pointer-events-none z-10">
+                        {/* Slimmer corner ribbon */}
+                        <div className="bg-amber-500 text-white text-[9px] font-bold px-6 py-0.5 rotate-45 translate-x-4 -translate-y-0.5 shadow-sm text-center">
+                            HY
+                        </div>
                     </div>
                 )}
-             </div>
-
-            <div className="p-3 relative z-10">
-                <div className="flex items-center gap-4 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
-                    {progress.strength === 'strength' && <span title="Strength" className="text-lg">💪</span>}
-                    {progress.strength === 'weakness' && <span title="Weakness" className="text-lg text-red-400">⚠️</span>}
-                    
-                    <div className="flex-grow min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                            <p className={`font-semibold truncate ${isHighYield ? 'text-amber-100' : 'text-gray-200'}`}>{chapter.name}</p>
-                            <MemoryBattery percentage={memoryHealth.percentage} status={memoryHealth.status} daysAgo={memoryHealth.daysAgo} />
-                        </div>
-                        <div className="flex items-center gap-2 mt-1">
-                            <div className="w-20 bg-slate-700/50 rounded-full h-1.5 flex-shrink-0">
-                                <div className="bg-[rgb(var(--color-primary-rgb))] h-1.5 rounded-full" style={{ width: `${weightedProgress}%` }}></div>
-                            </div>
-                            <p className="text-[10px] text-gray-400 uppercase">{progress.status.replace(/_/g, ' ')}</p>
-                        </div>
-                    </div>
-                    {chapterStats.errorCount > 0 && <span className="text-xs bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full font-semibold flex-shrink-0 hidden sm:inline-block">{chapterStats.errorCount} Errors</span>}
-                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 text-gray-400 transition-transform duration-300 flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                </div>
-
-                {isExpanded && (
-                    <div className="mt-4 pt-4 border-t border-slate-700/50 space-y-4 animate-fade-in">
-                        <div className="flex justify-between items-center">
-                             <DependencyIndicator topic={chapter.name} userProfile={userProfile} />
-                             <span className="text-[10px] text-gray-500">Weightage: {weightage}</span>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                            <div>
-                                <label className="block text-xs text-gray-400 mb-1">Status</label>
-                                <select value={progress.status} onChange={e => handleUpdate('status', e.target.value as SyllabusStatus)} className="w-full p-2 bg-slate-700 border border-slate-600 rounded-md">
-                                    {Object.values(SyllabusStatus).map(s => <option key={s} value={s}>{s}</option>)}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-xs text-gray-400 mb-1">Strength/Weakness</label>
-                                <select value={progress.strength || ''} onChange={e => handleUpdate('strength', e.target.value as 'strength' | 'weakness' || null)} className="w-full p-2 bg-slate-700 border border-slate-600 rounded-md">
-                                    <option value="">Not Tagged</option>
-                                    <option value="strength">Strength</option>
-                                    <option value="weakness">Weakness</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div className="space-y-2">
-                            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={progress.lectureCompleted} onChange={e => handleUpdate('lectureCompleted', e.target.checked)} className="form-checkbox h-4 w-4 bg-slate-600 text-cyan-500 rounded"/> Lectures Done</label>
-                            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={progress.practiceCompleted} onChange={e => handleUpdate('practiceCompleted', e.target.checked)} className="form-checkbox h-4 w-4 bg-slate-600 text-cyan-500 rounded"/> Practice Done</label>
-                            <div className="flex items-center gap-2 text-sm text-gray-300 h-6">
-                                <span className="w-4 h-4 flex items-center justify-center text-cyan-300">📈</span>
-                                <span>PYQ Practice</span>
-                                <span className="font-semibold text-white ml-auto bg-slate-700 px-2 py-0.5 rounded-md">{pyqAttemptedCount} questions</span>
-                            </div>
-                        </div>
-                        <div>
-                            <label className="block text-xs text-gray-400 mb-1">Revisions</label>
-                            <div className="flex items-center gap-2">
-                                <button onClick={() => handleUpdate('revisionCount', Math.max(0, Number(progress.revisionCount || 0) - 1))} className="px-2 py-1 bg-slate-700 rounded">-</button>
-                                <span className="font-semibold text-cyan-300">{progress.revisionCount || 0}</span>
-                                <button onClick={() => handleUpdate('revisionCount', (Number(progress.revisionCount || 0) || 0) + 1)} className="px-2 py-1 bg-slate-700 rounded">+</button>
-                            </div>
+                <div className="p-3 relative">
+                    <div className="flex items-center gap-4 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
+                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 border shadow-inner ${mastery.bg}`}>
+                            <span className="text-lg" style={{color: mastery.color}} title={`Mastery: ${mastery.tier}`}>
+                                {mastery.tier === 'Grandmaster' ? '👑' : mastery.tier === 'Expert' ? '💎' : mastery.tier === 'Adept' ? '⚔️' : mastery.tier === 'Apprentice' ? '🔨' : '🌱'}
+                            </span>
                         </div>
                         
-                        <div className="mt-4 pt-4 border-t border-slate-700/50">
-                            <h4 className="text-sm font-semibold text-gray-300 mb-2">Live Performance</h4>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-center text-xs">
-                                <div className="bg-slate-900/50 p-2 rounded"><p className="text-gray-400">Accuracy</p><p className="font-bold text-lg text-white">{chapterStats.accuracy.toFixed(1)}%</p></div>
-                                <div className="bg-slate-900/50 p-2 rounded"><p className="text-gray-400">Attempt Rate</p><p className="font-bold text-lg text-white">{chapterStats.attemptRate.toFixed(1)}%</p></div>
-                                <div className="bg-slate-900/50 p-2 rounded"><p className="text-gray-400">SPAQ</p><p className="font-bold text-lg text-white">{chapterStats.spaq.toFixed(2)}</p></div>
-                                <div className="bg-slate-900/50 p-2 rounded h-16">
-                                    <p className="text-gray-400">Accuracy Trend</p>
-                                    {chapterStats.accuracyTrend.length > 1 ? (
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <AreaChart data={chapterStats.accuracyTrend} margin={{top: 5, right: 0, left: 0, bottom: 0}}>
-                                            <defs><linearGradient id="sparklineGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="rgb(var(--color-primary-rgb))" stopOpacity={0.4}/><stop offset="95%" stopColor="rgb(var(--color-primary-rgb))" stopOpacity={0}/></linearGradient></defs>
-                                            <YAxis domain={[0, 100]} hide />
-                                            <Area type="monotone" dataKey="accuracy" stroke="rgb(var(--color-primary-rgb))" strokeWidth={2} fill="url(#sparklineGradient)" />
-                                        </AreaChart>
-                                    </ResponsiveContainer>
-                                    ) : <p className="text-gray-500 text-xs mt-1">Not enough data</p>}
+                        <div className="flex-grow min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <p className={`font-semibold truncate ${isHighYield ? 'text-amber-100' : 'text-gray-200'}`}>{chapter.name}</p>
+                                <MemoryBattery percentage={memoryHealth.percentage} status={memoryHealth.status} daysAgo={memoryHealth.daysAgo} />
+                            </div>
+                            <div className="space-y-1.5 mt-2">
+                                <div className="flex items-center gap-2 text-[10px]">
+                                    <span className="w-12 text-gray-400">Theory</span>
+                                    <div className="w-24 bg-slate-700/50 rounded-full h-1.5 flex-shrink-0"><div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${theoryProgress}%` }}></div></div>
+                                    <span className="w-8 text-right font-mono text-gray-300">{theoryProgress.toFixed(0)}%</span>
+                                </div>
+                                <div className="flex items-center gap-2 text-[10px]">
+                                    <span className="w-12 text-gray-400">Apply</span>
+                                    <div className="w-24 bg-slate-700/50 rounded-full h-1.5 flex-shrink-0"><div className="bg-green-500 h-1.5 rounded-full" style={{ width: `${applicationProgress}%` }}></div></div>
+                                    <span className="w-8 text-right font-mono text-gray-300">{applicationProgress.toFixed(0)}%</span>
                                 </div>
                             </div>
                         </div>
-
-                        {chapterStats.errorCount > 0 && (
-                            <div className="mt-4 pt-4 border-t border-slate-700/50">
-                                <h4 className="text-sm font-semibold text-gray-300 mb-2">Error Analysis</h4>
-                                <div className="h-40">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <PieChart>
-                                            <Pie data={chapterStats.errorReasons} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius="60%" outerRadius="80%" paddingAngle={5}>
-                                                {chapterStats.errorReasons.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS_PIE[entry.name] || '#8884d8'} />)}
-                                            </Pie>
-                                            <RechartsTooltip content={<div className="p-2 bg-slate-800 border border-slate-600 rounded-md text-xs"><p className="font-bold text-white">{chapterStats.errorReasons[0]?.name}</p></div>} />
-                                        </PieChart>
-                                    </ResponsiveContainer>
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="mt-4 pt-4 border-t border-slate-700/50 flex gap-2">
-                            <button onClick={() => onStartFocusSession(chapter.name)} className="flex-1 text-sm bg-indigo-600/50 hover:bg-indigo-600 text-white font-semibold py-2 px-3 rounded-md transition-colors flex items-center justify-center gap-2">⚡️ Start Focus Session</button>
-                            <button onClick={() => onExplainTopic(chapter.name)} className="flex-1 text-sm bg-cyan-600/50 hover:bg-cyan-600 text-white font-semibold py-2 px-3 rounded-md transition-colors flex items-center justify-center gap-2">📖 Explain Topic</button>
-                        </div>
+                        {chapterStats.errorCount > 0 && <span className="text-xs bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full font-semibold flex-shrink-0 hidden sm:inline-block">{chapterStats.errorCount} Errors</span>}
+                        <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 text-gray-400 transition-transform duration-300 flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                     </div>
-                )}
+
+                    {isExpanded && (
+                        <div className="mt-4 pt-4 border-t border-slate-700/50 space-y-4 animate-fade-in">
+                            <div className="flex justify-between items-center">
+                                <DependencyIndicator topic={chapter.name} userProfile={userProfile} />
+                                <div className="text-right">
+                                    <span className="text-[10px] text-gray-500 block">Weightage: {weightage}</span>
+                                    <span className="text-[10px] font-bold" style={{color: mastery.color}}>ELO: {mastery.score}</span>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                <div>
+                                    <label className="block text-xs text-gray-400 mb-1">Status</label>
+                                    <select value={progress.status} onChange={e => handleUpdate('status', e.target.value as SyllabusStatus)} className="w-full p-2 bg-slate-700 border border-slate-600 rounded-md">
+                                        {Object.values(SyllabusStatus).map(s => <option key={s} value={s}>{s}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs text-gray-400 mb-1">Strength/Weakness</label>
+                                    <select value={progress.strength || ''} onChange={e => handleUpdate('strength', e.target.value as 'strength' | 'weakness' || null)} className="w-full p-2 bg-slate-700 border border-slate-600 rounded-md">
+                                        <option value="">Not Tagged</option>
+                                        <option value="strength">Strength</option>
+                                        <option value="weakness">Weakness</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div>
+                                <h4 className="text-sm font-semibold text-gray-300 mb-2">Theory Checklist</h4>
+                                <div className="space-y-2 bg-slate-900/30 p-2 rounded-md border border-slate-700/50">
+                                    <label className="flex items-center gap-2 text-sm p-1 rounded hover:bg-slate-700/50 cursor-pointer">
+                                        <input type="checkbox" checked={!!progress.lectureCompleted} onChange={e => onSyllabusChange(chapter.name, { lectureCompleted: e.target.checked })} className="form-checkbox h-4 w-4 bg-slate-600 text-cyan-500 rounded"/>
+                                        <span className={progress.lectureCompleted ? 'text-gray-500 line-through' : 'text-gray-300'}>Lecture Completed</span>
+                                    </label>
+                                    <label className="flex items-center gap-2 text-sm p-1 rounded hover:bg-slate-700/50 cursor-pointer">
+                                        <input type="checkbox" checked={!!progress.notesCompleted} onChange={e => onSyllabusChange(chapter.name, { notesCompleted: e.target.checked })} className="form-checkbox h-4 w-4 bg-slate-600 text-cyan-500 rounded"/>
+                                        <span className={progress.notesCompleted ? 'text-gray-500 line-through' : 'text-gray-300'}>Notes Prepared</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            {chapter.subTopics && chapter.subTopics.length > 0 && (
+                                <div>
+                                    <h4 className="text-sm font-semibold text-gray-300 mb-2">Sub-Topics</h4>
+                                    <div className="space-y-2 max-h-40 overflow-y-auto pr-2 custom-scrollbar bg-slate-900/30 p-2 rounded-md border border-slate-700/50">
+                                        {chapter.subTopics.map(subTopic => (
+                                            <label key={subTopic} className="flex items-center gap-2 text-sm p-1 rounded hover:bg-slate-700/50 cursor-pointer">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={!!progress.subTopicStatus?.[subTopic]} 
+                                                    onChange={e => handleSubTopicToggle(subTopic, e.target.checked)} 
+                                                    className="form-checkbox h-4 w-4 bg-slate-600 text-cyan-500 rounded"
+                                                />
+                                                <span className={progress.subTopicStatus?.[subTopic] ? 'text-gray-500 line-through' : 'text-gray-300'}>{subTopic}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            
+                            <div>
+                                <label className="block text-xs text-gray-400 mb-1">Revisions</label>
+                                <div className="flex items-center gap-2">
+                                    <button onClick={() => handleUpdate('revisionCount', Math.max(0, Number(progress.revisionCount || 0) - 1))} className="px-2 py-1 bg-slate-700 rounded">-</button>
+                                    <span className="font-semibold text-cyan-300">{progress.revisionCount || 0}</span>
+                                    <button onClick={() => handleUpdate('revisionCount', (Number(progress.revisionCount || 0) || 0) + 1)} className="px-2 py-1 bg-slate-700 rounded">+</button>
+                                </div>
+                            </div>
+                            
+                            <div className="mt-4 pt-4 border-t border-slate-700/50">
+                                <h4 className="text-sm font-semibold text-gray-300 mb-2">Live Performance</h4>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-center text-xs">
+                                    <div className="bg-slate-900/50 p-2 rounded"><p className="text-gray-400">Accuracy</p><p className="font-bold text-lg text-white">{chapterStats.accuracy.toFixed(1)}%</p></div>
+                                    <div className="bg-slate-900/50 p-2 rounded"><p className="text-gray-400">Attempt Rate</p><p className="font-bold text-lg text-white">{chapterStats.attemptRate.toFixed(1)}%</p></div>
+                                    <div className="bg-slate-900/50 p-2 rounded"><p className="text-gray-400">SPAQ</p><p className="font-bold text-lg text-white">{chapterStats.spaq.toFixed(2)}</p></div>
+                                    <div className="bg-slate-900/50 p-2 rounded h-16">
+                                        <p className="text-gray-400">Accuracy Trend</p>
+                                        {chapterStats.accuracyTrend.length > 1 ? (
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <AreaChart data={chapterStats.accuracyTrend} margin={{top: 5, right: 0, left: 0, bottom: 0}}>
+                                                <defs><linearGradient id="sparklineGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="rgb(var(--color-primary-rgb))" stopOpacity={0.4}/><stop offset="95%" stopColor="rgb(var(--color-primary-rgb))" stopOpacity={0}/></linearGradient></defs>
+                                                <YAxis domain={[0, 100]} hide />
+                                                <Area type="monotone" dataKey="accuracy" stroke="rgb(var(--color-primary-rgb))" strokeWidth={2} fill="url(#sparklineGradient)" />
+                                            </AreaChart>
+                                        </ResponsiveContainer>
+                                        ) : <p className="text-gray-500 text-xs mt-1">Not enough data</p>}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {chapterStats.errorCount > 0 && (
+                                <div className="mt-4 pt-4 border-t border-slate-700/50">
+                                    <h4 className="text-sm font-semibold text-gray-300 mb-2">Error Analysis</h4>
+                                    <div className="h-40">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <PieChart>
+                                                <Pie data={chapterStats.errorReasons} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius="60%" outerRadius="80%" paddingAngle={5}>
+                                                    {chapterStats.errorReasons.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS_PIE[entry.name] || '#8884d8'} />)}
+                                                </Pie>
+                                                <RechartsTooltip content={<div className="p-2 bg-slate-800 border border-slate-600 rounded-md text-xs"><p className="font-bold text-white">{chapterStats.errorReasons[0]?.name}</p></div>} />
+                                            </PieChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="mt-4 pt-4 border-t border-slate-700/50 flex flex-wrap gap-2">
+                                <button onClick={() => onStartFocusSession(chapter.name)} className="flex-1 text-sm bg-indigo-600/50 hover:bg-indigo-600 text-white font-semibold py-2 px-3 rounded-md transition-colors flex items-center justify-center gap-2">⚡️ Start Focus</button>
+                                <button onClick={() => onExplainTopic(chapter.name)} className="flex-1 text-sm bg-cyan-600/50 hover:bg-cyan-600 text-white font-semibold py-2 px-3 rounded-md transition-colors flex items-center justify-center gap-2">📖 Explain</button>
+                                <button 
+                                    onClick={() => window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(chapter.name + " JEE")}`, '_blank')}
+                                    className="text-sm bg-red-600/80 hover:bg-red-600 text-white font-semibold py-2 px-3 rounded-md transition-colors flex items-center justify-center"
+                                    title="Search on YouTube"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 3.993-8 4.007z"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );
 };
 
-const SubjectSyllabus: React.FC<Omit<SyllabusProps, 'userProfile' | 'apiKey' | 'setView' | 'setUserProfile'> & { subject: 'physics' | 'chemistry' | 'maths', userProfile: UserProfile, onSyllabusChange: (chapter: string, updatedProgress: Partial<ChapterProgress>) => void; onExplainTopic: (topic: string) => void; searchQuery: string; activeUnitFilter?: string | null; }> = ({ subject, userProfile, onSyllabusChange, questionLogs, reports, onStartFocusSession, onExplainTopic, searchQuery, activeUnitFilter }) => {
+const SubjectSyllabus: React.FC<Omit<SyllabusProps, 'userProfile' | 'apiKey' | 'setView' | 'setUserProfile'> & { subject: 'physics' | 'chemistry' | 'maths', userProfile: UserProfile, onSyllabusChange: (chapter: string, updatedProgress: Partial<ChapterProgress>) => void; onExplainTopic: (topic: string) => void; searchQuery: string; activeUnitFilter?: string | null; onTriggerQuiz: (topic: string) => void; onCompletionEffect: (coords: { x: number; y: number; }) => void; chapterCardRefs: React.MutableRefObject<Record<string, HTMLDivElement | null>>; }> = ({ subject, userProfile, onSyllabusChange, questionLogs, reports, onStartFocusSession, onExplainTopic, searchQuery, activeUnitFilter, onTriggerQuiz, onCompletionEffect, chapterCardRefs }) => {
     const [filter, setFilter] = useState<{ status: string, strength: string }>({ status: 'all', strength: 'all' });
     const [sort, setSort] = useState<string>('default');
     const [collapsedUnits, setCollapsedUnits] = useState<Set<string>>(new Set());
@@ -538,17 +771,6 @@ const SubjectSyllabus: React.FC<Omit<SyllabusProps, 'userProfile' | 'apiKey' | '
             return { ...unit, chapters };
         }).filter(unit => unit && unit.chapters.length > 0); // Only show units with matching chapters
     }, [subject, userProfile.syllabus, filter, sort, getChapterErrorCount, getChapterAccuracy, searchQuery, activeUnitFilter]);
-
-    const pyqAttemptedCounts = useMemo(() => {
-        const counts = new Map<string, number>();
-        const pyqReportIds = new Set(reports.filter(r => r.type === TestType.PreviousYearPaper).map(r => r.id));
-        questionLogs.forEach(log => {
-            if (pyqReportIds.has(log.testId) && log.topic) {
-                counts.set(log.topic, (counts.get(log.topic) || 0) + 1);
-            }
-        });
-        return counts;
-    }, [questionLogs, reports]);
     
     const toggleUnit = (unitName: string) => {
         setCollapsedUnits(prev => {
@@ -601,20 +823,28 @@ const SubjectSyllabus: React.FC<Omit<SyllabusProps, 'userProfile' | 'apiKey' | '
                         {!collapsedUnits.has(unit!.unit) && (
                             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                                 {unit!.chapters.map(chapter => {
-                                    const defaultProgress: ChapterProgress = { status: SyllabusStatus.NotStarted, strength: null, lectureCompleted: false, practiceCompleted: false, revisionCount: 0 };
+                                    const defaultProgress: ChapterProgress = { status: SyllabusStatus.NotStarted, strength: null, revisionCount: 0, subTopicStatus: {} };
                                     const progress: ChapterProgress = { ...defaultProgress, ...(userProfile.syllabus[chapter.name] || {}) };
+                                    
+                                    const masteryScore = calculateMasteryScore(chapter.name, questionLogs, progress.status);
+                                    const masteryInfo = getMasteryTier(masteryScore);
+                                    const mastery = { score: masteryScore, ...masteryInfo };
+
                                     return (
                                     <ChapterCard 
-                                        key={chapter.name} 
+                                        key={chapter.name}
+                                        cardRef={el => (chapterCardRefs.current[chapter.name] = el)}
                                         chapter={chapter} 
                                         progress={progress} 
                                         onSyllabusChange={onSyllabusChange} 
                                         questionLogs={questionLogs} 
                                         reports={reports} 
                                         onStartFocusSession={onStartFocusSession}
-                                        pyqAttemptedCount={pyqAttemptedCounts.get(chapter.name) || 0}
                                         onExplainTopic={onExplainTopic}
                                         userProfile={userProfile}
+                                        mastery={mastery}
+                                        onTriggerQuiz={onTriggerQuiz}
+                                        onCompletionEffect={onCompletionEffect}
                                     />
                                 )})}
                             </div>
@@ -632,21 +862,99 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
     const [activeUnit, setActiveUnit] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [explainModalData, setExplainModalData] = useState<{ topic: string; content: string; loading: boolean } | null>(null);
-    const [vizMode, setVizMode] = useState<'sunburst' | 'overview'>('overview'); // View Toggle State
+    const [vizMode, setVizMode] = useState<'overview' | 'sunburst' | 'tree' | 'river' | 'subway'>('overview');
+    const [quizState, setQuizState] = useState<{ topic: string, questions?: QuizQuestion[], loading: boolean, userAnswers?: Record<number, string>, submitted?: boolean, result?: boolean[] } | null>(null);
+    
+    // Particle effect state
+    const [completionEffect, setCompletionEffect] = useState<{ x: number, y: number, key: number } | null>(null);
+    const particleCanvasRef = useRef<HTMLCanvasElement>(null);
+    const chapterCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+    const triggerCompletionEffect = useCallback((coords: { x: number, y: number }) => {
+        setCompletionEffect({ ...coords, key: Date.now() });
+    }, []);
+
+    useEffect(() => {
+        if (!completionEffect || !particleCanvasRef.current) return;
+        const canvas = particleCanvasRef.current;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        let particles: any[] = [];
+        const { x, y } = completionEffect;
+        for (let i = 0; i < 50; i++) {
+            const angle = Math.random() * 2 * Math.PI;
+            const speed = Math.random() * 4 + 1;
+            particles.push({
+                x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+                radius: Math.random() * 2 + 1,
+                color: `rgba(var(--color-primary-rgb), ${Math.random() * 0.5 + 0.5})`,
+                life: 60,
+            });
+        }
+        let animationFrameId: number;
+        const animate = () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            particles.forEach((p, i) => {
+                p.x += p.vx; p.y += p.vy; p.vy += 0.05; p.life -= 1;
+                if (p.life <= 0) particles.splice(i, 1);
+                else {
+                    ctx.beginPath(); ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                    ctx.fillStyle = p.color; ctx.globalAlpha = p.life / 60; ctx.fill();
+                }
+            });
+            if (particles.length > 0) animationFrameId = requestAnimationFrame(animate);
+            else { ctx.clearRect(0, 0, canvas.width, canvas.height); setCompletionEffect(null); }
+        };
+        animate();
+        return () => cancelAnimationFrame(animationFrameId);
+    }, [completionEffect]);
 
     const handleSyllabusChange = (chapter: string, updatedProgress: Partial<ChapterProgress>) => {
-        setUserProfile(prev => ({
-            ...prev,
-            syllabus: {
-                ...prev.syllabus,
-                [chapter]: {
-                    ...(prev.syllabus[chapter] || { status: SyllabusStatus.NotStarted, strength: null, lectureCompleted: false, practiceCompleted: false, revisionCount: 0 }),
-                    ...updatedProgress
+        setUserProfile(prev => {
+            const existingProgress = prev.syllabus[chapter] || { status: SyllabusStatus.NotStarted, strength: null, revisionCount: 0 };
+            const wasCompleted = existingProgress.status === SyllabusStatus.Completed || existingProgress.status === SyllabusStatus.Revising;
+            
+            const newProgress = { ...existingProgress, ...updatedProgress };
+
+            if (newProgress.status === SyllabusStatus.Completed && existingProgress.status !== SyllabusStatus.Completed) {
+                newProgress.completionDate = new Date().toISOString();
+                 if (!wasCompleted) {
+                    const cardEl = chapterCardRefs.current[chapter];
+                    if (cardEl) {
+                        const rect = cardEl.getBoundingClientRect();
+                        triggerCompletionEffect({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+                    }
                 }
             }
-        }));
-    };
     
+            return {
+                ...prev,
+                syllabus: {
+                    ...prev.syllabus,
+                    [chapter]: newProgress
+                }
+            };
+        });
+    };
+
+    const allMasteryScores = useMemo(() => {
+        const scores: Record<string, { score: number, tier: string, color: string }> = {};
+        ['physics', 'chemistry', 'maths'].forEach(sub => {
+            // @ts-ignore
+            JEE_SYLLABUS[sub].forEach(unit => {
+                unit.chapters.forEach((ch: any) => {
+                    const progress = userProfile.syllabus[ch.name];
+                    const score = calculateMasteryScore(ch.name, questionLogs, progress?.status);
+                    const info = getMasteryTier(score);
+                    scores[ch.name] = { score, tier: info.tier, color: info.color };
+                });
+            });
+        });
+        return scores;
+    }, [userProfile.syllabus, questionLogs]);
+
     const handleExplainTopic = async (topic: string) => {
         setExplainModalData({ topic, content: '', loading: true });
         try {
@@ -657,19 +965,29 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
         }
     };
 
-    // Robust logic for identifying revision topics
+    const triggerCompletionQuiz = useCallback(async (topic: string) => {
+        setQuizState({ topic, loading: true });
+        try {
+            const questions = await generateGatekeeperQuiz(topic, apiKey);
+            if (questions && questions.length > 0) {
+                setQuizState(prev => prev ? { ...prev, questions, loading: false } : null);
+            } else {
+                throw new Error("No questions generated.");
+            }
+        } catch (e) {
+            console.error("Failed to generate quiz, completing chapter directly.", e);
+            handleSyllabusChange(topic, { status: SyllabusStatus.Completed });
+            setQuizState(null);
+        }
+    }, [apiKey, setUserProfile]);
+
     const revisionStackTopics = useMemo(() => {
         const topics: { name: string, weight: number, reason: string }[] = [];
-        
-        // Ensure we check ALL chapters defined in syllabus, not just those with progress
         // @ts-ignore
         const syllabusChapters = Object.values(JEE_SYLLABUS).flatMap(subject => subject.flatMap(unit => unit.chapters.map(c => c.name)));
-        
         syllabusChapters.forEach(chapter => {
             const progress = userProfile.syllabus[chapter] || { status: SyllabusStatus.NotStarted, strength: null, revisionCount: 0 };
             const baseWeight = TOPIC_WEIGHTAGE[chapter] === 'High' ? 3 : TOPIC_WEIGHTAGE[chapter] === 'Medium' ? 2 : 1;
-
-            // Logic 1: Fading retention (requires question log data)
             let lastInteractionDate = new Date('2000-01-01');
             let hasInteraction = false;
              questionLogs.forEach(log => {
@@ -677,101 +995,74 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
                     const report = reports.find(r => r.id === log.testId);
                     if (report) {
                         const date = new Date(report.testDate);
-                        if (date > lastInteractionDate) {
-                            lastInteractionDate = date;
-                            hasInteraction = true;
-                        }
+                        if (date > lastInteractionDate) { lastInteractionDate = date; hasInteraction = true; }
                     }
                 }
             });
-            
             if(hasInteraction) {
                 const today = new Date();
                 const diffTime = Math.abs(today.getTime() - lastInteractionDate.getTime());
                 const daysAgo = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
                 const stability = 7 * (1 + (progress.revisionCount || 0) * 0.5); 
                 const retention = Math.exp(-daysAgo / stability);
-                
-                if(retention < 0.7) { // Fading
+                if(retention < 0.7) { 
                     const urgency = retention < 0.4 ? 2 : 1;
                     topics.push({ name: chapter, weight: baseWeight * 5 * urgency, reason: 'Fading Memory' });
                     return; 
                 }
             }
-
-            // Logic 2: Explicit Weakness
-            if (progress.strength === 'weakness') {
-                topics.push({ name: chapter, weight: baseWeight * 4, reason: 'Marked Weakness' });
-                return;
-            }
-
-            // Logic 3: In Progress (Finish it!)
-            if (progress.status === SyllabusStatus.InProgress) {
-                topics.push({ name: chapter, weight: baseWeight * 2, reason: 'In Progress' });
-                return;
-            }
+            if (progress.strength === 'weakness') { topics.push({ name: chapter, weight: baseWeight * 4, reason: 'Marked Weakness' }); return; }
+            if (progress.status === SyllabusStatus.InProgress) { topics.push({ name: chapter, weight: baseWeight * 2, reason: 'In Progress' }); return; }
         });
-
-        // Fallback: If list is empty, pick InProgress or NotStarted High Weightage to encourage progress
         if (topics.length === 0) {
              syllabusChapters.forEach(chapter => {
                  const progress = userProfile.syllabus[chapter];
-                 if(progress && progress.status === SyllabusStatus.InProgress) {
-                     topics.push({ name: chapter, weight: 1, reason: 'Continue Progress' });
-                 }
+                 if(progress && progress.status === SyllabusStatus.InProgress) { topics.push({ name: chapter, weight: 1, reason: 'Continue Progress' }); }
              });
         }
-
-        // Sort by weight descending
         return topics.sort((a, b) => b.weight - a.weight).slice(0, 5);
     }, [userProfile.syllabus, questionLogs, reports]);
 
     const handleGenerateRevisionStack = () => {
-        if(revisionStackTopics.length === 0) {
-            alert("You haven't marked enough chapters as 'In Progress' or 'Weakness' to generate a targeted stack. Please update your syllabus status.");
-            return;
-        }
-        
-        if(addTasksToPlanner) {
-            const tasks = revisionStackTopics.map(t => ({
-                task: `Revise: ${t.name} (${t.reason})`,
-                time: 30,
-                topic: t.name
-            }));
-            addTasksToPlanner(tasks);
-            // Removed explicit navigation to planner to allow user to stay in context
-            // setView('daily-planner'); 
-        } else {
-            // Fallback if planner not available
-            onStartFocusSession(revisionStackTopics[0].name);
-        }
+        if(revisionStackTopics.length === 0) { alert("You haven't marked enough chapters as 'In Progress' or 'Weakness' to generate a targeted stack."); return; }
+        if(addTasksToPlanner) { const tasks = revisionStackTopics.map(t => ({ task: `Revise: ${t.name} (${t.reason})`, time: 30, topic: t.name })); addTasksToPlanner(tasks); } 
+        else { onStartFocusSession(revisionStackTopics[0].name); }
     };
 
     const handleSunburstClick = (type: 'subject' | 'unit', name: string) => {
-        if (type === 'subject') {
-            setActiveSubject(name.toLowerCase() as 'physics' | 'chemistry' | 'maths');
-            setActiveUnit(null);
-        } else if (type === 'unit') {
-            const subject = ['physics', 'chemistry', 'maths'].find(sub => {
-                // @ts-ignore
-                return JEE_SYLLABUS[sub].some((u: any) => u.unit === name);
-            });
-            if (subject) {
-                setActiveSubject(subject as 'physics' | 'chemistry' | 'maths');
-                setActiveUnit(name);
-            }
+        if (type === 'subject') { setActiveSubject(name.toLowerCase() as 'physics' | 'chemistry' | 'maths'); setActiveUnit(null); } 
+        else if (type === 'unit') {
+            const subject = ['physics', 'chemistry', 'maths'].find(sub => JEE_SYLLABUS[sub as 'physics'|'chemistry'|'maths'].some((u: any) => u.unit === name));
+            if (subject) { setActiveSubject(subject as 'physics' | 'chemistry' | 'maths'); setActiveUnit(name); }
         }
     };
 
+    const handleNodeClick = (topic: string) => {
+        let subject: 'physics' | 'chemistry' | 'maths' | undefined;
+        ['physics', 'chemistry', 'maths'].forEach(sub => {
+            const found = JEE_SYLLABUS[sub as 'physics'|'chemistry'|'maths'].some(unit => unit.chapters.some(ch => ch.name === topic));
+            if(found) subject = sub as any;
+        });
+        if(subject) { setActiveSubject(subject); setSearchQuery(topic); setVizMode('overview'); }
+    };
+
+    const vizModes = [
+        { id: 'overview', label: 'Overview' },
+        { id: 'sunburst', label: 'Sunburst' },
+        { id: 'tree', label: 'Tree' },
+        { id: 'river', label: 'River Flow' },
+        { id: 'subway', label: 'Subway Map' },
+    ];
+
     return (
         <div className="space-y-6 pb-20">
+            {completionEffect && <canvas ref={particleCanvasRef} className="fixed inset-0 pointer-events-none z-[100]" />}
+            <StrategicPlanner userProfile={userProfile} />
+
             <div className="flex justify-between items-center flex-wrap gap-4">
                 <h2 className="text-2xl font-bold text-[rgb(var(--color-primary-accent-rgb))]">Syllabus Tracker</h2>
+                
                 <div className="flex items-center gap-4">
-                    <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-600 shadow-lg">
-                        <button onClick={() => setVizMode('overview')} className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${vizMode === 'overview' ? 'bg-cyan-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}>Overview</button>
-                        <button onClick={() => setVizMode('sunburst')} className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${vizMode === 'sunburst' ? 'bg-cyan-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}>Sunburst</button>
-                    </div>
                     <button 
                         onClick={handleGenerateRevisionStack}
                         className="bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-4 rounded-lg shadow-lg flex items-center gap-2 text-sm hover:scale-105 transition-transform"
@@ -780,6 +1071,18 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
                         <span>🧠</span> Generate Revision Stack
                         {revisionStackTopics.length > 0 && <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{revisionStackTopics.length}</span>}
                     </button>
+                    {/* Unified View Toggle */}
+                    <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-700 shadow-md">
+                        {vizModes.map(mode => (
+                            <button 
+                                key={mode.id}
+                                onClick={() => setVizMode(mode.id as any)} 
+                                className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors flex items-center justify-center gap-2 ${vizMode === mode.id ? 'bg-cyan-600 text-white shadow' : 'text-gray-300 hover:bg-slate-700'}`}
+                            >
+                                {mode.label}
+                            </button>
+                        ))}
+                    </div>
                      <input 
                         type="text" 
                         placeholder="Search chapters..." 
@@ -790,58 +1093,189 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
                 </div>
             </div>
 
-            {/* Visualization Container */}
             <div className="relative">
                 {vizMode === 'sunburst' ? (
                     <SyllabusSunburst userProfile={userProfile} onSliceClick={handleSunburstClick} />
-                ) : (
+                ) : vizMode === 'subway' ? (
+                    <SyllabusSubwayMap userProfile={userProfile} masteryScores={allMasteryScores} onNodeClick={handleNodeClick} />
+                ) : vizMode === 'river' ? (
+                    <SyllabusRiverFlow userProfile={userProfile} masteryScores={allMasteryScores} onNodeClick={handleNodeClick} />
+                ) : vizMode === 'tree' ? (
+                    <SyllabusTree userProfile={userProfile} masteryScores={allMasteryScores} onNodeClick={handleNodeClick} onSyllabusChange={handleSyllabusChange} />
+                ) : ( // overview
                     <SyllabusOverviewWidget userProfile={userProfile} questionLogs={questionLogs} />
                 )}
             </div>
-
-            <div className="flex items-center gap-4 border-b border-slate-700 overflow-x-auto">
-                 {(['physics', 'chemistry', 'maths'] as const).map(subject => (
-                     <button
-                        key={subject}
-                        onClick={() => { setActiveSubject(subject); setActiveUnit(null); }}
-                        className={`pb-3 text-sm font-bold uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${activeSubject === subject ? `border-[${SUBJECT_CONFIG[subject].color}] text-white` : 'border-transparent text-gray-500 hover:text-gray-300'}`}
-                        style={{ borderColor: activeSubject === subject ? SUBJECT_CONFIG[subject].color : 'transparent', color: activeSubject === subject ? SUBJECT_CONFIG[subject].color : undefined }}
-                    >
-                        {subject}
-                    </button>
-                 ))}
-                 {activeUnit && (
-                     <div className="flex items-center gap-2 pb-3 text-sm font-bold text-cyan-300 border-b-2 border-cyan-300 whitespace-nowrap animate-fade-in">
-                         <span className="text-gray-500">/</span> {activeUnit} 
-                         <button onClick={() => setActiveUnit(null)} className="ml-1 text-gray-500 hover:text-white font-normal">✕</button>
-                     </div>
-                 )}
-            </div>
-
-            <SubjectSyllabus 
-                subject={activeSubject} 
-                userProfile={userProfile} 
-                onSyllabusChange={handleSyllabusChange} 
-                questionLogs={questionLogs} 
-                reports={reports} 
-                onStartFocusSession={onStartFocusSession}
-                onExplainTopic={handleExplainTopic}
-                searchQuery={searchQuery}
-                activeUnitFilter={activeUnit}
-            />
+            
+            {(vizMode === 'overview' || activeUnit) && (
+                 <div className="flex items-center gap-4 border-b border-slate-700 overflow-x-auto">
+                     {(['physics', 'chemistry', 'maths'] as const).map(subject => (
+                         <button
+                            key={subject}
+                            onClick={() => { setActiveSubject(subject); setActiveUnit(null); }}
+                            className={`pb-3 text-sm font-bold uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${activeSubject === subject ? `border-[${SUBJECT_CONFIG[subject].color}] text-white` : 'border-transparent text-gray-500 hover:text-gray-300'}`}
+                            style={{ borderColor: activeSubject === subject ? SUBJECT_CONFIG[subject].color : 'transparent', color: activeSubject === subject ? SUBJECT_CONFIG[subject].color : undefined }}
+                        >
+                            {subject}
+                        </button>
+                     ))}
+                     {activeUnit && (
+                         <div className="flex items-center gap-2 pb-3 text-sm font-bold text-cyan-300 border-b-2 border-cyan-300 whitespace-nowrap animate-fade-in">
+                             <span className="text-gray-500">/</span> {activeUnit} 
+                             <button onClick={() => setActiveUnit(null)} className="ml-1 text-gray-500 hover:text-white font-normal">✕</button>
+                         </div>
+                     )}
+                </div>
+            )}
+           
+            {vizMode === 'overview' && (
+                 <SubjectSyllabus 
+                    subject={activeSubject} 
+                    userProfile={userProfile} 
+                    onSyllabusChange={handleSyllabusChange} 
+                    questionLogs={questionLogs} 
+                    reports={reports} 
+                    onStartFocusSession={onStartFocusSession}
+                    onExplainTopic={handleExplainTopic}
+                    searchQuery={searchQuery}
+                    activeUnitFilter={activeUnit}
+                    onTriggerQuiz={triggerCompletionQuiz}
+                    onCompletionEffect={triggerCompletionEffect}
+                    chapterCardRefs={chapterCardRefs}
+                />
+            )}
             
              <Modal isOpen={!!explainModalData} onClose={() => setExplainModalData(null)} title={`Concept: ${explainModalData?.topic}`}>
-                <div className="p-4 prose prose-invert max-w-none">
-                    {explainModalData?.loading ? (
-                        <div className="flex items-center justify-center py-8 text-gray-400 gap-2">
-                            <div className="w-5 h-5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
-                            Generating explanation...
-                        </div>
-                    ) : (
-                        <div dangerouslySetInnerHTML={{ __html: explainModalData?.content.replace(/\n/g, '<br/>') || '' }} />
-                    )}
-                </div>
+                {explainModalData?.loading ? <SkeletonText /> : <div className="p-4 prose prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: explainModalData?.content.replace(/\n/g, '<br/>') || '' }} />}
             </Modal>
+
+            <Modal isOpen={!!quizState} onClose={() => setQuizState(null)} title={`Mastery Check: ${quizState?.topic}`}>
+                <GatekeeperQuiz
+                    quizState={quizState}
+                    setQuizState={setQuizState}
+                    onSuccess={() => {
+                        if(quizState?.topic) {
+                            handleSyllabusChange(quizState.topic, { status: SyllabusStatus.Completed });
+                        }
+                        setQuizState(null);
+                    }}
+                />
+            </Modal>
+        </div>
+    );
+};
+
+// --- Gatekeeper Quiz Component ---
+const GatekeeperQuiz: React.FC<{
+    quizState: { topic: string, questions?: QuizQuestion[], loading: boolean, userAnswers?: Record<number, string>, submitted?: boolean, result?: boolean[] } | null;
+    setQuizState: React.Dispatch<React.SetStateAction<any>>;
+    onSuccess: () => void;
+}> = ({ quizState, setQuizState, onSuccess }) => {
+
+    if (quizState?.loading) {
+        return <div className="text-center p-8">
+            <div className="inline-block w-8 h-8 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p className="text-gray-300">Generating conceptual questions...</p>
+        </div>;
+    }
+
+    if (!quizState?.questions) {
+        return <div className="text-center p-8 text-red-400">Could not load quiz questions. Please try again.</div>;
+    }
+
+    const handleAnswer = (qIndex: number, answerKey: string) => {
+        setQuizState((prev: any) => ({
+            ...prev,
+            userAnswers: {
+                ...prev.userAnswers,
+                [qIndex]: answerKey
+            }
+        }));
+    };
+
+    const handleSubmit = () => {
+        const results = quizState.questions!.map((q, i) => {
+            return quizState.userAnswers?.[i] === q.answer;
+        });
+        const allCorrect = results.every(Boolean);
+
+        setQuizState((prev: any) => ({
+            ...prev,
+            submitted: true,
+            result: results
+        }));
+
+        if (allCorrect) {
+            setTimeout(() => {
+                onSuccess();
+            }, 2000);
+        }
+    };
+
+    const isSubmitted = quizState.submitted;
+    const allCorrect = isSubmitted && quizState.result?.every(Boolean);
+
+    return (
+        <div className="p-4 space-y-6">
+            {quizState.questions.map((q, i) => {
+                const isCorrect = isSubmitted ? quizState.result?.[i] : undefined;
+                const userAnswer = quizState.userAnswers?.[i];
+
+                return (
+                    <div key={i} className={`p-4 rounded-lg border ${isSubmitted ? (isCorrect ? 'border-green-500/50 bg-green-900/20' : 'border-red-500/50 bg-red-900/20') : 'border-slate-700 bg-slate-800/50'}`}>
+                        <p className="font-semibold text-gray-200 mb-4">{i + 1}. {q.question}</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {Object.entries(q.options).map(([key, optionText]) => {
+                                const isSelected = userAnswer === key;
+                                const isCorrectAnswer = q.answer === key;
+                                
+                                let buttonClass = "bg-slate-700 hover:bg-slate-600";
+                                if (isSubmitted) {
+                                    if (isCorrectAnswer) buttonClass = "bg-green-600 text-white";
+                                    else if (isSelected) buttonClass = "bg-red-600 text-white";
+                                } else if (isSelected) {
+                                    buttonClass = "bg-cyan-600 text-white";
+                                }
+
+                                return (
+                                <button
+                                    key={key}
+                                    onClick={() => !isSubmitted && handleAnswer(i, key)}
+                                    className={`w-full text-left p-3 rounded-md text-sm transition-colors ${buttonClass}`}
+                                >
+                                    <span className="font-bold mr-2">{key}.</span> {optionText}
+                                </button>
+                                );
+                            })}
+                        </div>
+                        {isSubmitted && !isCorrect && (
+                            <div className="mt-3 p-3 bg-slate-900/50 rounded-md border border-slate-700 text-xs">
+                                <p className="text-amber-300 font-bold">Explanation:</p>
+                                <p className="text-gray-300">{q.explanation}</p>
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
+
+            <div className="flex justify-between items-center mt-6">
+                 <button onClick={onSuccess} className="text-sm text-gray-400 hover:text-white hover:bg-slate-700 px-4 py-2 rounded-md">
+                    Complete Anyway
+                </button>
+                {!isSubmitted ? (
+                    <button onClick={handleSubmit} className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-3 px-6 rounded-lg">Submit Answers</button>
+                ) : allCorrect ? (
+                    <div className="text-center p-3 bg-green-900/30 rounded-lg text-green-300">
+                        <p className="font-bold">Perfect! Mastery confirmed.</p>
+                        <p className="text-sm">Updating syllabus status...</p>
+                    </div>
+                ) : (
+                    <div className="text-center p-3 bg-red-900/30 rounded-lg text-red-300">
+                        <p className="font-bold">Not quite there yet.</p>
+                        <p className="text-sm">Review the explanations above and try again later.</p>
+                    </div>
+                )}
+            </div>
         </div>
     );
 };
