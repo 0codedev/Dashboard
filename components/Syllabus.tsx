@@ -34,7 +34,9 @@ const COLORS_PIE: Record<string, string> = {
 // --- Strategic Planner Component ---
 const StrategicPlanner: React.FC<{ userProfile: UserProfile }> = ({ userProfile }) => {
     const { velocity, requiredVelocity, isOnTrack, remainingChapters, daysLeft } = useMemo(() => {
-        const completed = Object.values(userProfile.syllabus)
+        // Fix: Explicitly cast Object.values to handle TS inference 'unknown' issue
+        const syllabusValues = Object.values(userProfile.syllabus) as Partial<ChapterProgress>[];
+        const completed = syllabusValues
             .filter(p => p?.completionDate && (p.status === SyllabusStatus.Completed || p.status === SyllabusStatus.Revising))
             .map(p => ({ date: new Date(p!.completionDate!) }))
             .sort((a, b) => a.date.getTime() - b.date.getTime());
@@ -986,7 +988,7 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
         // @ts-ignore
         const syllabusChapters = Object.values(JEE_SYLLABUS).flatMap(subject => subject.flatMap(unit => unit.chapters.map(c => c.name)));
         syllabusChapters.forEach(chapter => {
-            const progress = userProfile.syllabus[chapter] || { status: SyllabusStatus.NotStarted, strength: null, revisionCount: 0 };
+            const progress = userProfile.syllabus[chapter] || { status: SyllabusStatus.NotStarted, strength: null, revisionCount: 0, subTopicStatus: {} };
             const baseWeight = TOPIC_WEIGHTAGE[chapter] === 'High' ? 3 : TOPIC_WEIGHTAGE[chapter] === 'Medium' ? 2 : 1;
             let lastInteractionDate = new Date('2000-01-01');
             let hasInteraction = false;

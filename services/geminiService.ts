@@ -66,13 +66,12 @@ export async function decodeAudioData(
 export const getEmbeddings = async (text: string, apiKey: string): Promise<number[]> => {
     try {
         const ai = new GoogleGenAI({ apiKey });
-        // FIX: The parameter for embedContent is 'contents', not 'content'.
+        // Corrected API call: contents (plural) and embeddings (plural)
         const response = await ai.models.embedContent({
             model: 'text-embedding-004',
-            contents: { parts: [{ text }] },
+            contents: [{ parts: [{ text }] }],
         });
-        // FIX: The response object has an 'embeddings' array. Access the first element for the result.
-        return response.embeddings[0]?.values || [];
+        return response.embeddings?.[0]?.values || [];
     } catch (e) {
         console.error("Embedding failed", e);
         return [];
@@ -131,7 +130,6 @@ export const retrieveRelevantContext = async (
 
     // Note: Generating embeddings for all chunks in client-side is rate-limit prone.
     // Fallback to simple keyword matching + recent errors for this demo to ensure stability.
-    // Real implementation would use IndexedDB vector store.
     
     const relevantChunks = chunks.filter(c => 
         query.toLowerCase().includes(c.text.split(':')[1].split('.')[0].trim().toLowerCase())
@@ -235,8 +233,9 @@ export const extractDataFromImage = async (imageFile: File, apiKey: string): Pro
 
     Return the data as a single JSON object that strictly follows the provided schema. If a value is not found, use a reasonable default like 0 for numbers or an empty string for text.`;
 
+    // UPGRADED MODEL: Using gemini-3-pro-preview for better vision accuracy on complex tables
     const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3-pro-preview",
         contents: { parts: [imagePart, { text: prompt }] },
         config: {
             responseMimeType: "application/json",
@@ -409,7 +408,7 @@ export const getAIAnalysis = async (reports: TestReport[], logs: QuestionLog[], 
       model: "gemini-3-pro-preview",
       contents: { parts: [{ text: prompt }] },
       config: {
-        thinkingConfig: { thinkingBudget: 32768 },
+        thinkingConfig: { thinkingBudget: 2048 },
       },
     });
 
@@ -522,8 +521,9 @@ export const generateChecklistFromPlan = async (weakTopics: string[], apiKey: st
     const ai = new GoogleGenAI({ apiKey });
     const prompt = `You are an academic coach for a student preparing for the JEE exam. Based on their identified weak topics: ${weakTopics.join(', ')}. Create a short list of 5 concrete, actionable checklist items for their daily plan. The items should be concise phrases.`;
     
+    // UPGRADED MODEL: Using gemini-3-pro-preview for smarter checklist generation
     const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3-pro-preview",
         contents: { parts: [{ text: prompt }] },
         config: {
             responseMimeType: "application/json",
@@ -714,8 +714,9 @@ export const explainTopic = async (topic: string, apiKey: string): Promise<strin
     
     Start with a simple definition, explain the core principles, and provide a simple example if applicable. Keep the entire explanation focused and directly relevant to the JEE syllabus.`;
     
+    // UPGRADED MODEL: Using gemini-3-pro-preview for better conceptual explanations
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-pro-preview",
       contents: { parts: [{ text: prompt }] },
     });
     
@@ -784,8 +785,9 @@ export const generateTasksFromGoal = async (goalText: string, apiKey: string): P
     Break this down into 3-4 concrete, actionable daily tasks. For each task, provide a realistic time estimate in minutes.
     Return a JSON object following the schema.`;
     
+    // UPGRADED MODEL: Using gemini-3-pro-preview for better logical breakdown
     const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3-pro-preview",
         contents: { parts: [{ text: prompt }] },
         config: {
             responseMimeType: "application/json",
@@ -843,8 +845,9 @@ export const generateSmartTasks = async (weakTopics: string[], apiKey: string): 
     const ai = new GoogleGenAI({ apiKey });
     const prompt = `You are an academic coach for a JEE student. Based on their identified weak topics: ${weakTopics.slice(0,5).join(', ')}. Create a short list of 2-3 highly specific and actionable tasks for a "Today's Focus" block. For each task, provide a realistic time estimate in minutes and link it to the relevant weak topic. Return a JSON object following the schema.`;
     
+    // UPGRADED MODEL: Using gemini-3-pro-preview for smarter, more specific task generation
     const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3-pro-preview",
         contents: { parts: [{ text: prompt }] },
         config: {
             responseMimeType: "application/json",

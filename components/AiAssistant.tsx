@@ -1,5 +1,5 @@
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-// FIX: 'LiveSession' is not an exported member of '@google/genai'. The type is internal.
 import { GoogleGenAI, LiveServerMessage, Blob as GenAiBlob, GenerateContentResponse, Modality } from "@google/genai";
 import type { TestReport, QuestionLog, AiFilter, ChatMessage, StudyGoal, AiAssistantPreferences, GenUIToolType, GenUIComponentData } from '../types';
 import { generateStudyPlan, explainTopic, retrieveRelevantContext, GENUI_TOOLS, decodeAudioData, encodeAudio, decodeAudio } from '../services/geminiService';
@@ -27,7 +27,7 @@ const GenUIChart: React.FC<{ data: any }> = ({ data }) => {
     const { title, chartType, data: chartData, xAxisLabel } = data;
     
     return (
-        <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 my-2 w-full h-64">
+        <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 my-2 w-full h-80 min-w-[300px]">
             <h4 className="text-sm font-bold text-gray-200 mb-2 text-center">{title}</h4>
             <ResponsiveContainer width="100%" height="100%">
                 {chartType === 'line' ? (
@@ -59,26 +59,31 @@ const GenUIChecklist: React.FC<{ data: any }> = ({ data }) => {
     const [checked, setChecked] = useState<Record<number, boolean>>({});
 
     return (
-        <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 my-2">
-            <h4 className="text-sm font-bold text-gray-200 mb-3 border-b border-slate-700 pb-2">{title}</h4>
+        <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 my-2 shadow-lg">
+            <h4 className="text-sm font-bold text-gray-200 mb-3 border-b border-slate-700 pb-2 flex justify-between items-center">
+                <span>{title}</span>
+                <span className="text-xs text-cyan-400 bg-cyan-900/30 px-2 py-0.5 rounded">Action Plan</span>
+            </h4>
             <div className="space-y-2">
                 {items.map((item: any, idx: number) => (
-                    <div key={idx} className="flex items-start gap-3 p-2 hover:bg-slate-800/50 rounded transition-colors">
+                    <div key={idx} className="flex items-start gap-3 p-2 hover:bg-slate-800/50 rounded transition-colors border border-transparent hover:border-slate-700/50">
                         <input 
                             type="checkbox" 
                             checked={!!checked[idx]} 
                             onChange={() => setChecked(p => ({...p, [idx]: !p[idx]}))}
-                            className="mt-1 rounded border-slate-600 text-cyan-500 focus:ring-cyan-500 bg-slate-700"
+                            className="mt-1 rounded border-slate-600 text-cyan-500 focus:ring-cyan-500 bg-slate-700 cursor-pointer"
                         />
-                        <div>
-                            <p className={`text-sm ${checked[idx] ? 'text-gray-500 line-through' : 'text-gray-300'}`}>{item.task}</p>
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded border ${
-                                item.priority === 'High' ? 'bg-red-900/30 border-red-800 text-red-300' :
-                                item.priority === 'Medium' ? 'bg-yellow-900/30 border-yellow-800 text-yellow-300' :
-                                'bg-blue-900/30 border-blue-800 text-blue-300'
-                            }`}>
-                                {item.priority}
-                            </span>
+                        <div className="flex-grow">
+                            <p className={`text-sm font-medium transition-all ${checked[idx] ? 'text-gray-500 line-through' : 'text-gray-200'}`}>{item.task}</p>
+                            <div className="flex items-center gap-2 mt-1">
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold uppercase tracking-wider ${
+                                    item.priority === 'High' ? 'bg-red-900/30 border-red-800 text-red-300' :
+                                    item.priority === 'Medium' ? 'bg-yellow-900/30 border-yellow-800 text-yellow-300' :
+                                    'bg-blue-900/30 border-blue-800 text-blue-300'
+                                }`}>
+                                    {item.priority}
+                                </span>
+                            </div>
                         </div>
                     </div>
                 ))}
@@ -91,13 +96,16 @@ const GenUIChecklist: React.FC<{ data: any }> = ({ data }) => {
 
 const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
     const renderLine = (line: string) => {
-        const parts = line.split(/(\*\*.*?\*\*|\*.*?\*)/g).filter(Boolean);
+        const parts = line.split(/(\*\*.*?\*\*|\*.*?\*|`.*?`)/g).filter(Boolean);
         return parts.map((part, i) => {
             if (part.startsWith('**') && part.endsWith('**')) {
-                return <strong key={i} className="text-white font-semibold">{part.slice(2, -2)}</strong>;
+                return <strong key={i} className="text-cyan-100 font-bold tracking-wide">{part.slice(2, -2)}</strong>;
             }
             if (part.startsWith('*') && part.endsWith('*')) {
-                return <em key={i} className="italic text-gray-200">{part.slice(1, -1)}</em>;
+                return <em key={i} className="italic text-gray-300">{part.slice(1, -1)}</em>;
+            }
+            if (part.startsWith('`') && part.endsWith('`')) {
+                return <code key={i} className="bg-slate-700 px-1 py-0.5 rounded text-xs font-mono text-cyan-300">{part.slice(1, -1)}</code>;
             }
             return part;
         });
@@ -112,37 +120,36 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
 
         if (line.startsWith('### ')) {
             if (listItems.length > 0) {
-                elements.push(<ul key={`ul-${i}`} className="list-disc pl-5 my-2 space-y-1">{listItems}</ul>);
+                elements.push(<ul key={`ul-${i}`} className="list-disc pl-5 my-3 space-y-2">{listItems}</ul>);
                 listItems = [];
             }
-            elements.push(<h3 key={i} className="text-xl font-bold mt-4 mb-2 text-cyan-300 border-b border-slate-700 pb-1">{renderLine(line.substring(4))}</h3>);
+            elements.push(<h3 key={i} className="text-lg font-bold mt-6 mb-3 text-cyan-300 border-b border-slate-700/50 pb-2">{renderLine(line.substring(4))}</h3>);
             continue;
         }
         
-        if (line.match(/^\s*\*\s/)) { 
-            listItems.push(<li key={i}>{renderLine(line.replace(/^\s*\*\s/, ''))}</li>);
+        if (line.match(/^\s*[-*]\s/)) { 
+            listItems.push(<li key={i} className="text-gray-300 leading-relaxed pl-2">{renderLine(line.replace(/^\s*[-*]\s/, ''))}</li>);
             continue;
         }
 
         if (listItems.length > 0) {
-            elements.push(<ul key={`ul-${i}`} className="list-disc pl-5 my-2 space-y-1">{listItems}</ul>);
+            elements.push(<ul key={`ul-${i}`} className="list-disc pl-5 my-3 space-y-2">{listItems}</ul>);
             listItems = [];
         }
 
         if (line.trim() === '') {
-            // Spacer logic
-             elements.push(<div key={i} className="h-2"></div>);
+             elements.push(<div key={i} className="h-3"></div>);
         } else {
-            elements.push(<p key={i} className="my-2 leading-relaxed">{renderLine(line)}</p>);
+            elements.push(<p key={i} className="my-2 leading-7 text-gray-200">{renderLine(line)}</p>);
         }
     }
     
     if (listItems.length > 0) {
-        elements.push(<ul key="ul-end" className="list-disc pl-5 my-2 space-y-1">{listItems}</ul>);
+        elements.push(<ul key="ul-end" className="list-disc pl-5 my-3 space-y-2">{listItems}</ul>);
     }
 
     return (
-        <div className="prose prose-invert text-gray-300 max-w-full">{elements}</div>
+        <div className="prose prose-invert text-gray-200 max-w-full text-sm font-sans">{elements}</div>
     );
 };
 
@@ -241,44 +248,115 @@ function createBlob(data: Float32Array): GenAiBlob {
   };
 }
 
+// --- Advanced System Instruction Generation ---
 const getSystemInstruction = (reports: TestReport[], logs: QuestionLog[], preferences: AiAssistantPreferences, extraContext: string) => {
-    const summary = reports.map(r => ({
-        testName: r.testName,
-        totalMarks: r.total.marks,
-        totalRank: r.total.rank,
-        accuracy: r.totalMetrics?.accuracy.toFixed(1) + '%'
-    })).slice(-10);
+    // 1. Global Stats & Trends
+    const totalTests = reports.length;
+    const allScores = reports.map(r => r.total.marks);
+    const avgScore = allScores.reduce((a, b) => a + b, 0) / (totalTests || 1);
+    
+    // Moving Average (Last 3 vs All Time)
+    const recentReports = reports.slice(-3);
+    const recentAvg = recentReports.reduce((a, b) => a + b.total.marks, 0) / (recentReports.length || 1);
+    const trendDelta = recentAvg - avgScore;
+    const trendDirection = trendDelta > 5 ? 'Surging 🚀' : trendDelta > 0 ? 'Improving 📈' : trendDelta > -5 ? 'Plateauing ➖' : 'Declining 📉';
 
-    const errorAnalysis = logs.reduce((acc, log) => {
-        if (log.status === QuestionStatus.Wrong && log.reasonForError) {
-            acc[log.reasonForError] = (acc[log.reasonForError] || 0) + 1;
+    // Volatility (Consistency)
+    const scoreVariance = allScores.reduce((sum, score) => sum + Math.pow(score - avgScore, 2), 0) / (totalTests || 1);
+    const scoreStdDev = Math.sqrt(scoreVariance);
+    const consistencyRating = scoreStdDev < 10 ? 'Machine-like (Very High)' : scoreStdDev < 25 ? 'Stable' : 'Erratic (High Volatility)';
+
+    // 2. Subject Breakdown
+    const subjects = ['physics', 'chemistry', 'maths'] as const;
+    const subjectAvgs = subjects.map(sub => ({
+        name: sub,
+        avg: reports.reduce((a, r) => a + r[sub].marks, 0) / (totalTests || 1)
+    })).sort((a, b) => b.avg - a.avg);
+    
+    const strongestSubject = subjectAvgs[0];
+    const weakestSubject = subjectAvgs[2];
+    const subjectImbalance = (strongestSubject.avg - weakestSubject.avg) > 15;
+
+    // 3. Deep Error Analysis
+    const errorStats = logs.reduce((acc, log) => {
+        if (log.status === QuestionStatus.Wrong || log.status === QuestionStatus.PartiallyCorrect) {
+            acc.total++;
+            if (log.reasonForError) acc.reasons[log.reasonForError] = (acc.reasons[log.reasonForError] || 0) + 1;
+            if (log.topic) acc.topics[log.topic] = (acc.topics[log.topic] || 0) + 1;
+            
+            // Track subject specific error types
+            if (!acc.subjectErrors[log.subject]) acc.subjectErrors[log.subject] = {};
+            if (log.reasonForError) acc.subjectErrors[log.subject][log.reasonForError] = (acc.subjectErrors[log.subject][log.reasonForError] || 0) + 1;
         }
         return acc;
-    }, {} as Record<string, number>);
+    }, { 
+        total: 0, 
+        reasons: {} as Record<string, number>, 
+        topics: {} as Record<string, number>,
+        subjectErrors: {} as Record<string, Record<string, number>>
+    });
 
-    const topErrorReasons = Object.entries(errorAnalysis)
-        .sort(([, a], [, b]) => b - a)
-        .slice(0, 3)
-        .map(([reason, count]) => `${reason} (${count} times)`)
-        .join(', ');
+    // Find the "Fatal Flaw"
+    const topErrorEntry = Object.entries(errorStats.reasons).sort((a, b) => b[1] - a[1])[0];
+    const topErrorReason = topErrorEntry ? topErrorEntry[0] : 'None';
+    const topErrorPct = topErrorEntry ? Math.round((topErrorEntry[1] / errorStats.total) * 100) : 0;
 
-    return `You are an expert JEE performance coach. Your goal is to help the student improve.
+    // Find the "Money Pit" (Topic with most lost marks)
+    const topWeakTopicEntry = Object.entries(errorStats.topics).sort((a, b) => b[1] - a[1])[0];
+    const topWeakTopic = topWeakTopicEntry ? `${topWeakTopicEntry[0]} (${topWeakTopicEntry[1]} errors)` : 'None';
+
+    // 4. Construct the System Prompt
     
-    Student Context:
-    - Recent Tests: ${JSON.stringify(summary)}
-    - Common Errors: ${topErrorReasons}
-    - RAG Context: ${extraContext || "None"}
-
-    Guidelines:
-    - Tone: ${preferences.tone}
-    - Length: ${preferences.responseLength}
-    - Socratic Mode: ${preferences.socraticMode ? "ON. Ask guiding questions instead of giving direct answers." : "OFF."}
-    - **GenUI**: Use the \`renderChart\` tool if the user asks for visual trends. Use \`createActionPlan\` for checklists.
+    const socraticModeInstruction = `
+    **MODE: SOCRATIC COACHING (ACTIVE)**
+    Your goal is NOT to just provide answers, but to guide the student to realization.
     
-    Interactive Capabilities:
-    - Use \`renderChart\` to show data visually.
-    - Use \`createActionPlan\` for steps.
-    - Always return markdown.`;
+    1.  **Start with Observation:** State a specific data pattern you see (e.g., "I notice your Chemistry score fluctuates wildly...").
+    2.  **Ask, Don't Tell:** Instead of saying "Study Thermodynamics", ask "Why do you think your accuracy in Thermodynamics drops in the second half of tests?"
+    3.  **One Question at a Time:** Do not overwhelm them. Ask one high-impact probing question to trigger self-reflection.
+    4.  **Wait for Input:** Only provide the solution after they have attempted to answer your guiding question.
+    `;
+
+    const directModeInstruction = `
+    **MODE: DIRECT STRATEGIST**
+    You are a high-performance consultant. Be direct, prescriptive, and data-driven. Tell them exactly what is wrong and exactly how to fix it.
+    `;
+
+    const formattingInstruction = `
+    **FORMATTING & AESTHETICS (CRITICAL)**
+    - **No Wall of Text:** Break answers into clear, readable paragraphs.
+    - **Narrative Flow:** Write like a human speaking, not a robot listing stats. Connect the data points into a story.
+    - **Beautiful Typography:** 
+      - Use **bold** for key metrics and insights.
+      - Use \`code blocks\` for specific formulas or short lists.
+      - Use ### Headers to separate distinct thoughts.
+    - **Limit Lists:** Do not use bullet points for everything. Use them only for checklists.
+    - **Tone:** Warm, encouraging, yet highly analytical. Always find one "Victory Metric" to praise before critiquing.
+    `;
+
+    const basePrompt = `
+    You are the **Chief Performance Strategist** for an elite JEE aspirant.
+    
+    **CORE DATA:**
+    - **Trajectory:** ${trendDirection} (Recent Avg: ${recentAvg.toFixed(0)} vs Global: ${avgScore.toFixed(0)}).
+    - **Stability:** ${consistencyRating}.
+    - **Strongest:** ${strongestSubject.name.toUpperCase()} (${strongestSubject.avg.toFixed(1)}).
+    - **Weakest:** ${weakestSubject.name.toUpperCase()} (${weakestSubject.avg.toFixed(1)}).
+    - **Primary Error:** ${topErrorReason} (${topErrorPct}% of errors).
+    - **Critical Weakness:** ${topWeakTopic}.
+    
+    **CONTEXT:** ${extraContext || "No specific past errors found for this query."}
+
+    ${preferences.socraticMode ? socraticModeInstruction : directModeInstruction}
+
+    ${formattingInstruction}
+
+    **CRITICAL:** If the user asks for a chart, plan, or list, ONLY THEN use the provided tools (\`renderChart\`, \`createActionPlan\`). Otherwise, prioritize text.
+    
+    ${preferences.customInstructions ? `**USER OVERRIDE:** ${preferences.customInstructions}` : ''}
+    `;
+
+    return basePrompt;
 };
 
 // Main Component
@@ -297,7 +375,7 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
     const [isLiveConnected, setIsLiveConnected] = useState(false);
     const [liveStatus, setLiveStatus] = useState<'listening' | 'thinking' | 'speaking'>('listening');
     const [audioVolume, setAudioVolume] = useState(0);
-    // FIX: Using `any` because the session type is not exported.
+    // Use 'any' as the session type is not exported by the SDK
     const liveSessionRef = useRef<any | null>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
     const audioWorkletRef = useRef<ScriptProcessorNode | null>(null);
@@ -308,10 +386,10 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
         if (chatContainerRef.current) {
             chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
         }
-    }, [chatHistory, isStreamingResponse]);
+    }, [chatHistory, isStreamingResponse, isInputExpanded]);
 
     useEffect(() => {
-        if (activeTab === 'chat' && inputRef.current) {
+        if (activeTab === 'chat' && inputRef.current && isInputExpanded) {
             inputRef.current.focus();
         }
     }, [activeTab, isInputExpanded]);
@@ -320,8 +398,8 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
     useEffect(() => {
         return () => {
             if (liveSessionRef.current) {
-                // There is no explicit close method on the session interface provided in the doc, 
-                // but usually we handle cleanup by stopping tracks and context.
+                // Per guidelines, the session object has a `close()` method to terminate the connection.
+                liveSessionRef.current.close();
                 liveSessionRef.current = null;
             }
             if (audioContextRef.current) {
@@ -360,19 +438,13 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
                 config: {
                     systemInstruction,
                     tools: [{ functionDeclarations: GENUI_TOOLS.map(t => ({ name: t.name, description: t.description, parameters: t.parameters })) }],
-                    thinkingConfig: { thinkingBudget: 1024 } // Enable thinking for 2.5 model
+                    thinkingConfig: { thinkingBudget: 2048 } 
                 }
             });
 
             let streamedText = '';
-            let isThinking = false;
-            let thinkingBuffer = '';
 
             for await (const chunk of response) {
-                // Handle Thinking parts (if visible in chunk, typically separate)
-                // Note: Implementation detail depends on how thinking tokens are returned.
-                // Assuming text property contains everything for now or handled internally.
-                
                 // Check for Function Calls (GenUI)
                 const toolCall = chunk.functionCalls?.[0];
                 if (toolCall) {
@@ -492,7 +564,7 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
 
     const stopLiveSession = () => {
         if (liveSessionRef.current) {
-            // FIX: Per guidelines, the session object has a `close()` method to terminate the connection.
+            // FIX: Properly close the session
             liveSessionRef.current.close();
             liveSessionRef.current = null;
         }
@@ -526,7 +598,7 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
 
             {activeTab === 'chat' ? (
                 <div className="flex-grow relative flex flex-col overflow-hidden">
-                    <div ref={chatContainerRef} className="flex-grow p-4 overflow-y-auto space-y-6 custom-scrollbar pb-24">
+                    <div ref={chatContainerRef} className={`flex-grow p-4 overflow-y-auto space-y-6 custom-scrollbar ${isInputExpanded ? 'pb-48' : 'pb-20'} transition-all duration-300`}>
                         {chatHistory.length === 0 && (
                             <div className="text-center text-gray-500 mt-20">
                                 <p className="text-lg font-medium mb-2">Your AI Performance Coach</p>
@@ -535,7 +607,7 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
                         )}
                         {chatHistory.map((msg, index) => (
                             <div key={index} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                                <div className={`p-4 rounded-2xl max-w-[90%] lg:max-w-[70%] shadow-md ${msg.role === 'user' ? 'bg-gradient-to-br from-cyan-600 to-blue-600 text-white rounded-br-none' : 'bg-slate-800 border border-slate-700 text-gray-200 rounded-bl-none'}`}>
+                                <div className={`p-4 rounded-2xl max-w-[90%] lg:max-w-[75%] shadow-md ${msg.role === 'user' ? 'bg-gradient-to-br from-cyan-600 to-blue-600 text-white rounded-br-none' : 'bg-slate-800 border border-slate-700 text-gray-200 rounded-bl-none'}`}>
                                     {typeof msg.content === 'string' ? (
                                         <MarkdownRenderer content={msg.content} />
                                     ) : msg.content.type === 'testReport' ? (
@@ -555,15 +627,17 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
                         )}
                     </div>
 
-                    <div className={`absolute bottom-0 left-0 right-0 z-20 transition-transform duration-300 ease-in-out ${isInputExpanded ? 'translate-y-0' : 'translate-y-full'}`}>
-                        <div className="p-4 border-t border-slate-700 bg-slate-900/80 backdrop-blur-sm">
-                            <div className="flex gap-2 mb-3 overflow-x-auto pb-2 hide-scrollbar">
-                                {suggestions.map((s, i) => (
-                                    <button key={i} onClick={() => handleSuggestionClick(s)} className="whitespace-nowrap px-3 py-1.5 bg-slate-800 border border-slate-700 hover:border-cyan-500 text-xs text-cyan-400 rounded-full transition-colors">
-                                        {s}
-                                    </button>
-                                ))}
-                            </div>
+                    <div className={`absolute bottom-0 left-0 right-0 z-20 transition-transform duration-300 ease-in-out ${isInputExpanded ? 'translate-y-0' : 'translate-y-[calc(100%-10px)]'}`}>
+                        <div className="p-4 border-t border-slate-700 bg-slate-900/95 backdrop-blur-lg shadow-2xl">
+                            {isInputExpanded && (
+                                <div className="flex gap-2 mb-3 overflow-x-auto pb-2 hide-scrollbar">
+                                    {suggestions.map((s, i) => (
+                                        <button key={i} onClick={() => handleSuggestionClick(s)} className="whitespace-nowrap px-3 py-1.5 bg-slate-800 border border-slate-700 hover:border-cyan-500 text-xs text-cyan-400 rounded-full transition-colors">
+                                            {s}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
                             <form onSubmit={handleSendMessage} className="relative">
                                 <textarea
                                     ref={inputRef}
@@ -586,16 +660,17 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
                         </div>
                     </div>
 
-                    <div className="absolute bottom-4 right-4 z-30">
+                    {/* Collapsible Bubble Toggle */}
+                    <div className="absolute bottom-4 left-4 z-30">
                         <button
                             onClick={() => setIsInputExpanded(p => !p)}
-                            className="w-14 h-14 bg-cyan-600 rounded-full flex items-center justify-center shadow-lg text-white hover:bg-cyan-500 transition-all transform hover:scale-110"
-                            aria-label={isInputExpanded ? "Collapse input area" : "Expand input area"}
+                            className="w-10 h-10 bg-slate-700 rounded-full flex items-center justify-center shadow-lg text-cyan-400 hover:bg-slate-600 hover:text-white transition-all border border-slate-600"
+                            title={isInputExpanded ? "Collapse chat input" : "Expand chat input"}
                         >
                             {isInputExpanded ? (
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                             ) : (
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L16.732 3.732z" /></svg>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
                             )}
                         </button>
                     </div>

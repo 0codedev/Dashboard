@@ -355,6 +355,17 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
                     if (bulkQuestionType) updatedLog.questionType = bulkQuestionType;
                     if (bulkSubject) updatedLog.subject = bulkSubject;
                     if (bulkTestId) updatedLog.testId = bulkTestId;
+
+                    // Auto-calculate marks if status or question type is changed
+                    if (bulkStatus || bulkQuestionType) {
+                        const newStatus = bulkStatus || log.status;
+                        const newType = bulkQuestionType || log.questionType;
+                        const newMarks = calculateMarks(newStatus, newType);
+                        if (newMarks !== null) {
+                            updatedLog.marksAwarded = newMarks;
+                        }
+                    }
+
                     return updatedLog;
                 }
                 return log;

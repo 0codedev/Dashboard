@@ -573,11 +573,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
             const savedLayout = localStorage.getItem('dashboardWidgetLayout_v7');
             if (savedLayout) {
                 const parsed = JSON.parse(savedLayout);
+                // Create a map of the SAVED layout to preserve order and properties
                 const savedWidgetMap = new Map(parsed.map((w: WidgetLayout) => [w.id, w]));
-                return DEFAULT_DASHBOARD_LAYOUT.map(defaultWidget => {
-                    const savedWidget = savedWidgetMap.get(defaultWidget.id);
-                    return savedWidget && typeof savedWidget === 'object' ? { ...defaultWidget, ...savedWidget } : defaultWidget;
-                }).filter(w => DEFAULT_DASHBOARD_LAYOUT.some(d => d.id === w.id));
+                
+                // Start with the saved layout structure
+                const mergedLayout: WidgetLayout[] = parsed.filter((w: WidgetLayout) => 
+                    DEFAULT_DASHBOARD_LAYOUT.some(d => d.id === w.id)
+                );
+
+                // Append any new default widgets that weren't in the save (e.g., new features)
+                DEFAULT_DASHBOARD_LAYOUT.forEach(defaultWidget => {
+                    if (!savedWidgetMap.has(defaultWidget.id)) {
+                        mergedLayout.push(defaultWidget);
+                    }
+                });
+                
+                return mergedLayout;
             }
         } catch (e) { console.error("Failed to load layout from localStorage", e); }
         return DEFAULT_DASHBOARD_LAYOUT;

@@ -143,9 +143,22 @@ export const PaperStrategyWidget: React.FC<{
     const handleAttemptChange = (sub: string, val: number) => setAttemptTarget(p => ({...p, [sub]: val}));
     const handleConfidenceChange = (sub: string, val: number) => setConfidence(p => ({...p, [sub]: val}));
     
-    const cycleOrder = () => {
-        // Rotate array: [P, C, M] -> [M, P, C] -> [C, M, P]
-        setSubjectOrder(prev => [prev[2], prev[0], prev[1]]);
+    const moveLeft = (index: number) => {
+        if (index === 0) return;
+        setSubjectOrder(prev => {
+            const newOrder = [...prev];
+            [newOrder[index - 1], newOrder[index]] = [newOrder[index], newOrder[index - 1]];
+            return newOrder;
+        });
+    };
+
+    const moveRight = (index: number) => {
+        if (index === subjectOrder.length - 1) return;
+        setSubjectOrder(prev => {
+            const newOrder = [...prev];
+            [newOrder[index], newOrder[index + 1]] = [newOrder[index + 1], newOrder[index]];
+            return newOrder;
+        });
     };
 
     return (
@@ -172,14 +185,18 @@ export const PaperStrategyWidget: React.FC<{
             
             <div className="flex justify-between items-center px-1">
                 <span className="text-xs text-gray-400">Order: <strong className="text-white uppercase tracking-wider">{subjectOrder.map(s => s[0]).join(' > ')}</strong></span>
-                <button onClick={cycleOrder} className="text-[10px] bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded">Rotate</button>
             </div>
 
             <div className="flex-grow grid grid-cols-1 md:grid-cols-3 gap-4 overflow-y-auto pr-2 custom-scrollbar">
                 {stats.subjectStats.map((stat, idx) => (
-                    <div key={stat.subject} className="bg-slate-900/50 p-3 rounded border border-slate-700 relative">
-                        <div className="absolute top-2 right-2 text-[10px] font-bold text-gray-600">#{idx + 1}</div>
-                        <div className="flex justify-between items-center mb-2">
+                    <div key={stat.subject} className="bg-slate-900/50 p-3 rounded border border-slate-700 relative group">
+                        <div className="absolute top-2 right-2 flex gap-1">
+                            <button onClick={() => moveLeft(idx)} disabled={idx === 0} className="text-[10px] bg-slate-800 hover:bg-slate-700 text-gray-400 hover:text-white w-5 h-5 rounded flex items-center justify-center disabled:opacity-30">{'<'}</button>
+                            <span className="text-[10px] font-bold text-gray-500 w-4 text-center">#{idx + 1}</span>
+                            <button onClick={() => moveRight(idx)} disabled={idx === subjectOrder.length - 1} className="text-[10px] bg-slate-800 hover:bg-slate-700 text-gray-400 hover:text-white w-5 h-5 rounded flex items-center justify-center disabled:opacity-30">{'>'}</button>
+                        </div>
+                        
+                        <div className="flex justify-between items-center mb-2 pt-6">
                             <span className="capitalize font-semibold text-gray-300 text-sm">{stat.subject}</span>
                             <span className={`text-[10px] px-1.5 rounded ${stat.panicDrop > 15 ? 'bg-red-900/50 text-red-300' : 'bg-slate-800 text-gray-400'}`}>
                                 -{stat.fatigueDrop + stat.panicDrop}% Eff.

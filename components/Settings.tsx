@@ -309,6 +309,22 @@ const AiSettings: React.FC<Pick<SettingsProps, 'aiPreferences' | 'setAiPreferenc
             
             <div className="bg-slate-800/30 p-5 rounded-xl border border-slate-700">
                 <h4 className="text-sm font-bold text-gray-200 mb-4 flex items-center gap-2"><span className="text-lg">🧠</span> Cognitive Settings</h4>
+                
+                <div className="mb-6 p-4 bg-indigo-900/20 rounded-lg border border-indigo-500/30">
+                    <div className="flex items-start gap-3 mb-2">
+                        <span className="text-2xl">🤔</span>
+                        <div className="flex-grow">
+                            <h5 className="text-sm font-bold text-indigo-200">Socratic Coaching Mode</h5>
+                            <p className="text-xs text-indigo-300/80 mt-1">Instead of giving direct answers, the AI will ask guiding questions to help you discover the solution yourself.</p>
+                        </div>
+                        <ToggleSwitch 
+                            label="" 
+                            checked={!!aiPreferences.socraticMode} 
+                            onChange={checked => setAiPreferences(prev => ({ ...prev, socraticMode: checked }))} 
+                        />
+                    </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                     <div>
                         <label htmlFor="response-length" className="text-xs font-medium text-gray-400 block mb-2">Response Verbosity</label>

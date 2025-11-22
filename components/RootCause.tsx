@@ -996,11 +996,19 @@ export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFi
             const savedLayout = localStorage.getItem('rootCauseWidgetLayout_v7');
             if (savedLayout) {
                 const parsed = JSON.parse(savedLayout);
+                // Robust merge to respect saved order and visibility, but include new defaults
                 const savedWidgetMap = new Map(parsed.map((w: WidgetLayout) => [w.id, w]));
-                return DEFAULT_ROOT_CAUSE_LAYOUT.map(defaultWidget => {
-                    const savedWidget = savedWidgetMap.get(defaultWidget.id);
-                    return savedWidget && typeof savedWidget === 'object' ? { ...defaultWidget, ...savedWidget } : defaultWidget;
-                }).filter(w => DEFAULT_ROOT_CAUSE_LAYOUT.some(d => d.id === w.id));
+                
+                const mergedLayout: WidgetLayout[] = parsed.filter((w: WidgetLayout) => 
+                    DEFAULT_ROOT_CAUSE_LAYOUT.some(d => d.id === w.id)
+                );
+
+                DEFAULT_ROOT_CAUSE_LAYOUT.forEach(defaultWidget => {
+                    if (!savedWidgetMap.has(defaultWidget.id)) {
+                        mergedLayout.push(defaultWidget);
+                    }
+                });
+                return mergedLayout;
             }
         } catch (e) { console.error("Failed to load layout from localStorage", e); }
         return DEFAULT_ROOT_CAUSE_LAYOUT;

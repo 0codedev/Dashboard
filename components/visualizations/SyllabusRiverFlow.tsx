@@ -114,7 +114,13 @@ export const SyllabusRiverFlow: React.FC<SyllabusRiverFlowProps> = ({ userProfil
         ).filter(edge => nodePos[edge.from] && nodePos[edge.to]);
 
         return { layers: newLayers, edges: newEdges, nodePositions: nodePos, maxLayerWidth: mLayerWidth + 100, contentHeight: newLayers.length * layerPadding + 100 };
-    }, [masteryScores]);
+    }, [masteryScores]) as {
+        layers: string[][];
+        edges: { from: string; to: string }[];
+        nodePositions: Record<string, { x: number, y: number, color: string, isWeak: boolean, weight: number, subject: string }>;
+        maxLayerWidth: number;
+        contentHeight: number;
+    };
 
     const upstream = useMemo(() => {
         if (!selectedTopic) return new Set();

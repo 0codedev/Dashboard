@@ -1,3 +1,4 @@
+
 import React, { type ReactNode, type ErrorInfo } from 'react';
 import { Button } from './Button';
 
@@ -12,16 +13,10 @@ interface State {
 }
 
 export class ErrorBoundary extends React.Component<Props, State> {
-  // Fix: Replaced state class property with a constructor to initialize state.
-  // This resolves TypeScript errors where properties like `this.props` and `this.setState`
-  // from `React.Component` were not being found on the class instance.
-  constructor(props: Props) {
-    super(props);
-    this.state = {
-      hasError: false,
-      error: null,
-    };
-  }
+  public state: State = {
+    hasError: false,
+    error: null,
+  };
 
   static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error };
