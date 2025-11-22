@@ -72,29 +72,29 @@ export const ExecutiveBriefing: React.FC<ExecutiveBriefingProps> = ({ reports, l
         const scoreDelta = latestReport.total.marks - avgScore;
         const scoreTrend = reports.map(r => ({ name: r.testName, score: r.total.marks }));
         
-        const subjectScores = {
+        const subjectScores: Record<string, number> = {
             physics: reports.reduce((sum: number, r) => sum + r.physics.marks, 0) / reports.length,
             chemistry: reports.reduce((sum: number, r) => sum + r.chemistry.marks, 0) / reports.length,
             maths: reports.reduce((sum: number, r) => sum + r.maths.marks, 0) / reports.length,
         };
-        const sortedSubjects = Object.entries(subjectScores).sort((a, b) => a[1] - b[1]);
+        const sortedSubjects = Object.entries(subjectScores).sort((a, b) => (a[1] as number) - (b[1] as number));
         const weakestSubjectName = sortedSubjects[0][0];
         const strongestSubjectName = sortedSubjects[2][0];
-        const scoreGap = sortedSubjects[2][1] - sortedSubjects[0][1];
+        const scoreGap = (sortedSubjects[2][1] as number) - (sortedSubjects[0][1] as number);
 
         const errorLogs = logs.filter(l => l.status === QuestionStatus.Wrong || l.status === QuestionStatus.PartiallyCorrect);
         const errorCounts = errorLogs.reduce((acc: Record<string, number>, l) => {
             if(l.reasonForError) acc[l.reasonForError] = (acc[l.reasonForError] || 0) + 1;
             return acc;
         }, {} as Record<string, number>);
-        const sortedErrors = Object.entries(errorCounts).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+        const sortedErrors = Object.entries(errorCounts).map(([name, value]) => ({ name, value })).sort((a, b) => (b.value as number) - (a.value as number));
         const topError = sortedErrors[0] || { name: 'None', value: 0 };
         
         const topicCounts = errorLogs.reduce((acc: Record<string, number>, l) => {
             if (l.topic && l.topic !== 'N/A') acc[l.topic] = (acc[l.topic] || 0) + 1;
             return acc;
         }, {} as Record<string, number>);
-        const sortedTopics = Object.entries(topicCounts).map(([topic, count]) => ({ topic, count })).sort((a, b) => b.count - a.count);
+        const sortedTopics = Object.entries(topicCounts).map(([topic, count]) => ({ topic, count })).sort((a, b) => (b.count as number) - (a.count as number));
         const topTopic = sortedTopics[0] || { topic: 'None', count: 0 };
         
         // Impact Assessment

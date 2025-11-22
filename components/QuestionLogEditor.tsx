@@ -143,6 +143,19 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
         setFuture(newFuture);
     };
 
+    const handleRecalculateMarks = () => {
+        pushToHistory(logs);
+        setLogs(prevLogs => prevLogs.map(log => {
+            const newMarks = calculateMarks(log.status, log.questionType);
+            // Only update if we can calculate a valid score (non-null).
+            // For Partial Correct, calculateMarks returns null, so we preserve existing value (often manual entry).
+            if (newMarks !== null) {
+                return { ...log, marksAwarded: newMarks };
+            }
+            return log;
+        }));
+    };
+
 
     const reportInfoMap = useMemo(() => {
         const map = new Map<string, { name: string, date: string }>();
@@ -480,6 +493,15 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
                     </div>
                 </div>
                 <div className="ml-auto flex items-center gap-2">
+                    <button
+                        onClick={handleRecalculateMarks}
+                        className="p-2 bg-slate-700 hover:bg-cyan-600 text-gray-400 hover:text-white rounded-lg transition-colors border border-slate-600"
+                        title="Recalculate Marks"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                    </button>
                     <div className="flex bg-slate-700 rounded-lg border border-slate-600 p-0.5 mr-2">
                         <button 
                             onClick={handleUndo} 
