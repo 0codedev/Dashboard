@@ -27,29 +27,31 @@ const GenUIChart: React.FC<{ data: any }> = ({ data }) => {
     const { title, chartType, data: chartData, xAxisLabel } = data;
     
     return (
-        <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 my-2 w-full h-80 min-w-[300px]">
+        <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 my-2 w-full h-80 min-w-[300px] flex flex-col">
             <h4 className="text-sm font-bold text-gray-200 mb-2 text-center">{title}</h4>
-            <ResponsiveContainer width="100%" height="100%">
-                {chartType === 'line' ? (
-                    <LineChart data={chartData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                        <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} label={{ value: xAxisLabel, position: 'insideBottom', offset: -5, fontSize: 10 }} />
-                        <YAxis stroke="#94a3b8" fontSize={10} />
-                        <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: 'none' }} />
-                        <Legend />
-                        <Line type="monotone" dataKey="value" stroke="#22d3ee" strokeWidth={2} />
-                    </LineChart>
-                ) : (
-                    <BarChart data={chartData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                        <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} label={{ value: xAxisLabel, position: 'insideBottom', offset: -5, fontSize: 10 }} />
-                        <YAxis stroke="#94a3b8" fontSize={10} />
-                        <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: 'none' }} />
-                        <Legend />
-                        <Bar dataKey="value" fill="#818cf8" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                )}
-            </ResponsiveContainer>
+            <div className="flex-grow min-h-0">
+                <ResponsiveContainer width="100%" height="100%">
+                    {chartType === 'line' ? (
+                        <LineChart data={chartData}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                            <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} label={{ value: xAxisLabel, position: 'insideBottom', offset: -5, fontSize: 10 }} />
+                            <YAxis stroke="#94a3b8" fontSize={10} />
+                            <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: 'none' }} />
+                            <Legend />
+                            <Line type="monotone" dataKey="value" stroke="#22d3ee" strokeWidth={2} />
+                        </LineChart>
+                    ) : (
+                        <BarChart data={chartData}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                            <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} label={{ value: xAxisLabel, position: 'insideBottom', offset: -5, fontSize: 10 }} />
+                            <YAxis stroke="#94a3b8" fontSize={10} />
+                            <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: 'none' }} />
+                            <Legend />
+                            <Bar dataKey="value" fill="#818cf8" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                    )}
+                </ResponsiveContainer>
+            </div>
         </div>
     );
 };

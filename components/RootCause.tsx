@@ -134,37 +134,39 @@ const ScoreContributionWidget: React.FC<{ reports: TestReport[] }> = ({ reports 
                     {reports.map(r => <option key={r.id} value={r.id}>{r.testName}</option>).reverse()}
                 </select>
             </div>
-            <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                    <Pie
-                        data={data}
-                        cx="50%"
-                        cy="55%"
-                        innerRadius="55%"
-                        outerRadius="75%"
-                        paddingAngle={5}
-                        dataKey="value"
-                        stroke="none"
-                    >
-                        {data.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                        <Label 
-                            value={`${data.reduce((sum, item) => sum + item.value, 0).toFixed(0)}`} 
-                            position="center" 
-                            className="fill-white text-2xl font-bold" 
-                        />
-                         <Label 
-                            value="Marks" 
-                            position="center" 
-                            dy={20}
-                            className="fill-gray-400 text-xs" 
-                        />
-                    </Pie>
-                    <Tooltip content={renderCustomTooltip} />
-                    <Legend verticalAlign="bottom" height={36} iconType="circle" />
-                </PieChart>
-            </ResponsiveContainer>
+            <div className="flex-grow min-h-0">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                    <PieChart>
+                        <Pie
+                            data={data}
+                            cx="50%"
+                            cy="55%"
+                            innerRadius="55%"
+                            outerRadius="75%"
+                            paddingAngle={5}
+                            dataKey="value"
+                            stroke="none"
+                        >
+                            {data.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.color} />
+                            ))}
+                            <Label 
+                                value={`${data.reduce((sum, item) => sum + item.value, 0).toFixed(0)}`} 
+                                position="center" 
+                                className="fill-white text-2xl font-bold" 
+                            />
+                             <Label 
+                                value="Marks" 
+                                position="center" 
+                                dy={20}
+                                className="fill-gray-400 text-xs" 
+                            />
+                        </Pie>
+                        <Tooltip content={renderCustomTooltip} />
+                        <Legend verticalAlign="bottom" height={36} iconType="circle" />
+                    </PieChart>
+                </ResponsiveContainer>
+            </div>
         </div>
     );
 };
@@ -203,39 +205,41 @@ const SpeedVsAccuracyWidget: React.FC<{ logs: QuestionLog[] }> = ({ logs }) => {
                     <span className="text-red-400">Bottom-Right: Gap</span>
                 </div>
             </div>
-            <ResponsiveContainer width="100%" height="100%">
-                <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 10 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                    <XAxis type="number" dataKey="avgTime" name="Time" unit="s" stroke="#9CA3AF" domain={['auto', 'auto']} label={{ value: 'Avg Time (sec)', position: 'insideBottom', offset: -10, fill: '#9CA3AF', fontSize: 10 }}/>
-                    <YAxis type="number" dataKey="accuracy" name="Accuracy" unit="%" stroke="#9CA3AF" domain={[0, 100]} label={{ value: 'Accuracy', angle: -90, position: 'insideLeft', fill: '#9CA3AF', fontSize: 10 }}/>
-                    <Tooltip cursor={{ strokeDasharray: '3 3' }} content={({ active, payload }) => {
-                        if (active && payload && payload.length) {
-                            const d = payload[0].payload;
-                            return (
-                                <div className="bg-slate-900/90 border border-slate-600 p-2 rounded shadow text-xs z-50">
-                                    <p className="font-bold text-white">{d.topic}</p>
-                                    <p>Accuracy: {d.accuracy.toFixed(1)}%</p>
-                                    <p>Time: {d.avgTime.toFixed(0)}s</p>
-                                    <p className="text-gray-400 mt-1">({d.attempts} attempts)</p>
-                                </div>
-                            );
-                        }
-                        return null;
-                    }}/>
-                    <ReferenceLine x={avgTime} stroke="#64748B" strokeDasharray="3 3" />
-                    <ReferenceLine y={avgAcc} stroke="#64748B" strokeDasharray="3 3" />
-                    <Scatter name="Topics" data={data} fill="#8884d8">
-                        {data.map((entry, index) => {
-                            let fill = '#9CA3AF';
-                            if (entry.accuracy > avgAcc && entry.avgTime < avgTime) fill = '#10B981';
-                            else if (entry.accuracy > avgAcc && entry.avgTime >= avgTime) fill = '#FBBF24';
-                            else if (entry.accuracy <= avgAcc && entry.avgTime < avgTime) fill = '#F87171';
-                            else fill = '#EF4444';
-                            return <Cell key={`cell-${index}`} fill={fill} />;
-                        })}
-                    </Scatter>
-                </ScatterChart>
-            </ResponsiveContainer>
+            <div className="flex-grow min-h-0">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                    <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                        <XAxis type="number" dataKey="avgTime" name="Time" unit="s" stroke="#9CA3AF" domain={['auto', 'auto']} label={{ value: 'Avg Time (sec)', position: 'insideBottom', offset: -10, fill: '#9CA3AF', fontSize: 10 }}/>
+                        <YAxis type="number" dataKey="accuracy" name="Accuracy" unit="%" stroke="#9CA3AF" domain={[0, 100]} label={{ value: 'Accuracy', angle: -90, position: 'insideLeft', fill: '#9CA3AF', fontSize: 10 }}/>
+                        <Tooltip cursor={{ strokeDasharray: '3 3' }} content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                                const d = payload[0].payload;
+                                return (
+                                    <div className="bg-slate-900/90 border border-slate-600 p-2 rounded shadow text-xs z-50">
+                                        <p className="font-bold text-white">{d.topic}</p>
+                                        <p>Accuracy: {d.accuracy.toFixed(1)}%</p>
+                                        <p>Time: {d.avgTime.toFixed(0)}s</p>
+                                        <p className="text-gray-400 mt-1">({d.attempts} attempts)</p>
+                                    </div>
+                                );
+                            }
+                            return null;
+                        }}/>
+                        <ReferenceLine x={avgTime} stroke="#64748B" strokeDasharray="3 3" />
+                        <ReferenceLine y={avgAcc} stroke="#64748B" strokeDasharray="3 3" />
+                        <Scatter name="Topics" data={data} fill="#8884d8">
+                            {data.map((entry, index) => {
+                                let fill = '#9CA3AF';
+                                if (entry.accuracy > avgAcc && entry.avgTime < avgTime) fill = '#10B981';
+                                else if (entry.accuracy > avgAcc && entry.avgTime >= avgTime) fill = '#FBBF24';
+                                else if (entry.accuracy <= avgAcc && entry.avgTime < avgTime) fill = '#F87171';
+                                else fill = '#EF4444';
+                                return <Cell key={`cell-${index}`} fill={fill} />;
+                            })}
+                        </Scatter>
+                    </ScatterChart>
+                </ResponsiveContainer>
+            </div>
         </div>
     );
 };
@@ -328,31 +332,33 @@ const MetricScatterWidget: React.FC<{ reports: TestReport[] }> = ({ reports }) =
                     Corr: <span className={`font-bold ${Math.abs(correlation) > 0.7 ? 'text-green-400' : Math.abs(correlation) > 0.4 ? 'text-yellow-400' : 'text-gray-200'}`}>{correlation.toFixed(2)}</span>
                 </div>
             </div>
-            <ResponsiveContainer width="100%" height="100%">
-                <ScatterChart margin={{ top: 10, right: 10, bottom: 10, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                    <XAxis type="number" dataKey="x" name={xAxis} stroke="#9CA3AF" tick={{fontSize: 10}} domain={['auto', 'auto']} />
-                    <YAxis type="number" dataKey="y" name={yAxis} stroke="#9CA3AF" tick={{fontSize: 10}} domain={['auto', 'auto']} />
-                    <Tooltip cursor={{ strokeDasharray: '3 3' }} content={({ active, payload }) => {
-                        if (active && payload && payload.length) {
-                            const d = payload[0].payload;
-                            return (
-                                <div className="bg-slate-900 border border-slate-600 p-2 rounded shadow text-xs z-50">
-                                    <p className="font-bold text-white">{d.test}</p>
-                                    <p style={{ color: SUBJECT_COLORS[d.subject.toLowerCase()] }}>{d.subject}</p>
-                                    <p>X: {d.x.toFixed(1)}</p>
-                                    <p>Y: {d.y.toFixed(1)}</p>
-                                </div>
-                            );
-                        }
-                        return null;
-                    }}/>
-                    <Scatter name="Physics" data={data.filter(d => d.subject === 'Physics')} fill={SUBJECT_COLORS.physics} shape="circle" />
-                    <Scatter name="Chemistry" data={data.filter(d => d.subject === 'Chemistry')} fill={SUBJECT_COLORS.chemistry} shape="square" />
-                    <Scatter name="Maths" data={data.filter(d => d.subject === 'Maths')} fill={SUBJECT_COLORS.maths} shape="triangle" />
-                    {data.length > 1 && <Line dataKey="y" data={trendData} stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" dot={false} activeDot={false} name="Trend" isAnimationActive={false} />}
-                </ScatterChart>
-            </ResponsiveContainer>
+            <div className="flex-grow min-h-0">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                    <ScatterChart margin={{ top: 10, right: 10, bottom: 10, left: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                        <XAxis type="number" dataKey="x" name={xAxis} stroke="#9CA3AF" tick={{fontSize: 10}} domain={['auto', 'auto']} />
+                        <YAxis type="number" dataKey="y" name={yAxis} stroke="#9CA3AF" tick={{fontSize: 10}} domain={['auto', 'auto']} />
+                        <Tooltip cursor={{ strokeDasharray: '3 3' }} content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                                const d = payload[0].payload;
+                                return (
+                                    <div className="bg-slate-900 border border-slate-600 p-2 rounded shadow text-xs z-50">
+                                        <p className="font-bold text-white">{d.test}</p>
+                                        <p style={{ color: SUBJECT_COLORS[d.subject.toLowerCase()] }}>{d.subject}</p>
+                                        <p>X: {d.x.toFixed(1)}</p>
+                                        <p>Y: {d.y.toFixed(1)}</p>
+                                    </div>
+                                );
+                            }
+                            return null;
+                        }}/>
+                        <Scatter name="Physics" data={data.filter(d => d.subject === 'Physics')} fill={SUBJECT_COLORS.physics} shape="circle" />
+                        <Scatter name="Chemistry" data={data.filter(d => d.subject === 'Chemistry')} fill={SUBJECT_COLORS.chemistry} shape="square" />
+                        <Scatter name="Maths" data={data.filter(d => d.subject === 'Maths')} fill={SUBJECT_COLORS.maths} shape="triangle" />
+                        {data.length > 1 && <Line dataKey="y" data={trendData} stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" dot={false} activeDot={false} name="Trend" isAnimationActive={false} />}
+                    </ScatterChart>
+                </ResponsiveContainer>
+            </div>
             <div className="flex justify-center gap-2 mt-2 pb-1">
                 {['Physics', 'Chemistry', 'Maths'].map(subject => (
                     <button
@@ -375,18 +381,20 @@ const MetricScatterWidget: React.FC<{ reports: TestReport[] }> = ({ reports }) =
 
 const ErrorReasonsBySubjectWidget: React.FC<{ data: any[] }> = ({ data }) => {
     return (
-        <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data} margin={{ top: 20, right: 10, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                <XAxis dataKey="name" stroke="#9CA3AF" tick={{ fontSize: 10 }} interval={0} />
-                <YAxis stroke="#9CA3AF" tick={{ fontSize: 10 }} allowDecimals={false} />
-                <Tooltip content={<CustomTooltip />} cursor={{fill: 'rgba(255,255,255,0.05)'}} />
-                <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} iconType="circle" />
-                <Bar dataKey="physics" name="Physics" stackId="a" fill={SUBJECT_COLORS.physics} barSize={30} />
-                <Bar dataKey="chemistry" name="Chemistry" stackId="a" fill={SUBJECT_COLORS.chemistry} barSize={30} />
-                <Bar dataKey="maths" name="Maths" stackId="a" fill={SUBJECT_COLORS.maths} barSize={30} radius={[4, 4, 0, 0]} />
-            </BarChart>
-        </ResponsiveContainer>
+        <div className="flex-grow min-h-0 h-full">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                <BarChart data={data} margin={{ top: 20, right: 10, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                    <XAxis dataKey="name" stroke="#9CA3AF" tick={{ fontSize: 10 }} interval={0} />
+                    <YAxis stroke="#9CA3AF" tick={{ fontSize: 10 }} allowDecimals={false} />
+                    <Tooltip content={<CustomTooltip />} cursor={{fill: 'rgba(255,255,255,0.05)'}} />
+                    <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} iconType="circle" />
+                    <Bar dataKey="physics" name="Physics" stackId="a" fill={SUBJECT_COLORS.physics} barSize={30} />
+                    <Bar dataKey="chemistry" name="Chemistry" stackId="a" fill={SUBJECT_COLORS.chemistry} barSize={30} />
+                    <Bar dataKey="maths" name="Maths" stackId="a" fill={SUBJECT_COLORS.maths} barSize={30} radius={[4, 4, 0, 0]} />
+                </BarChart>
+            </ResponsiveContainer>
+        </div>
     );
 };
 
@@ -784,15 +792,17 @@ const ErrorReasonPieChart: React.FC<{ data: any[], totalErrors: number, onSliceC
     };
     const PieComponent = Pie as any;
     return (
-        <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-                <PieComponent activeIndex={activeIndex} activeShape={renderActiveShape} data={data} dataKey="value" nameKey="name" cx="50%" cy="45%" innerRadius={'60%'} outerRadius={'80%'} onMouseEnter={onPieEnter} onClick={(d: any) => onSliceClick(d.name)} cursor="pointer" stroke="#1f2937" strokeWidth={2}>
-                    {data.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS_PIE[entry.name as keyof typeof COLORS_PIE] || '#8884d8'} />)}
-                </PieComponent>
-                <Tooltip content={<CustomTooltip totalErrors={totalErrors}/>} />
-                <Legend iconType="square" wrapperStyle={{ fontSize: '12px' }} />
-            </PieChart>
-        </ResponsiveContainer>
+        <div className="flex-grow min-h-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                <PieChart>
+                    <PieComponent activeIndex={activeIndex} activeShape={renderActiveShape} data={data} dataKey="value" nameKey="name" cx="50%" cy="45%" innerRadius={'60%'} outerRadius={'80%'} onMouseEnter={onPieEnter} onClick={(d: any) => onSliceClick(d.name)} cursor="pointer" stroke="#1f2937" strokeWidth={2}>
+                        {data.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS_PIE[entry.name as keyof typeof COLORS_PIE] || '#8884d8'} />)}
+                    </PieComponent>
+                    <Tooltip content={<CustomTooltip totalErrors={totalErrors}/>} />
+                    <Legend iconType="square" wrapperStyle={{ fontSize: '12px' }} />
+                </PieChart>
+            </ResponsiveContainer>
+        </div>
     );
 };
 
@@ -845,26 +855,28 @@ const LostMarksWaterfall: React.FC<{ logs: QuestionLog[], reports: TestReport[] 
     }, [logs]);
 
     return (
-        <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                <XAxis dataKey="name" stroke="#9CA3AF" tick={{ fontSize: 10 }} interval={0} angle={-15} textAnchor="end" />
-                <YAxis stroke="#9CA3AF" />
-                <Tooltip cursor={{fill: 'transparent'}} content={({ active, payload }) => { if (active && payload && payload.length) { const d = payload[0].payload; return ( <div className="p-2 bg-slate-900/90 border border-slate-600 rounded shadow text-xs"> <p className="font-bold text-white">{d.name}</p> <p className={`${d.displayValue < 0 ? 'text-red-400' : 'text-green-400'}`}>{d.isTotal ? 'Score: ' : 'Lost: '} {Math.abs(d.displayValue).toFixed(0)}</p> </div> ); } return null; }} />
-                <Bar dataKey="value" shape={(props: any) => { 
-                    const { fill, x, y, width, height, payload } = props;
-                    let connector = null;
-                    const index = chartData.indexOf(payload);
-                    if (index < chartData.length - 1) {
-                        const lineY = payload.isTotal ? y : y + height;
-                        connector = <line x1={x + width} y1={lineY} x2={x + width + 30} y2={lineY} stroke="#94a3b8" strokeDasharray="3 3" strokeWidth={1} />;
-                    }
-                    return ( <g> <rect x={x} y={y} width={width} height={height} fill={fill} rx={2} ry={2} /> {connector}</g> ); 
-                }}>
-                    <LabelList dataKey="value" position="top" content={(props: any) => { const { x, y, width, value, index } = props; const d = chartData[index]; const val = d ? d.displayValue : 0; if (Math.abs(val) < 1) return null; const color = val > 0 ? '#10b981' : '#f87171'; const displayTxt = val > 0 && !d?.isTotal ? `+${val.toFixed(0)}` : val.toFixed(0); return ( <text x={x + width / 2} y={y - 5} fill={d?.isTotal ? '#fff' : color} textAnchor="middle" fontSize={10} fontWeight="bold">{displayTxt}</text> ) }}/>
-                </Bar>
-            </BarChart>
-        </ResponsiveContainer>
+        <div className="flex-grow min-h-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                <BarChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                    <XAxis dataKey="name" stroke="#9CA3AF" tick={{ fontSize: 10 }} interval={0} angle={-15} textAnchor="end" />
+                    <YAxis stroke="#9CA3AF" />
+                    <Tooltip cursor={{fill: 'transparent'}} content={({ active, payload }) => { if (active && payload && payload.length) { const d = payload[0].payload; return ( <div className="p-2 bg-slate-900/90 border border-slate-600 rounded shadow text-xs"> <p className="font-bold text-white">{d.name}</p> <p className={`${d.displayValue < 0 ? 'text-red-400' : 'text-green-400'}`}>{d.isTotal ? 'Score: ' : 'Lost: '} {Math.abs(d.displayValue).toFixed(0)}</p> </div> ); } return null; }} />
+                    <Bar dataKey="value" shape={(props: any) => { 
+                        const { fill, x, y, width, height, payload } = props;
+                        let connector = null;
+                        const index = chartData.indexOf(payload);
+                        if (index < chartData.length - 1) {
+                            const lineY = payload.isTotal ? y : y + height;
+                            connector = <line x1={x + width} y1={lineY} x2={x + width + 30} y2={lineY} stroke="#94a3b8" strokeDasharray="3 3" strokeWidth={1} />;
+                        }
+                        return ( <g> <rect x={x} y={y} width={width} height={height} fill={fill} rx={2} ry={2} /> {connector}</g> ); 
+                    }}>
+                        <LabelList dataKey="value" position="top" content={(props: any) => { const { x, y, width, value, index } = props; const d = chartData[index]; const val = d ? d.displayValue : 0; if (Math.abs(val) < 1) return null; const color = val > 0 ? '#10b981' : '#f87171'; const displayTxt = val > 0 && !d?.isTotal ? `+${val.toFixed(0)}` : val.toFixed(0); return ( <text x={x + width / 2} y={y - 5} fill={d?.isTotal ? '#fff' : color} textAnchor="middle" fontSize={10} fontWeight="bold">{displayTxt}</text> ) }}/>
+                    </Bar>
+                </BarChart>
+            </ResponsiveContainer>
+        </div>
     );
 };
 
@@ -918,7 +930,7 @@ const WeakestTopicsChart: React.FC<{ data: { topic: string; count: number }[]; o
             </div>
             <div className={`flex-grow ${fitContainer ? 'overflow-hidden' : 'overflow-y-auto pr-2 custom-scrollbar'}`}>
                 <div style={{ height: chartHeight, width: '100%' }}>
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                         <BarChart 
                             layout="vertical" 
                             data={processedData} 
@@ -1068,36 +1080,40 @@ export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFi
                 title: "Flow of Failure (Root Cause)",
                 info: "A Sankey Diagram connecting Subject -> Weak Topics -> Error Reason. This reveals the 'Path of Failure'. For instance, if Physics flows heavily into 'Rotational Motion' and then 'Conceptual Gap', you know exactly where to focus.",
                 component: (
-                    <ResponsiveContainer width="100%" height="100%">
-                        {analysisData.sankeyData.nodes.length > 0 ? (
-                             <Sankey
-                                data={analysisData.sankeyData}
-                                node={<CustomSankeyNode containerWidth={800} />} 
-                                link={<CustomSankeyLink />}
-                                margin={{ top: 10, right: 10, bottom: 10, left: 10 }}
-                            >
-                                <Tooltip content={<CustomTooltip />} />
-                            </Sankey>
-                        ) : <div className="flex items-center justify-center h-full text-gray-500">Not enough data to map flows.</div>}
-                    </ResponsiveContainer>
+                    <div className="flex-grow min-h-0">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                            {analysisData.sankeyData.nodes.length > 0 ? (
+                                 <Sankey
+                                    data={analysisData.sankeyData}
+                                    node={<CustomSankeyNode containerWidth={800} />} 
+                                    link={<CustomSankeyLink />}
+                                    margin={{ top: 10, right: 10, bottom: 10, left: 10 }}
+                                >
+                                    <Tooltip content={<CustomTooltip />} />
+                                </Sankey>
+                            ) : <div className="flex items-center justify-center h-full text-gray-500">Not enough data to map flows.</div>}
+                        </ResponsiveContainer>
+                    </div>
                 )
             },
             paretoAnalysis: {
                 title: "80/20 Rule (Pareto)",
                 info: "The Pareto Principle states that 80% of consequences come from 20% of causes. This chart shows your error count by topic (bars) and the cumulative impact (line). Fixing the few topics on the left will resolve the majority of your errors.",
                 component: (
-                    <ResponsiveContainer width="100%" height="100%">
-                        <ComposedChart data={analysisData.paretoData} margin={{ top: 20, right: 20, bottom: 60, left: 20 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                            <XAxis dataKey="topic" angle={-45} textAnchor="end" interval={0} stroke="#9CA3AF" tick={{ fontSize: 10 }} />
-                            <YAxis yAxisId="left" stroke="#9CA3AF" label={{ value: 'Error Count', angle: -90, position: 'insideLeft', fill: '#9CA3AF' }} />
-                            <YAxis yAxisId="right" orientation="right" stroke="#10B981" unit="%" domain={[0, 100]} />
-                            <Tooltip content={<CustomTooltip />} />
-                            <Legend wrapperStyle={{ bottom: 0 }} />
-                            <Bar yAxisId="left" dataKey="count" name="Errors" fill="#6366F1" barSize={20} />
-                            <Line yAxisId="right" type="monotone" dataKey="cumulativePercentage" name="Cumulative Impact" stroke="#10B981" strokeWidth={2} dot={false} />
-                        </ComposedChart>
-                    </ResponsiveContainer>
+                    <div className="flex-grow min-h-0">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                            <ComposedChart data={analysisData.paretoData} margin={{ top: 20, right: 20, bottom: 60, left: 20 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                                <XAxis dataKey="topic" angle={-45} textAnchor="end" interval={0} stroke="#9CA3AF" tick={{ fontSize: 10 }} />
+                                <YAxis yAxisId="left" stroke="#9CA3AF" label={{ value: 'Error Count', angle: -90, position: 'insideLeft', fill: '#9CA3AF' }} />
+                                <YAxis yAxisId="right" orientation="right" stroke="#10B981" unit="%" domain={[0, 100]} />
+                                <Tooltip content={<CustomTooltip />} />
+                                <Legend wrapperStyle={{ bottom: 0 }} />
+                                <Bar yAxisId="left" dataKey="count" name="Errors" fill="#6366F1" barSize={20} />
+                                <Line yAxisId="right" type="monotone" dataKey="cumulativePercentage" name="Cumulative Impact" stroke="#10B981" strokeWidth={2} dot={false} />
+                            </ComposedChart>
+                        </ResponsiveContainer>
+                    </div>
                 )
             },
             lostMarksWaterfall: {
@@ -1121,51 +1137,55 @@ export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFi
                     </div>
                 ),
                 component: (
-                    <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={analysisData.errorTrendData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                            <defs>
+                    <div className="flex-grow min-h-0">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                            <AreaChart data={analysisData.errorTrendData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                                <defs>
+                                    {Object.keys(COLORS_PIE).map(reason => (
+                                        <linearGradient key={reason} id={`color${reason.replace(/\s/g, '')}`} x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor={COLORS_PIE[reason]} stopOpacity={0.8}/>
+                                            <stop offset="95%" stopColor={COLORS_PIE[reason]} stopOpacity={0}/>
+                                        </linearGradient>
+                                    ))}
+                                </defs>
+                                <XAxis dataKey="date" stroke="#9CA3AF" tick={{fontSize: 10}} tickFormatter={(str) => new Date(str).toLocaleDateString(undefined, {month:'short', day:'numeric'})} />
+                                <YAxis stroke="#9CA3AF" unit={errorTrendMode === 'percent' ? '%' : ''} />
+                                <Tooltip content={<CustomTooltip />} />
+                                <Legend iconType="circle" wrapperStyle={{ fontSize: '11px' }} />
                                 {Object.keys(COLORS_PIE).map(reason => (
-                                    <linearGradient key={reason} id={`color${reason.replace(/\s/g, '')}`} x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor={COLORS_PIE[reason]} stopOpacity={0.8}/>
-                                        <stop offset="95%" stopColor={COLORS_PIE[reason]} stopOpacity={0}/>
-                                    </linearGradient>
+                                    <Area 
+                                        key={reason}
+                                        type="monotone" 
+                                        dataKey={errorTrendMode === 'percent' ? `${reason}%` : reason} 
+                                        name={reason}
+                                        stackId="1" 
+                                        stroke={COLORS_PIE[reason]} 
+                                        fill={`url(#color${reason.replace(/\s/g, '')})`} 
+                                    />
                                 ))}
-                            </defs>
-                            <XAxis dataKey="date" stroke="#9CA3AF" tick={{fontSize: 10}} tickFormatter={(str) => new Date(str).toLocaleDateString(undefined, {month:'short', day:'numeric'})} />
-                            <YAxis stroke="#9CA3AF" unit={errorTrendMode === 'percent' ? '%' : ''} />
-                            <Tooltip content={<CustomTooltip />} />
-                            <Legend iconType="circle" wrapperStyle={{ fontSize: '11px' }} />
-                            {Object.keys(COLORS_PIE).map(reason => (
-                                <Area 
-                                    key={reason}
-                                    type="monotone" 
-                                    dataKey={errorTrendMode === 'percent' ? `${reason}%` : reason} 
-                                    name={reason}
-                                    stackId="1" 
-                                    stroke={COLORS_PIE[reason]} 
-                                    fill={`url(#color${reason.replace(/\s/g, '')})`} 
-                                />
-                            ))}
-                            <Brush dataKey="date" height={30} stroke="#475569" fill="#1e293b" tickFormatter={() => ''} />
-                        </AreaChart>
-                    </ResponsiveContainer>
+                                <Brush dataKey="date" height={30} stroke="#475569" fill="#1e293b" tickFormatter={() => ''} />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    </div>
                 )
             },
             fatigueAnalysis: {
                 title: "Exam Fatigue Analysis",
                 info: "Correlates question position (1-10, 11-20...) with Error Rate. A rising trend indicates fatigue or loss of focus towards the end of the paper.",
                 component: (
-                    <ResponsiveContainer width="100%" height="100%">
-                        <ComposedChart data={analysisData.fatigueData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
-                            <CartesianGrid stroke="#374151" strokeDasharray="3 3" vertical={false} />
-                            <XAxis dataKey="range" stroke="#9CA3AF" label={{ value: 'Question Range', position: 'insideBottom', offset: -10, fill: '#9CA3AF', fontSize: 10 }} />
-                            <YAxis yAxisId="left" stroke="#F87171" unit="%" label={{ value: 'Error Rate', angle: -90, position: 'insideLeft', fill: '#F87171' }} />
-                            <YAxis yAxisId="right" orientation="right" stroke="#6B7280" label={{ value: 'Attempts', angle: 90, position: 'insideRight', fill: '#6B7280' }} />
-                            <Tooltip content={<CustomTooltip />} />
-                            <Bar yAxisId="right" dataKey="attempts" name="Attempts" fill="#374151" barSize={20} />
-                            <Line yAxisId="left" type="monotone" dataKey="errorRate" name="Error Rate" stroke="#F87171" strokeWidth={3} dot={{r: 4, fill: '#F87171'}} />
-                        </ComposedChart>
-                    </ResponsiveContainer>
+                    <div className="flex-grow min-h-0">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                            <ComposedChart data={analysisData.fatigueData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                                <CartesianGrid stroke="#374151" strokeDasharray="3 3" vertical={false} />
+                                <XAxis dataKey="range" stroke="#9CA3AF" label={{ value: 'Question Range', position: 'insideBottom', offset: -10, fill: '#9CA3AF', fontSize: 10 }} />
+                                <YAxis yAxisId="left" stroke="#F87171" unit="%" label={{ value: 'Error Rate', angle: -90, position: 'insideLeft', fill: '#F87171' }} />
+                                <YAxis yAxisId="right" orientation="right" stroke="#6B7280" label={{ value: 'Attempts', angle: 90, position: 'insideRight', fill: '#6B7280' }} />
+                                <Tooltip content={<CustomTooltip />} />
+                                <Bar yAxisId="right" dataKey="attempts" name="Attempts" fill="#374151" barSize={20} />
+                                <Line yAxisId="left" type="monotone" dataKey="errorRate" name="Error Rate" stroke="#F87171" strokeWidth={3} dot={{r: 4, fill: '#F87171'}} />
+                            </ComposedChart>
+                        </ResponsiveContainer>
+                    </div>
                 )
             },
             errorReason: {
@@ -1197,15 +1217,17 @@ export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFi
                 ),
                 component: (
                      <div className="flex flex-col h-full">
-                         <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={analysisData.performanceByQuestionType} margin={{ top: 5, right: 20, left: -10, bottom: 50 }}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                                    <XAxis dataKey="name" stroke="#9CA3AF" angle={-40} textAnchor="end" interval={0} height={80} tick={{ fontSize: 10 }}/>
-                                    <YAxis stroke="#9CA3AF" />
-                                    <Tooltip content={<CustomTooltip />} />
-                                    <Bar dataKey={qTypeMetric} fill={qTypeMetric === 'errorRate' ? '#EF4444' : qTypeMetric === 'avgMarks' ? '#10B981' : '#FBBF24'} />
-                                </BarChart>
-                            </ResponsiveContainer>
+                         <div className="flex-grow min-h-0">
+                             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                                    <BarChart data={analysisData.performanceByQuestionType} margin={{ top: 5, right: 20, left: -10, bottom: 50 }}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                                        <XAxis dataKey="name" stroke="#9CA3AF" angle={-40} textAnchor="end" interval={0} height={80} tick={{ fontSize: 10 }}/>
+                                        <YAxis stroke="#9CA3AF" />
+                                        <Tooltip content={<CustomTooltip />} />
+                                        <Bar dataKey={qTypeMetric} fill={qTypeMetric === 'errorRate' ? '#EF4444' : qTypeMetric === 'avgMarks' ? '#10B981' : '#FBBF24'} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                        </div>
                     </div>
                 ),
             },
