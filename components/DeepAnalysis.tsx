@@ -218,21 +218,19 @@ export const DeepAnalysis: React.FC<DeepAnalysisProps> = ({ reports }) => {
         const name = SUBJECT_CONFIG[globalSubjectFilter].name;
         
         return (
-            <div className="flex-grow min-h-0">
-                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-                    <LineChart data={analysisData.reportsWithOverlays} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                        <XAxis dataKey="testName" stroke="#9CA3AF" tick={{ fontSize: 12 }} />
-                        <YAxis stroke="#9CA3AF" domain={config.domain as any} reversed={config.reversed} tickFormatter={(tick) => (tick > 1000 ? `${tick/1000}k` : tick)} />
-                        <Tooltip content={<CustomTooltip formatter={(value: number) => value.toFixed(1)} />} />
-                        <Legend content={() => <p className="text-center text-sm" style={{ color: color }}>-◇- {name}</p>} />
-                        <Line type="monotone" dataKey={dataKey} name={name} stroke={color} strokeWidth={2} dot={{ r: 4, fill: color }} activeDot={{ r: 8 }} />
-                        {overlayConfig.trendline && <Line type="monotone" dataKey={`${dataKey}_trend`} name={`${name} Trend`} stroke={color} strokeWidth={2} strokeDasharray="5 5" dot={false} legendType="none" />}
-                        {overlayConfig.bollingerBands && <Area dataKey={`${dataKey}_bb`} name="Bollinger Band" stroke={color} fill={color} strokeWidth={0} fillOpacity={0.1} isAnimationActive={false} legendType="none" />}
-                        {(overlayConfig.movingAverage || overlayConfig.bollingerBands) && <Line type="monotone" dataKey={`${dataKey}_ma`} name={`${name} MA (3)`} stroke={color} strokeWidth={2} opacity={0.8} strokeDasharray="2 6" dot={false} legendType="none" />}
-                    </LineChart>
-                </ResponsiveContainer>
-            </div>
+            <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={analysisData.reportsWithOverlays} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                    <XAxis dataKey="testName" stroke="#9CA3AF" tick={{ fontSize: 12 }} />
+                    <YAxis stroke="#9CA3AF" domain={config.domain as any} reversed={config.reversed} tickFormatter={(tick) => (tick > 1000 ? `${tick/1000}k` : tick)} />
+                    <Tooltip content={<CustomTooltip formatter={(value: number) => value.toFixed(1)} />} />
+                    <Legend content={() => <p className="text-center text-sm" style={{ color: color }}>-◇- {name}</p>} />
+                    <Line type="monotone" dataKey={dataKey} name={name} stroke={color} strokeWidth={2} dot={{ r: 4, fill: color }} activeDot={{ r: 8 }} />
+                    {overlayConfig.trendline && <Line type="monotone" dataKey={`${dataKey}_trend`} name={`${name} Trend`} stroke={color} strokeWidth={2} strokeDasharray="5 5" dot={false} legendType="none" />}
+                    {overlayConfig.bollingerBands && <Area dataKey={`${dataKey}_bb`} name="Bollinger Band" stroke={color} fill={color} strokeWidth={0} fillOpacity={0.1} isAnimationActive={false} legendType="none" />}
+                    {(overlayConfig.movingAverage || overlayConfig.bollingerBands) && <Line type="monotone" dataKey={`${dataKey}_ma`} name={`${name} MA (3)`} stroke={color} strokeWidth={2} opacity={0.8} strokeDasharray="2 6" dot={false} legendType="none" />}
+                </LineChart>
+            </ResponsiveContainer>
         );
     }
 
@@ -322,22 +320,18 @@ export const DeepAnalysis: React.FC<DeepAnalysisProps> = ({ reports }) => {
                     </ChartCard>
                 ))}
                  <ChartCard title="Custom Chart Builder" className="h-[28rem]" onClick={handleCustomChartClick} onInfoClick={() => setInfoModalContent({title: "Custom Chart Builder", content: "Build your own chart by selecting any metric for any subject. You can also change the chart type between a line and bar graph to visualize data differently."})}>
-                    <div className="flex flex-col h-full">
-                        <div className="flex gap-2 mb-4 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                            <Select value={customChartConfig.metric} onChange={e => setCustomChartConfig(prev => ({ ...prev, metric: e.target.value }))} className="text-sm w-1/2">
-                                {customChartMetrics.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-                            </Select>
-                            <Select value={customChartConfig.type} onChange={e => setCustomChartConfig(prev => ({ ...prev, type: e.target.value }))} className="text-sm w-1/2">
-                                <option value="line">Line Chart</option>
-                                <option value="bar">Bar Chart</option>
-                            </Select>
-                        </div>
-                        <div className="flex-grow min-h-0">
-                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-                                {renderCustomChart()}
-                            </ResponsiveContainer>
-                        </div>
+                    <div className="flex gap-2 mb-4" onClick={(e) => e.stopPropagation()}>
+                        <Select value={customChartConfig.metric} onChange={e => setCustomChartConfig(prev => ({ ...prev, metric: e.target.value }))} className="text-sm w-1/2">
+                            {customChartMetrics.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                        </Select>
+                        <Select value={customChartConfig.type} onChange={e => setCustomChartConfig(prev => ({ ...prev, type: e.target.value }))} className="text-sm w-1/2">
+                            <option value="line">Line Chart</option>
+                            <option value="bar">Bar Chart</option>
+                        </Select>
                     </div>
+                    <ResponsiveContainer width="100%" height="85%">
+                        {renderCustomChart()}
+                    </ResponsiveContainer>
                 </ChartCard>
             </div>
 
@@ -412,7 +406,7 @@ const ExpandedChartModalContent: React.FC<{
             ))}
         </div>
          <div className="relative w-full h-[calc(100%-4rem)]">
-                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={allData} margin={{ top: 5, right: 30, left: 0, bottom: 20 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                         <XAxis dataKey="testName" stroke="#9CA3AF" angle={-20} textAnchor="end" height={60}/>

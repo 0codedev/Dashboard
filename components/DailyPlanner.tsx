@@ -19,7 +19,6 @@ interface DailyPlannerProps {
   userProfile: UserProfile;
   prefilledTask: Partial<DailyTask> | null;
   setPrefilledTask: (task: Partial<DailyTask> | null) => void;
-  selectedModel?: string;
 }
 
 // --- Advanced Audio Engine for Focus Sounds ---
@@ -321,7 +320,7 @@ const TimeBlockSchedule: React.FC<{ tasks: DailyTask[]; onDropTask: (taskId: str
     );
 };
 
-export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, apiKey, logs, proactiveInsight, onAcceptPlan, onDismissInsight, addXp, userProfile, prefilledTask, setPrefilledTask, selectedModel }) => {
+export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, apiKey, logs, proactiveInsight, onAcceptPlan, onDismissInsight, addXp, userProfile, prefilledTask, setPrefilledTask }) => {
     const [quote, setQuote] = useState<{ text: string; date: string } | null>(null);
     const [currentTime, setCurrentTime] = useState(new Date());
     const [activeTab, setActiveTab] = useState<'tasks' | 'weekly'>('tasks');
@@ -548,9 +547,9 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
     const formatTime = (seconds: number) => { const mins = Math.floor(seconds / 60); const secs = seconds % 60; return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`; };
     
     const handleGenerateSummary = async () => { setIsSummaryLoading(true); setSummary(''); try { const checklistSummary = dailyTasks.map(t => ({text: t.text, completed: t.completed})); const result = await generateEndOfDaySummary(goals, checklistSummary, apiKey); setSummary(result); } catch (error) { console.error("Failed to generate summary:", error); setSummary("Sorry, I couldn't generate a summary right now."); } finally { setIsSummaryLoading(false); } };
-    const handlePlanForGoal = async (goal: StudyGoal) => { setIsSuggestingTasks(true); setSuggestedTasks(null); try { const newTasks = await generateTasksFromGoal(goal.text, apiKey, selectedModel); setSuggestedTasks(newTasks); } catch(e) { console.error(e); } finally { setIsSuggestingTasks(false); } };
+    const handlePlanForGoal = async (goal: StudyGoal) => { setIsSuggestingTasks(true); setSuggestedTasks(null); try { const newTasks = await generateTasksFromGoal(goal.text, apiKey); setSuggestedTasks(newTasks); } catch(e) { console.error(e); } finally { setIsSuggestingTasks(false); } };
     const addSuggestedTask = (task: {task: string, time: number}) => { setDailyTasks(prev => [...prev, { id: `ai-${Date.now()}-${Math.random()}`, text: task.task, completed: false, taskType: TaskType.StudySession, estimatedTime: task.time, effort: TaskEffort.Medium }]); setSuggestedTasks(prev => prev ? prev.filter(t => t.task !== task.task) : null); };
-    const handleGenerateSmartTasks = async () => { setIsGeneratingTasks(true); setSmartTasks(null); try { const newTasks = await generateSmartTasks(prioritizedWeakTopics, apiKey, selectedModel); setSmartTasks(newTasks); } catch (e) { console.error(e); } finally { setIsGeneratingTasks(false); } };
+    const handleGenerateSmartTasks = async () => { setIsGeneratingTasks(true); setSmartTasks(null); try { const newTasks = await generateSmartTasks(prioritizedWeakTopics, apiKey); setSmartTasks(newTasks); } catch (e) { console.error(e); } finally { setIsGeneratingTasks(false); } };
     const addSmartTask = (task: { task: string; time: number; topic: string }) => { const newTask = { id: `smart-${Date.now()}`, text: task.task, completed: false, taskType: TaskType.ProblemPractice, estimatedTime: task.time, linkedTopic: task.topic, effort: TaskEffort.High }; setDailyTasks(p => [newTask, ...p]); setSmartTasks(p => p?.filter(t => t.task !== task.task) || null); };
     const handleSaveAccomplishment = (taskId: string, accomplishment: string) => { setDailyTasks(prev => prev.map(t => t.id === taskId ? { ...t, accomplishment, completed: true } : t)); setAccomplishmentModal(null); setActiveTask(null); setIsCompleted(true); handleTimerReset(); };
 
@@ -558,7 +557,7 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
     const formatTotalTime = (minutes: number) => { if (minutes < 60) return `${minutes} min`; const hours = Math.floor(minutes / 60); const mins = minutes % 60; return `${hours}h ${mins}m`; };
     const totalDuration = timerMode === 'custom' ? customTime * 60 : (activeTask && activeTask.estimatedTime > 0 ? activeTask.estimatedTime * 60 : timerModes[timerMode]);
     const progress = totalDuration > 0 ? ((totalDuration - timeLeft) / totalDuration) : 0;
-    const TabButton: React.FC<{tabName: 'tasks' | 'weekly', label: string}> = ({tabName, label}) => (<button onClick={() => setActiveTab(tabName)} className={`py-2 px-4 font-semibold transition-colors text-sm rounded-t-md ${activeTab === 'tasks' ? (tabName === 'tasks' ? 'bg-slate-800 text-cyan-400' : 'bg-slate-900/50 text-gray-400 hover:bg-slate-800/80 hover:text-white') : (tabName === 'weekly' ? 'bg-slate-800 text-cyan-400' : 'bg-slate-900/50 text-gray-400 hover:bg-slate-800/80 hover:text-white')}`}>{label}</button>);
+    const TabButton: React.FC<{tabName: 'tasks' | 'weekly', label: string}> = ({tabName, label}) => (<button onClick={() => setActiveTab(tabName)} className={`py-2 px-4 font-semibold transition-colors text-sm rounded-t-md ${activeTab === tabName ? 'bg-slate-800 text-cyan-400' : 'bg-slate-900/50 text-gray-400 hover:bg-slate-800/80 hover:text-white'}`}>{label}</button>);
 
     const displayedTasks = useMemo(() => {
         if (showSchedule) {

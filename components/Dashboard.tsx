@@ -1,6 +1,6 @@
 
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
-import type { TestReport, QuestionLog, RootCauseFilter, LongTermGoal, AiAssistantPreferences } from '../types';
+import type { TestReport, QuestionLog, RootCauseFilter, LongTermGoal } from '../types';
 import {
   LineChart, Line, BarChart, Bar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   Radar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area, PieChart, Pie, Cell
@@ -33,7 +33,6 @@ interface DashboardProps {
   setRootCauseFilter: (filter: RootCauseFilter) => void;
   onStartFocusSession: (topic: string) => void;
   longTermGoals: LongTermGoal[];
-  aiPreferences: AiAssistantPreferences;
 }
 
 type WidgetId = 'heatmap' | 'performanceTrend' | 'subjectComparison' | 'subjectStrengthsRadar' | 'percentilePredictor' | 'aiAnalysis' | 'strategicROI' | 'paperStrategy' | 'rankPredictor' | 'volatility' | 'rankSimulator' | 'goalProgress';
@@ -444,7 +443,7 @@ const KPIModal: React.FC<{ title: string, metricKey: string, reports: TestReport
     );
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, setView, setRootCauseFilter, onStartFocusSession, longTermGoals, aiPreferences }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, setView, setRootCauseFilter, onStartFocusSession, longTermGoals }) => {
     const [isCustomizing, setIsCustomizing] = useState(false);
     const [enableAiInsights, setEnableAiInsights] = useState(false);
     const [contextualInsight, setContextualInsight] = useState<{ widgetId: WidgetId | null; text: string; isLoading: boolean }>({ widgetId: null, text: '', isLoading: false });
@@ -568,12 +567,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
         if (!apiKey) { setAiAnalysis({ content: '', isLoading: false, error: "API Key not set." }); return; }
         setAiAnalysis({ content: '', isLoading: true, error: null });
         try {
-            const result = await getAIAnalysis(reports, logs, apiKey, aiPreferences.selectedModel);
+            const result = await getAIAnalysis(reports, logs, apiKey);
             setAiAnalysis({ content: result, isLoading: false, error: null });
         } catch (e) {
             setAiAnalysis({ content: '', isLoading: false, error: e instanceof Error ? e.message : 'An unknown error occurred.' });
         }
-    }, [apiKey, reports, logs, aiPreferences.selectedModel]);
+    }, [apiKey, reports, logs]);
 
     const WIDGETS: Record<WidgetId, { title: string; component: React.ReactNode; getDataForInsight: () => string; info: React.ReactNode; }> = {
         heatmap: { title: "Test Activity Heatmap", component: <CalendarHeatmapWidget reports={processedReports} />, getDataForInsight: () => `Analyze activity from ${reports.length} tests over the past year.`, info: "This heatmap shows your test-taking frequency and average score over the past year. Darker shades of cyan indicate higher scores on those days." },

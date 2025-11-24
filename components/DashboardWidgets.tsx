@@ -270,28 +270,26 @@ export const StrategicROIWidget: React.FC<{ data: any[], onPointClick: (topic: s
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-500"></span>Big Bets</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-blue-500"></span>Maintenance</div>
         </div>
-        <div className="flex-grow min-h-0">
-            <ResponsiveContainer width="100%" height="100%" minWidth={10} minHeight={10} debounce={200}>
-                <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                    <XAxis type="number" dataKey="effort" name="Effort" unit="" stroke="#9CA3AF" label={{ value: 'Effort (Difficulty)', position: 'insideBottom', offset: -10, fill: '#9CA3AF', fontSize: 10 }} domain={[0, 'auto']} />
-                    <YAxis type="number" dataKey="impact" name="Impact" unit="" stroke="#9CA3AF" label={{ value: 'Impact (Weightage)', angle: -90, position: 'insideLeft', fill: '#9CA3AF', fontSize: 10 }} domain={[0, 'auto']} />
-                    <ZAxis type="number" dataKey="bubbleSize" range={[60, 400]} name="Error Volume" />
-                    <Tooltip content={<CustomScatterTooltip />} cursor={{ strokeDasharray: '3 3' }} />
-                    <ReferenceLine x={30} stroke="#4B5563" strokeDasharray="3 3" />
-                    <ReferenceLine y={30} stroke="#4B5563" strokeDasharray="3 3" />
-                    <Scatter name="Topics" data={data} onClick={(point) => onPointClick(point.topic)} cursor="pointer">
-                        {data.map((entry, index) => {
-                            let fill = '#6B7280';
-                            if (entry.quadrant === 'Quick Wins') fill = '#10B981'; // Green
-                            else if (entry.quadrant === 'Big Bets') fill = '#F59E0B'; // Amber
-                            else if (entry.quadrant === 'Maintenance') fill = '#3B82F6'; // Blue
-                            return <Cell key={`cell-${index}`} fill={fill} fillOpacity={0.7} stroke={fill} strokeWidth={1} />;
-                        })}
-                    </Scatter>
-                </ScatterChart>
-            </ResponsiveContainer>
-        </div>
+        <ResponsiveContainer width="100%" height="100%">
+            <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis type="number" dataKey="effort" name="Effort" unit="" stroke="#9CA3AF" label={{ value: 'Effort (Difficulty)', position: 'insideBottom', offset: -10, fill: '#9CA3AF', fontSize: 10 }} domain={[0, 'auto']} />
+                <YAxis type="number" dataKey="impact" name="Impact" unit="" stroke="#9CA3AF" label={{ value: 'Impact (Weightage)', angle: -90, position: 'insideLeft', fill: '#9CA3AF', fontSize: 10 }} domain={[0, 'auto']} />
+                <ZAxis type="number" dataKey="bubbleSize" range={[60, 400]} name="Error Volume" />
+                <Tooltip content={<CustomScatterTooltip />} cursor={{ strokeDasharray: '3 3' }} />
+                <ReferenceLine x={30} stroke="#4B5563" strokeDasharray="3 3" />
+                <ReferenceLine y={30} stroke="#4B5563" strokeDasharray="3 3" />
+                <Scatter name="Topics" data={data} onClick={(point) => onPointClick(point.topic)} cursor="pointer">
+                    {data.map((entry, index) => {
+                        let fill = '#6B7280';
+                        if (entry.quadrant === 'Quick Wins') fill = '#10B981'; // Green
+                        else if (entry.quadrant === 'Big Bets') fill = '#F59E0B'; // Amber
+                        else if (entry.quadrant === 'Maintenance') fill = '#3B82F6'; // Blue
+                        return <Cell key={`cell-${index}`} fill={fill} fillOpacity={0.7} stroke={fill} strokeWidth={1} />;
+                    })}
+                </Scatter>
+            </ScatterChart>
+        </ResponsiveContainer>
     </div>
 );
 
@@ -317,35 +315,33 @@ export const RankPredictorWidget: React.FC<{ rankPrediction: any, goalProbabilit
                 </div>
             )}
         </div>
-        <div className="flex-grow min-h-0">
-            <ResponsiveContainer width="100%" height="100%" minWidth={10} minHeight={10} debounce={200}>
-                <AreaChart data={rankPrediction.distribution} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
-                    <defs>
-                        <linearGradient id="rankGradient" x1="0" y1="0" x2="1" y2="0">
-                            <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.0} />
-                            <stop offset="20%" stopColor="#22d3ee" stopOpacity={0.1} />
-                            <stop offset="50%" stopColor="#22d3ee" stopOpacity={0.5} />
-                            <stop offset="80%" stopColor="#22d3ee" stopOpacity={0.1} />
-                            <stop offset="100%" stopColor="#22d3ee" stopOpacity={0.0} />
-                        </linearGradient>
-                    </defs>
-                    <XAxis
-                        dataKey="rank"
-                        reversed={true}
-                        tick={{ fontSize: 10, fill: '#9ca3af' }}
-                        type="number"
-                        domain={['dataMin', 'dataMax']}
-                        tickFormatter={(val) => val >= 1000 ? `${(val / 1000).toFixed(1)}k` : val}
-                        tickCount={7}
-                    />
-                    <YAxis hide />
-                    <Tooltip content={<CustomTooltip label="Predicted Rank" />} />
-                    <ReferenceLine x={rankPrediction.likely} stroke="#ffffff" strokeDasharray="3 3" strokeOpacity={0.5} label={{ value: 'Likely', position: 'top', fill: '#fff', fontSize: 10 }} />
-                    {/* Smoothed curve using type="basis" */}
-                    <Area type="basis" dataKey="probability" stroke="#22d3ee" fill="url(#rankGradient)" strokeWidth={2} />
-                </AreaChart>
-            </ResponsiveContainer>
-        </div>
+        <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={rankPrediction.distribution} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
+                <defs>
+                    <linearGradient id="rankGradient" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.0} />
+                        <stop offset="20%" stopColor="#22d3ee" stopOpacity={0.1} />
+                        <stop offset="50%" stopColor="#22d3ee" stopOpacity={0.5} />
+                        <stop offset="80%" stopColor="#22d3ee" stopOpacity={0.1} />
+                        <stop offset="100%" stopColor="#22d3ee" stopOpacity={0.0} />
+                    </linearGradient>
+                </defs>
+                <XAxis
+                    dataKey="rank"
+                    reversed={true}
+                    tick={{ fontSize: 10, fill: '#9ca3af' }}
+                    type="number"
+                    domain={['dataMin', 'dataMax']}
+                    tickFormatter={(val) => val >= 1000 ? `${(val / 1000).toFixed(1)}k` : val}
+                    tickCount={7}
+                />
+                <YAxis hide />
+                <Tooltip content={<CustomTooltip label="Predicted Rank" />} />
+                <ReferenceLine x={rankPrediction.likely} stroke="#ffffff" strokeDasharray="3 3" strokeOpacity={0.5} label={{ value: 'Likely', position: 'top', fill: '#fff', fontSize: 10 }} />
+                {/* Smoothed curve using type="basis" */}
+                <Area type="basis" dataKey="probability" stroke="#22d3ee" fill="url(#rankGradient)" strokeWidth={2} />
+            </AreaChart>
+        </ResponsiveContainer>
     </div>
 );
 
@@ -361,18 +357,16 @@ export const PercentilePredictorWidget: React.FC<{ percentileData: any }> = ({ p
                 <p className="text-xl font-bold text-amber-400 tabular-nums">{percentileData.predictedPercentile}%</p>
             </div>
         </div>
-        <div className="flex-grow min-h-0">
-            <ResponsiveContainer width="100%" height="100%" minWidth={10} minHeight={10} debounce={200}>
-                <ComposedChart data={percentileData.chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                    <XAxis dataKey="name" stroke="#9CA3AF" tick={{ fontSize: 10 }} />
-                    <YAxis yAxisId="left" stroke="#9CA3AF" domain={[0, 100]} tick={{ fontSize: 10 }} />
-                    <Tooltip content={<CustomTooltip formatter={(val: number) => typeof val === 'number' ? val.toFixed(1) + '%' : val} />} />
-                    <Line yAxisId="left" type="monotone" dataKey="percentile" name="Percentile" stroke="#818CF8" strokeWidth={2} dot={{ r: 4, fill: '#818CF8' }} activeDot={{ r: 6 }} />
-                    <Line yAxisId="left" type="monotone" dataKey="trendPercentile" name="Trend" stroke="#FBBF24" strokeDasharray="5 5" strokeWidth={2} dot={false} />
-                </ComposedChart>
-            </ResponsiveContainer>
-        </div>
+        <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={percentileData.chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                <XAxis dataKey="name" stroke="#9CA3AF" tick={{ fontSize: 10 }} />
+                <YAxis yAxisId="left" stroke="#9CA3AF" domain={[0, 100]} tick={{ fontSize: 10 }} />
+                <Tooltip content={<CustomTooltip formatter={(val: number) => typeof val === 'number' ? val.toFixed(1) + '%' : val} />} />
+                <Line yAxisId="left" type="monotone" dataKey="percentile" name="Percentile" stroke="#818CF8" strokeWidth={2} dot={{ r: 4, fill: '#818CF8' }} activeDot={{ r: 6 }} />
+                <Line yAxisId="left" type="monotone" dataKey="trendPercentile" name="Trend" stroke="#FBBF24" strokeDasharray="5 5" strokeWidth={2} dot={false} />
+            </ComposedChart>
+        </ResponsiveContainer>
     </div>
 );
 
@@ -397,59 +391,53 @@ export const VolatilityWidget: React.FC<{ volatilityMetrics: any }> = ({ volatil
 
 export const PerformanceTrendWidget: React.FC<{ data: any[], aiSummary?: string }> = ({ data, aiSummary }) => (
     <div className="h-full flex flex-col">
-        <div className="flex-grow min-h-0">
-            <ResponsiveContainer width="100%" height="100%" minWidth={10} minHeight={10} debounce={200}>
-                <LineChart data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                    <XAxis dataKey="testName" stroke="#9CA3AF" tick={{ fontSize: 10 }} />
-                    <YAxis stroke="#9CA3AF" domain={['auto', 'auto']} />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Line type="monotone" dataKey="total.marks" name="Total Score" stroke={SUBJECT_CONFIG.total.color} strokeWidth={2} />
-                </LineChart>
-            </ResponsiveContainer>
-        </div>
+        <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis dataKey="testName" stroke="#9CA3AF" tick={{ fontSize: 10 }} />
+                <YAxis stroke="#9CA3AF" domain={['auto', 'auto']} />
+                <Tooltip content={<CustomTooltip />} />
+                <Line type="monotone" dataKey="total.marks" name="Total Score" stroke={SUBJECT_CONFIG.total.color} strokeWidth={2} />
+            </LineChart>
+        </ResponsiveContainer>
         <AiChartFooter summary={aiSummary} />
     </div>
 );
 
 export const SubjectComparisonWidget: React.FC<{ data: any[], aiSummary?: string }> = ({ data, aiSummary }) => (
     <div className="h-full flex flex-col">
-        <div className="flex-grow min-h-0">
-            <ResponsiveContainer width="100%" height="100%" minWidth={10} minHeight={10} debounce={200}>
-                <BarChart data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                    <XAxis dataKey="testName" stroke="#9CA3AF" tick={{ fontSize: 10 }} />
-                    <YAxis stroke="#9CA3AF" />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Legend wrapperStyle={{ fontSize: '12px' }} />
-                    <Bar dataKey="physics.marks" name="Physics" stackId="a" fill={SUBJECT_CONFIG.physics.color} />
-                    <Bar dataKey="chemistry.marks" name="Chemistry" stackId="a" fill={SUBJECT_CONFIG.chemistry.color} />
-                    <Bar dataKey="maths.marks" name="Maths" stackId="a" fill={SUBJECT_CONFIG.maths.color} />
-                </BarChart>
-            </ResponsiveContainer>
-        </div>
+        <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis dataKey="testName" stroke="#9CA3AF" tick={{ fontSize: 10 }} />
+                <YAxis stroke="#9CA3AF" />
+                <Tooltip content={<CustomTooltip />} />
+                <Legend wrapperStyle={{ fontSize: '12px' }} />
+                <Bar dataKey="physics.marks" name="Physics" stackId="a" fill={SUBJECT_CONFIG.physics.color} />
+                <Bar dataKey="chemistry.marks" name="Chemistry" stackId="a" fill={SUBJECT_CONFIG.chemistry.color} />
+                <Bar dataKey="maths.marks" name="Maths" stackId="a" fill={SUBJECT_CONFIG.maths.color} />
+            </BarChart>
+        </ResponsiveContainer>
         <AiChartFooter summary={aiSummary} />
     </div>
 );
 
 export const SubjectRadarWidget: React.FC<{ data: any[] }> = ({ data }) => {
     return (
-        <div className="flex-grow min-h-0 h-full">
-            <ResponsiveContainer width="100%" height="100%" minWidth={10} minHeight={10} debounce={200}>
-                <RadarChart cx="50%" cy="50%" outerRadius="70%" data={data}>
-                    <PolarGrid gridType="polygon" />
-                    <PolarAngleAxis dataKey="subject" tick={{ fill: '#9ca3af', fontSize: 12 }} />
-                    <PolarRadiusAxis angle={30} domain={[0, 'dataMax']} tick={false} axisLine={false} />
-                    
-                    <Radar name="Cohort Avg" dataKey="C" stroke="#6b7280" strokeDasharray="3 3" fill="#6b7280" fillOpacity={0.1} />
-                    <Radar name="Topper Avg" dataKey="B" stroke="#f59e0b" strokeWidth={1} fill="#f59e0b" fillOpacity={0.1} />
-                    <Radar name="You" dataKey="A" stroke={SUBJECT_CONFIG.total.color} strokeWidth={2} fill={SUBJECT_CONFIG.total.color} fillOpacity={0.5} />
-                    
-                    <Legend wrapperStyle={{ fontSize: '10px' }} />
-                    <Tooltip content={<CustomRadarTooltip />} cursor={false} />
-                </RadarChart>
-            </ResponsiveContainer>
-        </div>
+        <ResponsiveContainer width="100%" height="100%">
+            <RadarChart cx="50%" cy="50%" outerRadius="70%" data={data}>
+                <PolarGrid gridType="polygon" />
+                <PolarAngleAxis dataKey="subject" tick={{ fill: '#9ca3af', fontSize: 12 }} />
+                <PolarRadiusAxis angle={30} domain={[0, 'dataMax']} tick={false} axisLine={false} />
+                
+                <Radar name="Cohort Avg" dataKey="C" stroke="#6b7280" strokeDasharray="3 3" fill="#6b7280" fillOpacity={0.1} />
+                <Radar name="Topper Avg" dataKey="B" stroke="#f59e0b" strokeWidth={1} fill="#f59e0b" fillOpacity={0.1} />
+                <Radar name="You" dataKey="A" stroke={SUBJECT_CONFIG.total.color} strokeWidth={2} fill={SUBJECT_CONFIG.total.color} fillOpacity={0.5} />
+                
+                <Legend wrapperStyle={{ fontSize: '10px' }} />
+                <Tooltip content={<CustomRadarTooltip />} cursor={false} />
+            </RadarChart>
+        </ResponsiveContainer>
     );
 };
 

@@ -57,7 +57,7 @@ const InsightCard: React.FC<{ title: string; icon: string; content: React.ReactN
             </div>
             <h3 className="font-bold text-cyan-100 text-sm uppercase tracking-wider">{title}</h3>
         </div>
-        <div className="flex-grow relative bg-slate-900/20 p-4 min-h-0">
+        <div className="flex-grow relative bg-slate-900/20 p-4">
             {chart}
         </div>
         <div className="p-4 bg-slate-800/80 border-t border-slate-700/50 text-sm text-gray-300 leading-relaxed">

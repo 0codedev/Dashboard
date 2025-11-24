@@ -199,7 +199,6 @@ export interface AiAssistantPreferences {
   tone: 'encouraging' | 'neutral' | 'direct';
   customInstructions?: string; // Added: Allow user to define persona
   socraticMode?: boolean; // Added
-  selectedModel?: string; // Added for model selection
 }
 
 export interface NotificationPreferences {

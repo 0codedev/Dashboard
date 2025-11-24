@@ -327,20 +327,6 @@ const AiSettings: React.FC<Pick<SettingsProps, 'aiPreferences' | 'setAiPreferenc
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                     <div>
-                        <label htmlFor="selected-model" className="text-xs font-medium text-gray-400 block mb-2">AI Model</label>
-                        <select 
-                            id="selected-model" 
-                            value={aiPreferences.selectedModel || 'gemini-2.5-flash'} 
-                            onChange={e => setAiPreferences(prev => ({ ...prev, selectedModel: e.target.value }))} 
-                            className="select-base w-full"
-                        >
-                            <option value="gemini-2.5-flash">Gemini 2.5 Flash (Fast)</option>
-                            <option value="gemini-2.5-pro">Gemini 2.5 Pro (Balanced)</option>
-                            <option value="gemini-3-pro-preview">Gemini 3.0 Pro Preview (Advanced)</option>
-                        </select>
-                        <p className="text-[10px] text-gray-500 mt-1">Note: Selected model only applies to complex reasoning tasks (Coach & Quiz).</p>
-                    </div>
-                    <div>
                         <label htmlFor="response-length" className="text-xs font-medium text-gray-400 block mb-2">Response Verbosity</label>
                         <select id="response-length" value={aiPreferences.responseLength} onChange={e => setAiPreferences(prev => ({ ...prev, responseLength: e.target.value as AiAssistantPreferences['responseLength'] }))} className="select-base w-full">
                             <option value="short">Short & Concise (Bullet points)</option>
