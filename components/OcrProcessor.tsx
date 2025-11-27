@@ -1,13 +1,14 @@
-
 import React, { useState, useCallback, useEffect } from 'react';
 import type { TestReport, SubjectData, QuestionLog } from '../types';
 import { QuestionType, TestType, TestSubType, QuestionStatus, DifficultyLevel } from '../types';
 import { extractDataFromImage, validateOCRData, inferTestMetadata } from '../services/geminiService';
 import { exportSingleReportToCsv, exportExtractedQuestionsToCsv } from '../services/sheetParser';
+import { calculateMarks, getMarkingScheme } from '../utils/metrics';
 
 interface OcrProcessorProps {
   onAddData: (data: { report: TestReport; logs: QuestionLog[] }) => void;
   apiKey: string;
+  modelName?: string; // Added: Model selection from settings
 }
 
 const initialReportState: Partial<TestReport> = {
@@ -84,7 +85,16 @@ const QuestionLogReviewTable: React.FC<{
 
     const handleLogChange = (index: number, field: keyof QuestionLog, value: any) => {
         const newLogs = [...logs];
-        newLogs[index] = { ...newLogs[index], [field]: value };
+        const updatedLog = { ...newLogs[index], [field]: value };
+        
+        // Auto-recalculate marks if status or scheme changes
+        if (field === 'status' || field === 'positiveMarks' || field === 'negativeMarks' || field === 'questionType') {
+             // Recalculate marks if scheme is available
+             const newMarks = calculateMarks(updatedLog.status || QuestionStatus.Unanswered, updatedLog.questionType || "Single Correct", updatedLog);
+             if (newMarks !== null) updatedLog.marksAwarded = newMarks;
+        }
+
+        newLogs[index] = updatedLog;
         setLogs(newLogs);
     };
 
@@ -102,6 +112,8 @@ const QuestionLogReviewTable: React.FC<{
                             <th className="p-2 text-left">Subject</th>
                             <th className="p-2 text-left">Status</th>
                             <th className="p-2 text-left">Type</th>
+                            <th className="p-2 text-center w-14" title="Correct Marks">+ve</th>
+                            <th className="p-2 text-center w-14" title="Wrong Marks">-ve</th>
                             <th className="p-2 text-left">Topic</th>
                         </tr>
                     </thead>
@@ -123,7 +135,35 @@ const QuestionLogReviewTable: React.FC<{
                                     <SelectCell value={log.status || ''} onChange={v => handleLogChange(index, 'status', v)} options={Object.values(QuestionStatus)} />
                                 </td>
                                 <td className="p-1 w-48">
-                                    <SelectCell value={log.questionType || ''} onChange={v => handleLogChange(index, 'questionType', v)} options={Object.values(QuestionType)} />
+                                    <input
+                                        type="text"
+                                        value={log.questionType || ''}
+                                        onChange={e => handleLogChange(index, 'questionType', e.target.value)}
+                                        className="w-full bg-slate-700 p-1 border border-slate-600 rounded-md focus:outline-none focus:ring-1 focus:ring-cyan-500 text-center"
+                                        placeholder="e.g. Single Correct"
+                                        list="qtype-suggestions"
+                                    />
+                                    <datalist id="qtype-suggestions">
+                                        {Object.values(QuestionType).map(type => <option key={type} value={type} />)}
+                                    </datalist>
+                                </td>
+                                <td className="p-1 w-14">
+                                    <input 
+                                        type="number"
+                                        value={log.positiveMarks ?? ''}
+                                        onChange={e => handleLogChange(index, 'positiveMarks', parseFloat(e.target.value))}
+                                        className="w-full bg-slate-700 p-1 border border-slate-600 rounded-md text-center text-green-400 font-bold focus:outline-none"
+                                        placeholder="+4"
+                                    />
+                                </td>
+                                <td className="p-1 w-14">
+                                    <input 
+                                        type="number"
+                                        value={log.negativeMarks ?? ''}
+                                        onChange={e => handleLogChange(index, 'negativeMarks', parseFloat(e.target.value))}
+                                        className="w-full bg-slate-700 p-1 border border-slate-600 rounded-md text-center text-red-400 font-bold focus:outline-none"
+                                        placeholder="-1"
+                                    />
                                 </td>
                                 <td className="p-1">
                                     <input
@@ -140,7 +180,8 @@ const QuestionLogReviewTable: React.FC<{
                 </table>
                  {logs.length === 0 && isManualMode && <p className="text-sm text-gray-500 text-center py-4">Click "Add Question" to start building your log.</p>}
             </div>
-            {isManualMode && (
+            {/* Always show Add Question button in review mode to allow manual fixes */}
+            {(isManualMode || true) && (
                 <div className="pt-2 text-center border-t border-slate-700">
                     <button onClick={onAddRow} className="text-sm bg-indigo-600/50 hover:bg-indigo-600 text-white font-semibold py-1 px-3 rounded-full transition-colors mt-2">
                         + Add Question
@@ -169,11 +210,18 @@ const SkeletonLoader = () => (
 );
 
 
-export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey }) => {
+export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey, modelName }) => {
   const [entryMode, setEntryMode] = useState<'ocr' | 'manual' | null>(null);
   const [workflowStep, setWorkflowStep] = useState<'upload' | 'processing' | 'review'>('upload');
+  
+  // Image 1: Score Sheet
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  
+  // Image 2: Instruction Sheet (Optional)
+  const [instructionFile, setInstructionFile] = useState<File | null>(null);
+  const [instructionPreviewUrl, setInstructionPreviewUrl] = useState<string | null>(null);
+
   const [error, setError] = useState<string | null>(null);
   
   const [extractedData, setExtractedData] = useState<Partial<TestReport>>(initialReportState);
@@ -188,6 +236,8 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey })
       setWorkflowStep('upload');
       setImageFile(null);
       setPreviewUrl(null);
+      setInstructionFile(null);
+      setInstructionPreviewUrl(null);
       setError(null);
       setExtractedData(initialReportState);
       setExtractedConfidence({});
@@ -195,12 +245,18 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey })
       setValidationWarnings([]);
   };
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>, type: 'score' | 'instruction') => {
     const file = event.target.files?.[0];
     if (file) {
-      setImageFile(file);
-      const url = URL.createObjectURL(file);
-      setPreviewUrl(url);
+      if (type === 'score') {
+          setImageFile(file);
+          const url = URL.createObjectURL(file);
+          setPreviewUrl(url);
+      } else {
+          setInstructionFile(file);
+          const url = URL.createObjectURL(file);
+          setInstructionPreviewUrl(url);
+      }
       setError(null);
     }
   };
@@ -211,22 +267,44 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey })
     setError(null);
     
     try {
-      const { report, questions, confidence } = await extractDataFromImage(imageFile, apiKey);
+      // Use selected model for OCR as per setting, passing both files
+      const { report, questions, confidence } = await extractDataFromImage(imageFile, apiKey, modelName, instructionFile || undefined);
       
-      // Smart Auto-Detection for Test Metadata
+      // Smart Auto-Detection for Test Metadata (Uses Flash internally)
       if (report.testName) {
           const inferred = await inferTestMetadata(report.testName, apiKey);
           report.type = inferred.type;
           report.subType = inferred.subType;
       }
 
-      setExtractedData(prev => ({...prev, ...report}));
+      // Format question type string to include marking scheme if separated by AI
+      const formattedQuestions = questions.map(q => {
+          let formattedType = q.questionType || "Single Correct";
+          // If positive/negative marks are present, ensure they are part of the string for display preference
+          if (q.positiveMarks !== undefined && q.negativeMarks !== undefined) {
+              // Avoid double formatting if AI already included it
+              if (!formattedType.includes('(')) {
+                  formattedType = `${formattedType} (+${q.positiveMarks}, ${q.negativeMarks})`;
+              }
+          }
+          return { ...q, questionType: formattedType };
+      });
+
+      // Merge while ensuring maxMarks are respected if present
+      setExtractedData(prev => ({
+          ...prev, 
+          ...report,
+          physics: { ...prev.physics, ...report.physics, maxMarks: report.physics?.maxMarks || prev.physics?.maxMarks },
+          chemistry: { ...prev.chemistry, ...report.chemistry, maxMarks: report.chemistry?.maxMarks || prev.chemistry?.maxMarks },
+          maths: { ...prev.maths, ...report.maths, maxMarks: report.maths?.maxMarks || prev.maths?.maxMarks },
+          total: { ...prev.total, ...report.total, maxMarks: report.total?.maxMarks || prev.total?.maxMarks }
+      }));
       setExtractedConfidence(confidence);
-      setExtractedLogs(questions);
+      setExtractedLogs(formattedQuestions);
       
-      // Run Sanity Check
+      // Run Sanity Check (Uses Flash internally)
       setIsValidating(true);
-      validateOCRData(report, questions, apiKey).then(warnings => {
+      validateOCRData(report, formattedQuestions, apiKey).then(warnings => {
           setValidationWarnings(warnings);
           setIsValidating(false);
       });
@@ -236,7 +314,7 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey })
       setError(err instanceof Error ? err.message : 'An unknown error occurred.');
       setWorkflowStep('upload'); // Go back to upload step on error
     }
-  }, [imageFile, apiKey]);
+  }, [imageFile, instructionFile, apiKey, modelName]);
 
     const handleInputChange = <K extends keyof Omit<TestReport, 'id'>>(
         key: K,
@@ -264,7 +342,16 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey })
         const nextQuestionNumber = prev.length > 0 ? Math.max(...prev.map(l => l.questionNumber || 0)) + 1 : 1;
         return [
             ...prev,
-            { questionNumber: nextQuestionNumber, subject: 'physics', status: QuestionStatus.Unanswered, questionType: QuestionType.SingleCorrect4, topic: 'N/A', marksAwarded: 0 }
+            { 
+                questionNumber: nextQuestionNumber, 
+                subject: 'physics', 
+                status: QuestionStatus.Unanswered, 
+                questionType: "Single Correct (+4, -1)",
+                positiveMarks: 4,
+                negativeMarks: -1,
+                topic: 'N/A', 
+                marksAwarded: 0 
+            }
         ];
     });
   };
@@ -289,7 +376,10 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey })
       testId: reportId,
       subject: log.subject || 'physics',
       questionNumber: log.questionNumber || index + 1,
-      questionType: log.questionType || QuestionType.SingleCorrect4, 
+      // Use the exact string provided by AI/User, do not fallback to default enum unless empty
+      questionType: log.questionType || "Single Correct", 
+      positiveMarks: log.positiveMarks,
+      negativeMarks: log.negativeMarks,
       status: log.status || QuestionStatus.Unanswered,
       marksAwarded: log.marksAwarded || 0,
       topic: log.topic || 'N/A',
@@ -340,35 +430,65 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey })
       )}
 
       {entryMode === 'ocr' && workflowStep === 'upload' && (
-        <div className="animate-fade-in">
-          <div className="mb-4 flex flex-col sm:flex-row gap-4 items-start">
-            <div className='flex-shrink-0'>
-              <label htmlFor="file-upload" className="cursor-pointer bg-[rgb(var(--color-primary-hover-rgb))] hover:bg-[rgb(var(--color-primary-dark-rgb))] text-white font-bold py-2 px-4 rounded-lg inline-block transition-transform hover:scale-105">
-                {imageFile ? "Change Image" : "Upload Score Sheet"}
-              </label>
-              <input id="file-upload" type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileChange} />
-            </div>
-            {previewUrl && (
-              <div className="mb-4 border-2 border-dashed border-gray-600 p-2 rounded-lg">
-                <img src={previewUrl} alt="Score sheet preview" className="max-w-xs max-h-64 rounded-lg" />
+        <div className="animate-fade-in space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Main Score Sheet Upload */}
+              <div className="flex flex-col gap-2">
+                  <label className="text-sm font-bold text-gray-300">1. Score Sheet (Required)</label>
+                  <div className={`border-2 border-dashed border-gray-600 rounded-lg p-4 flex flex-col items-center justify-center min-h-[200px] hover:border-[rgb(var(--color-primary-rgb))] transition-colors ${previewUrl ? 'bg-slate-800' : 'bg-slate-800/50'}`}>
+                      {previewUrl ? (
+                          <div className="relative w-full h-full flex flex-col items-center">
+                              <img src={previewUrl} alt="Score sheet preview" className="max-h-48 rounded-lg object-contain" />
+                              <label htmlFor="file-upload-score" className="mt-2 text-xs text-cyan-400 cursor-pointer hover:underline">Change Image</label>
+                          </div>
+                      ) : (
+                          <label htmlFor="file-upload-score" className="cursor-pointer flex flex-col items-center text-center">
+                              <span className="text-4xl mb-2">📄</span>
+                              <span className="text-sm text-gray-400">Click to upload Score Sheet</span>
+                              <span className="text-xs text-gray-500 mt-1">(Marks, Ranks, Question Grid)</span>
+                          </label>
+                      )}
+                      <input id="file-upload-score" type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleFileChange(e, 'score')} />
+                  </div>
               </div>
-            )}
+
+              {/* Instruction/Model Sheet Upload */}
+              <div className="flex flex-col gap-2">
+                  <label className="text-sm font-bold text-gray-300">2. Instruction Sheet (Recommended)</label>
+                  <div className={`border-2 border-dashed border-gray-600 rounded-lg p-4 flex flex-col items-center justify-center min-h-[200px] hover:border-purple-500 transition-colors ${instructionPreviewUrl ? 'bg-slate-800' : 'bg-slate-800/50'}`}>
+                      {instructionPreviewUrl ? (
+                          <div className="relative w-full h-full flex flex-col items-center">
+                              <img src={instructionPreviewUrl} alt="Instruction sheet preview" className="max-h-48 rounded-lg object-contain" />
+                              <label htmlFor="file-upload-instruction" className="mt-2 text-xs text-purple-400 cursor-pointer hover:underline">Change Image</label>
+                          </div>
+                      ) : (
+                          <label htmlFor="file-upload-instruction" className="cursor-pointer flex flex-col items-center text-center">
+                              <span className="text-4xl mb-2">📑</span>
+                              <span className="text-sm text-gray-400">Click to upload Marking Scheme</span>
+                              <span className="text-xs text-gray-500 mt-1">(Extracts +4/-1, +3/0 details automatically)</span>
+                          </label>
+                      )}
+                      <input id="file-upload-instruction" type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleFileChange(e, 'instruction')} />
+                  </div>
+              </div>
           </div>
 
           {imageFile && (
-            <button
-              onClick={processImage}
-              className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-lg transition-all duration-300 ease-in-out shadow-lg hover:shadow-indigo-500/50"
-            >
-              Step 1: Process Image with AI
-            </button>
+            <div className="flex justify-center pt-4">
+                <button
+                onClick={processImage}
+                className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-lg transition-all duration-300 ease-in-out shadow-lg hover:shadow-indigo-500/50 flex items-center gap-2"
+                >
+                <span>⚡</span> Process Images with AI
+                </button>
+            </div>
           )}
         </div>
       )}
 
       {entryMode === 'ocr' && workflowStep === 'processing' && (
          <div className="animate-fade-in">
-             <p className="text-center text-lg text-indigo-300 mb-4">Analyzing image and extracting data... This may take a moment.</p>
+             <p className="text-center text-lg text-indigo-300 mb-4">Analyzing image{instructionFile ? 's' : ''} and extracting data... This may take a moment.</p>
              <SkeletonLoader />
          </div>
       )}
@@ -458,9 +578,9 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey })
             
             <div>
                  <h3 className="text-xl font-semibold border-b border-gray-600 pb-2 text-[rgb(var(--color-primary))]">{entryMode === 'ocr' ? 'Step 3: ' : ''}Review & Correct Question Details</h3>
-                 <p className="text-sm text-gray-400 mt-2">Correct any errors in the question-by-question data below before saving.</p>
+                 <p className="text-sm text-gray-400 mt-2">Correct any errors in the question-by-question data below before saving. <span className="text-yellow-300">Verify marks if using Instruction Sheet.</span></p>
                  <div className="mt-4 bg-gray-900/50 rounded-lg border border-gray-700/50">
-                    <QuestionLogReviewTable logs={extractedLogs} setLogs={setExtractedLogs} isManualMode={entryMode === 'manual'} onAddRow={addQuestionLog}/>
+                    <QuestionLogReviewTable logs={extractedLogs} setLogs={setExtractedLogs} isManualMode={true} onAddRow={addQuestionLog}/>
                  </div>
             </div>
             

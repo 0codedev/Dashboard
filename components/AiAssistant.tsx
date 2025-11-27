@@ -19,7 +19,14 @@ interface AiAssistantProps {
   studyGoals: StudyGoal[];
   setStudyGoals: React.Dispatch<React.SetStateAction<StudyGoal[]>>;
   preferences: AiAssistantPreferences;
+  onUpdatePreferences?: React.Dispatch<React.SetStateAction<AiAssistantPreferences>>;
 }
+
+const MODELS = [
+    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', icon: '⚡', desc: 'Fastest & low latency' },
+    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', icon: '🧠', desc: 'High reasoning capability' },
+    { id: 'gemini-3-pro-preview', name: 'Gemini 3.0 Pro (Exp)', icon: '✨', desc: 'Experimental features' },
+];
 
 // --- GenUI Components ---
 
@@ -402,6 +409,16 @@ const getSystemInstruction = (reports: TestReport[], logs: QuestionLog[], prefer
         * **NEW:** Use \`createMindMap\` to break down complex topics hierarchically if requested.
     `;
 
+    const isPro = preferences.model.toLowerCase().includes('pro');
+    const proInstruction = isPro ? `
+    **MODEL SPECIFIC INSTRUCTION (GEMINI PRO):**
+    You have high reasoning capabilities. Do not simply summarize data.
+    - **Correlate:** Link fatigue (question number) to accuracy. Link time-spent to error type.
+    - **Synthesize:** Don't just list weak topics; find the *underlying concept* connecting them (e.g., "Calculus application is hurting both Physics and Maths").
+    - **Tool Etiquette:** If you generate a chart, you MUST provide a detailed paragraph analyzing what the chart shows and why it matters *before* or *after* the chart. **Never** output a chart as the sole answer.
+    - **Professional Tone:** Act like a high-end consultant. Use terms like 'Variance', 'Opportunity Cost', 'Diminishing Returns', 'Pareto Principle'.
+    ` : '';
+
     const basePrompt = `
     You are the **Chief Performance Coach** for an elite JEE aspirant.
     
@@ -420,6 +437,8 @@ const getSystemInstruction = (reports: TestReport[], logs: QuestionLog[], prefer
     
     **CONTEXT:** ${extraContext || "No specific past errors found for this query."}
 
+    ${proInstruction}
+
     ${preferences.socraticMode ? socraticModeInstruction : directModeInstruction}
 
     ${formattingInstruction}
@@ -431,7 +450,7 @@ const getSystemInstruction = (reports: TestReport[], logs: QuestionLog[], prefer
 };
 
 // Main Component
-export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs, setView, setActiveLogFilter, apiKey, chatHistory, setChatHistory, studyGoals, setStudyGoals, preferences }) => {
+export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs, setView, setActiveLogFilter, apiKey, chatHistory, setChatHistory, studyGoals, setStudyGoals, preferences, onUpdatePreferences }) => {
     const [activeTab, setActiveTab] = useState<'chat' | 'voice'>('chat');
     
     // Chat State
@@ -439,10 +458,12 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
     const [isStreamingResponse, setIsStreamingResponse] = useState(false);
     const [isInputExpanded, setIsInputExpanded] = useState(true);
     const [attachedImage, setAttachedImage] = useState<File | null>(null);
+    const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
     
     const chatContainerRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const modelSelectorRef = useRef<HTMLDivElement>(null);
     const ai = useMemo(() => new GoogleGenAI({ apiKey }), [apiKey]);
 
     // Voice State (Gemini Live)
@@ -468,6 +489,17 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
         }
     }, [activeTab, isInputExpanded]);
 
+    // Close model selector on click outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (modelSelectorRef.current && !modelSelectorRef.current.contains(event.target as Node)) {
+                setIsModelSelectorOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
     // Clean up Live Session on Unmount or Tab Change
     useEffect(() => {
         return () => {
@@ -485,7 +517,7 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
     const handleUserInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setUserInput(e.target.value);
         e.target.style.height = 'auto';
-        e.target.style.height = `${e.target.scrollHeight}px`;
+        e.target.style.height = `${Math.min(e.target.scrollHeight, 150)}px`;
     };
 
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -499,6 +531,15 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
         setAttachedImage(null);
         if(fileInputRef.current) fileInputRef.current.value = '';
     };
+
+    const handleModelChange = (modelId: string) => {
+        if (onUpdatePreferences) {
+            onUpdatePreferences(prev => ({ ...prev, model: modelId }));
+        }
+        setIsModelSelectorOpen(false);
+    };
+
+    const currentModel = MODELS.find(m => m.id === preferences.model) || MODELS[0];
 
     const handleSendMessage = useCallback(async (e?: React.FormEvent) => {
         if(e) e.preventDefault();
@@ -531,7 +572,7 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
             }
 
             const response = await ai.models.generateContentStream({
-                model: 'gemini-2.5-flash', 
+                model: preferences.model || 'gemini-2.5-flash', 
                 contents: [{ role: 'user', parts: parts }],
                 config: {
                     systemInstruction,
@@ -560,10 +601,6 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
                     
                     // Fix manual type overrides for new tools
                     if (toolCall.name === 'renderDiagram') {
-                        // We need a way to identify this in the renderer. 
-                        // The renderer currently switches on 'chart' | 'checklist'.
-                        // Let's just modify the component content structure or add types.
-                        // For now, we'll wrap it differently.
                         setChatHistory(prev => [...prev, { role: 'model', content: { type: 'genUI', component: { ...genData, type: 'diagram' as any } } }]);
                     } else if (toolCall.name === 'createMindMap') {
                         setChatHistory(prev => [...prev, { role: 'model', content: { type: 'genUI', component: { ...genData, type: 'mindmap' as any } } }]);
@@ -700,26 +737,70 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
     const suggestions = [ "Analyze my Physics weak areas", "Create a study checklist for Rotational Motion", "Show me my score trend chart", "Why did I lose marks in the last test?" ];
 
     return (
-        <div className="flex flex-col h-[calc(100vh-120px)] bg-slate-800/50 rounded-lg shadow-lg border border-slate-700 overflow-hidden">
-            <div className="flex justify-between items-center p-4 border-b border-slate-700 bg-slate-900/50">
-                <div className="flex gap-2">
-                    <button onClick={() => setActiveTab('chat')} className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'chat' ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-500/20' : 'text-gray-400 hover:text-white hover:bg-slate-700'}`}>Text Chat</button>
-                    <button onClick={() => setActiveTab('voice')} className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'voice' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'text-gray-400 hover:text-white hover:bg-slate-700'}`}>Gemini Live</button>
+        <div className="flex flex-col h-[calc(100vh-120px)] bg-slate-800/50 rounded-lg shadow-lg border border-slate-700 overflow-hidden relative">
+            {/* Header */}
+            <div className="flex justify-between items-center p-3 border-b border-slate-700 bg-slate-900/90 backdrop-blur-md z-30">
+                {/* Model Selector (ChatGPT Style) */}
+                <div className="relative" ref={modelSelectorRef}>
+                    <button 
+                        onClick={() => setIsModelSelectorOpen(!isModelSelectorOpen)}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors text-sm font-medium text-gray-200"
+                    >
+                        <span className="text-cyan-400 text-lg">{currentModel.icon}</span>
+                        <span>{currentModel.name}</span>
+                        <span className="text-gray-500 text-xs ml-1">▼</span>
+                    </button>
+
+                    {isModelSelectorOpen && (
+                        <div className="absolute top-full left-0 mt-2 w-64 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 animate-scale-in overflow-hidden">
+                            {MODELS.map(model => (
+                                <button
+                                    key={model.id}
+                                    onClick={() => handleModelChange(model.id)}
+                                    className={`w-full text-left p-3 flex items-start gap-3 hover:bg-slate-700/50 transition-colors ${preferences.model === model.id ? 'bg-slate-700/30' : ''}`}
+                                >
+                                    <span className="text-xl mt-0.5">{model.icon}</span>
+                                    <div>
+                                        <p className={`text-sm font-bold ${preferences.model === model.id ? 'text-cyan-400' : 'text-gray-200'}`}>{model.name}</p>
+                                        <p className="text-xs text-gray-500">{model.desc}</p>
+                                    </div>
+                                    {preferences.model === model.id && <span className="ml-auto text-cyan-400 font-bold">✓</span>}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* Tabs */}
+                <div className="flex bg-slate-800/50 rounded-lg p-1 border border-slate-700">
+                    <button onClick={() => setActiveTab('chat')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activeTab === 'chat' ? 'bg-slate-700 text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}>Chat</button>
+                    <button onClick={() => setActiveTab('voice')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activeTab === 'voice' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}>Live</button>
                 </div>
             </div>
 
             {activeTab === 'chat' ? (
                 <div className="flex-grow relative flex flex-col overflow-hidden">
-                    <div ref={chatContainerRef} className={`flex-grow p-4 overflow-y-auto space-y-6 custom-scrollbar ${isInputExpanded ? 'pb-48' : 'pb-20'} transition-all duration-300`}>
+                    <div ref={chatContainerRef} className={`flex-grow p-4 overflow-y-auto space-y-6 custom-scrollbar ${isInputExpanded ? 'pb-44' : 'pb-20'} transition-all duration-300`}>
                         {chatHistory.length === 0 && (
-                            <div className="text-center text-gray-500 mt-20">
-                                <p className="text-lg font-medium mb-2">Your AI Performance Coach</p>
-                                <p className="text-sm">Ready to analyze logs, create plans, and visualize progress.</p>
+                            <div className="flex flex-col items-center justify-center h-full text-gray-500 opacity-50">
+                                <div className="w-16 h-16 bg-slate-800 rounded-2xl flex items-center justify-center mb-4 text-4xl grayscale">
+                                    {currentModel.icon}
+                                </div>
+                                <p className="text-lg font-medium mb-2">How can I help you ace JEE?</p>
                             </div>
                         )}
                         {chatHistory.map((msg, index) => (
-                            <div key={index} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                                <div className={`p-4 rounded-2xl max-w-[90%] lg:max-w-[75%] shadow-md ${msg.role === 'user' ? 'bg-gradient-to-br from-cyan-600 to-blue-600 text-white rounded-br-none' : 'bg-slate-800 border border-slate-700 text-gray-200 rounded-bl-none'}`}>
+                            <div key={index} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} animate-fade-in`}>
+                                <div className={`p-4 rounded-2xl max-w-[90%] lg:max-w-[75%] shadow-sm ${
+                                    msg.role === 'user' 
+                                    ? 'bg-slate-800 text-gray-100 rounded-br-sm' 
+                                    : 'bg-transparent text-gray-200 pl-0'
+                                }`}>
+                                    {msg.role === 'model' && (
+                                        <div className="flex items-center gap-2 mb-1 text-xs font-bold text-cyan-400">
+                                            <span>{currentModel.icon}</span> AI Coach
+                                        </div>
+                                    )}
                                     {typeof msg.content === 'string' ? (
                                         <MarkdownRenderer content={msg.content} />
                                     ) : msg.content.type === 'testReport' ? (
@@ -739,83 +820,119 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
                             </div>
                         ))}
                         {isStreamingResponse && (
-                            <div className="flex items-start"><div className="p-3 rounded-lg bg-slate-800/50 border border-slate-700"><span className="flex gap-1"><span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></span><span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce delay-75"></span><span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce delay-150"></span></span></div></div>
+                            <div className="flex items-center gap-2 pl-2">
+                                <div className="w-2 h-2 bg-cyan-500 rounded-full animate-bounce"></div>
+                                <div className="w-2 h-2 bg-cyan-500 rounded-full animate-bounce delay-75"></div>
+                                <div className="w-2 h-2 bg-cyan-500 rounded-full animate-bounce delay-150"></div>
+                            </div>
                         )}
                     </div>
 
-                    <div className={`absolute bottom-0 left-0 right-0 z-20 transition-transform duration-300 ease-in-out ${isInputExpanded ? 'translate-y-0' : 'translate-y-[calc(100%-10px)]'}`}>
-                        <div className="p-4 border-t border-slate-700 bg-slate-900/95 backdrop-blur-lg shadow-2xl">
-                            {isInputExpanded && (
-                                <div className="flex gap-2 mb-3 overflow-x-auto pb-2 hide-scrollbar">
+                    {/* Premium Input Area */}
+                    <div className={`absolute bottom-0 left-0 right-0 z-20 transition-transform duration-500 ease-[cubic-bezier(0.19,1,0.22,1)] ${isInputExpanded ? 'translate-y-0' : 'translate-y-[calc(100%-20px)] opacity-0 pointer-events-none'}`}>
+                        <div className="p-4 bg-gradient-to-t from-slate-900 via-slate-900/90 to-transparent pt-10">
+                            {/* Suggestions Pills */}
+                            {isInputExpanded && chatHistory.length < 2 && (
+                                <div className="flex gap-2 mb-3 overflow-x-auto pb-2 hide-scrollbar px-2">
                                     {suggestions.map((s, i) => (
-                                        <button key={i} onClick={() => handleSuggestionClick(s)} className="whitespace-nowrap px-3 py-1.5 bg-slate-800 border border-slate-700 hover:border-cyan-500 text-xs text-cyan-400 rounded-full transition-colors">
+                                        <button 
+                                            key={i} 
+                                            onClick={() => handleSuggestionClick(s)} 
+                                            className="whitespace-nowrap px-4 py-2 bg-slate-800/80 hover:bg-slate-700 border border-slate-700/50 hover:border-cyan-500/30 text-xs text-gray-300 hover:text-white rounded-full transition-all shadow-sm backdrop-blur-sm"
+                                        >
                                             {s}
                                         </button>
                                     ))}
                                 </div>
                             )}
                             
+                            {/* Attachment Preview */}
                             {attachedImage && (
-                                <div className="mb-2 flex items-center gap-2 bg-slate-800 p-2 rounded-lg border border-slate-600 w-fit animate-scale-in">
-                                    <div className="w-10 h-10 bg-slate-700 rounded overflow-hidden flex items-center justify-center text-xs text-gray-400">
-                                        IMG
+                                <div className="mx-2 mb-2 flex items-center gap-3 bg-slate-800/80 p-2 rounded-xl border border-slate-700/50 w-fit animate-scale-in backdrop-blur-sm">
+                                    <div className="w-10 h-10 bg-slate-700 rounded-lg overflow-hidden flex items-center justify-center text-lg shadow-inner">
+                                        🖼️
                                     </div>
                                     <div className="flex flex-col">
                                         <span className="text-xs text-white font-medium truncate max-w-[150px]">{attachedImage.name}</span>
                                         <span className="text-[10px] text-gray-400">{(attachedImage.size / 1024).toFixed(1)} KB</span>
                                     </div>
-                                    <button onClick={handleRemoveImage} className="ml-2 text-gray-400 hover:text-red-400">×</button>
+                                    <button onClick={handleRemoveImage} className="ml-1 w-6 h-6 flex items-center justify-center rounded-full hover:bg-slate-700 text-gray-400 hover:text-red-400 transition-colors">×</button>
                                 </div>
                             )}
 
-                            <form onSubmit={handleSendMessage} className="relative flex gap-2 items-end">
-                                <button 
-                                    type="button"
-                                    onClick={() => fileInputRef.current?.click()}
-                                    className="p-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-gray-400 transition-colors h-full"
-                                    title="Upload Image"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                                </button>
+                            {/* Glass Input Box */}
+                            <form 
+                                onSubmit={handleSendMessage} 
+                                className="relative bg-slate-900/50 border border-slate-700/50 backdrop-blur-xl rounded-3xl shadow-2xl transition-all focus-within:border-cyan-500/50 focus-within:shadow-[0_0_20px_rgba(34,211,238,0.1)]"
+                            >
                                 <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileSelect} />
                                 
-                                <div className="relative flex-grow">
+                                <div className="flex items-end p-2">
+                                    <button 
+                                        type="button"
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="p-3 text-gray-400 hover:text-cyan-400 hover:bg-cyan-900/20 rounded-full transition-all"
+                                        title="Attach image"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                    </button>
+                                    
                                     <textarea
                                         ref={inputRef}
                                         value={userInput}
                                         onChange={handleUserInput}
                                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e); } }}
-                                        placeholder="Ask your coach..."
-                                        className="w-full bg-slate-800 text-white rounded-xl p-4 pr-14 border border-slate-700 focus:ring-2 focus:ring-cyan-500 focus:outline-none resize-none shadow-inner max-h-48"
+                                        placeholder={`Message ${currentModel.name}...`}
+                                        className="w-full bg-transparent text-gray-100 px-3 py-3.5 max-h-48 focus:outline-none resize-none text-sm placeholder-gray-500"
                                         rows={1}
                                         disabled={isStreamingResponse}
                                     />
+                                    
                                     <button 
                                         type="submit" 
                                         disabled={isStreamingResponse || (userInput.trim() === '' && !attachedImage)}
-                                        className="absolute right-3 bottom-3 p-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg transition-all disabled:opacity-50 disabled:hover:bg-cyan-600"
+                                        className="p-2 mb-1 mr-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded-full transition-all disabled:opacity-0 disabled:scale-75 shadow-lg shadow-cyan-500/20"
                                     >
                                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg>
                                     </button>
                                 </div>
                             </form>
+                            <div className="text-center mt-2">
+                                <p className="text-[10px] text-gray-600">AI can make mistakes. Verify important information.</p>
+                            </div>
                         </div>
                     </div>
 
-                    {/* Collapsible Bubble Toggle */}
-                    <div className="absolute bottom-4 left-4 z-30">
-                        <button
-                            onClick={() => setIsInputExpanded(p => !p)}
-                            className="w-10 h-10 bg-slate-700 rounded-full flex items-center justify-center shadow-lg text-cyan-400 hover:bg-slate-600 hover:text-white transition-all border border-slate-600"
-                            title={isInputExpanded ? "Collapse chat input" : "Expand chat input"}
-                        >
-                            {isInputExpanded ? (
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                            ) : (
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
-                            )}
-                        </button>
-                    </div>
+                    {/* Minimizing Toggle (Floating Fab when collapsed) */}
+                    {!isInputExpanded && (
+                        <div className="absolute bottom-6 right-6 z-30 animate-scale-in">
+                            <button
+                                onClick={() => setIsInputExpanded(true)}
+                                className="group relative w-16 h-16 bg-gradient-to-br from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 rounded-full flex items-center justify-center shadow-[0_8px_30px_rgba(34,211,238,0.4)] text-white transition-all duration-500 ease-out hover:scale-110 hover:rotate-3 ring-2 ring-white/20 overflow-hidden"
+                            >
+                                {/* Shine Effect */}
+                                <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
+                                
+                                {/* Filled Icon */}
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-8 h-8 drop-shadow-md transform transition-transform group-hover:scale-110">
+                                    <path fillRule="evenodd" d="M4.804 21.644A6.707 6.707 0 006 21.75a6.721 6.721 0 003.583-1.029c.774.182 1.584.279 2.417.279 5.322 0 9.75-3.97 9.75-9 0-5.03-4.428-9-9.75-9s-9.75 3.97-9.75 9c0 2.409 1.025 4.587 2.674 6.192.232.226.277.428.254.543a3.73 3.73 0 01-.814 1.686.75.75 0 00.44 1.223zM8.25 10.875a1.125 1.125 0 100 2.25 1.125 1.125 0 000-2.25zM10.875 12a1.125 1.125 0 112.25 0 1.125 1.125 0 01-2.25 0zm4.875-1.125a1.125 1.125 0 100 2.25 1.125 1.125 0 000-2.25z" clipRule="evenodd" />
+                                </svg>
+                            </button>
+                        </div>
+                    )}
+                    
+                    {/* Collapse Arrow (When expanded) */}
+                    {isInputExpanded && (
+                        <div className="absolute bottom-[88px] right-6 z-30">
+                             <button
+                                onClick={() => setIsInputExpanded(false)}
+                                className="w-8 h-8 bg-slate-800/50 hover:bg-slate-700 text-gray-400 hover:text-white rounded-full flex items-center justify-center backdrop-blur border border-slate-600/50 transition-all"
+                                title="Minimize Input"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                            </button>
+                        </div>
+                    )}
                 </div>
             ) : (
                 <div className="flex-grow flex flex-col items-center justify-center p-8 relative overflow-hidden">

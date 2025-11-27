@@ -33,15 +33,15 @@ export const DynamicKnowledgeGraph: React.FC<DynamicKnowledgeGraphProps> = ({ lo
     const edgesRef = useRef<Edge[]>([]);
     
     const [interactionMode, setInteractionMode] = useState<'interact' | 'drilldown'>('interact');
-    const [isStable, setIsStable] = useState(false); // New State for freezing
+    const [isStable, setIsStable] = useState(false); 
 
-    // --- TUNED PHYSICS PARAMETERS ---
-    const REPULSION = 2000;      // Stronger push
-    const SPRING_LENGTH = 120;   
-    const SPRING_STRENGTH = 0.01; 
-    const DAMPING = 0.75;        // High friction to stabilize faster
-    const CLUSTER_GRAVITY = 0.01; 
-    const STABILITY_THRESHOLD = 0.05; // Velocity threshold to stop simulation
+    // --- TUNED PHYSICS PARAMETERS (RELAXED) ---
+    const REPULSION = 3500;      // Increased to push nodes apart
+    const SPRING_LENGTH = 150;   // Longer springs
+    const SPRING_STRENGTH = 0.005; // Looser springs for fluid movement
+    const DAMPING = 0.6;         // Reduced damping for smoother drift
+    const CLUSTER_GRAVITY = 0.003; // Very weak gravity to prevent clustering in center
+    const STABILITY_THRESHOLD = 0.05; 
 
     // --- DISTINCT NEON COLORS ---
     const COLORS: Record<string, string> = {
@@ -53,10 +53,11 @@ export const DynamicKnowledgeGraph: React.FC<DynamicKnowledgeGraphProps> = ({ lo
     };
 
     const getAttractor = (subject: string, width: number, height: number) => {
+        // Spread attractors slightly more towards edges
         switch (subject.toLowerCase()) {
-            case 'physics': return { x: width * 0.25, y: height * 0.4 };
-            case 'maths': return { x: width * 0.75, y: height * 0.4 };
-            case 'chemistry': return { x: width * 0.5, y: height * 0.8 };
+            case 'physics': return { x: width * 0.2, y: height * 0.3 };
+            case 'maths': return { x: width * 0.8, y: height * 0.3 };
+            case 'chemistry': return { x: width * 0.5, y: height * 0.85 };
             default: return { x: width / 2, y: height / 2 };
         }
     };
@@ -128,8 +129,8 @@ export const DynamicKnowledgeGraph: React.FC<DynamicKnowledgeGraphProps> = ({ lo
         
         filteredNodes.forEach(n => {
             const attractor = getAttractor(n.subject, canvasWidth, canvasHeight);
-            n.x = attractor.x + (Math.random() - 0.5) * 200;
-            n.y = attractor.y + (Math.random() - 0.5) * 200;
+            n.x = attractor.x + (Math.random() - 0.5) * 300; // Wider spread
+            n.y = attractor.y + (Math.random() - 0.5) * 300;
         });
 
         nodesRef.current = filteredNodes;
@@ -248,21 +249,21 @@ export const DynamicKnowledgeGraph: React.FC<DynamicKnowledgeGraphProps> = ({ lo
 
                 let fx = 0, fy = 0;
 
-                // Repulsion
+                // Repulsion (Long Range)
                 nodesRef.current.forEach(other => {
                     if (node.id === other.id) return;
                     const dx = node.x - other.x;
                     const dy = node.y - other.y;
                     const distSq = dx * dx + dy * dy || 1;
-                    const dist = Math.sqrt(distSq);
-                    if (dist < 500) {
+                    // Increased repulsive range
+                    if (distSq < 250000) { // 500px radius
                          const force = REPULSION / distSq;
-                         fx += (dx / dist) * force;
-                         fy += (dy / dist) * force;
+                         fx += (dx / Math.sqrt(distSq)) * force;
+                         fy += (dy / Math.sqrt(distSq)) * force;
                     }
                 });
 
-                // Attractor Gravity
+                // Attractor Gravity (Very Weak Center Pull)
                 const attractor = getAttractor(node.subject, width, height);
                 fx += (attractor.x - node.x) * CLUSTER_GRAVITY;
                 fy += (attractor.y - node.y) * CLUSTER_GRAVITY;
@@ -273,7 +274,7 @@ export const DynamicKnowledgeGraph: React.FC<DynamicKnowledgeGraphProps> = ({ lo
                 node.y += node.vy;
                 
                 // Wall Bounds
-                const padding = node.radius + 20;
+                const padding = node.radius + 30;
                 if (node.x < padding) { node.x = padding; node.vx *= -0.5; }
                 if (node.x > width - padding) { node.x = width - padding; node.vx *= -0.5; }
                 if (node.y < padding) { node.y = padding; node.vy *= -0.5; }
@@ -283,7 +284,7 @@ export const DynamicKnowledgeGraph: React.FC<DynamicKnowledgeGraphProps> = ({ lo
                 if (velocity > maxVelocity) maxVelocity = velocity;
             });
 
-            // Spring Forces
+            // Spring Forces (Pull connected nodes)
             edgesRef.current.forEach(edge => {
                 const source = nodesRef.current.find(n => n.id === edge.source);
                 const target = nodesRef.current.find(n => n.id === edge.target);

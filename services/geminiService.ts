@@ -1,6 +1,7 @@
 
 import { GoogleGenAI, Type, FunctionDeclaration } from "@google/genai";
 import { QuestionStatus, type TestReport, type QuestionLog, QuizQuestion, DailyTask, UserProfile, TestType, TestSubType } from "../types";
+import { getMarkingScheme } from "../utils/metrics";
 
 
 // Helper function to convert a File object to a a base64 string
@@ -241,6 +242,7 @@ const subjectSchemaWithConfidence = {
     type: Type.OBJECT,
     properties: {
         marks: { type: Type.NUMBER },
+        maxMarks: { type: Type.NUMBER, description: "Total maximum marks for this subject found in instruction sheet or implied." },
         rank: { type: Type.NUMBER },
         correct: { type: Type.NUMBER },
         wrong: { type: Type.NUMBER },
@@ -248,36 +250,63 @@ const subjectSchemaWithConfidence = {
         partial: { type: Type.NUMBER },
         confidence: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: "The AI's confidence in the accuracy of the extracted data for this subject." }
     },
-    required: ["marks", "rank", "correct", "wrong", "unanswered", "partial", "confidence"],
+    required: ["marks", "rank", "correct", "wrong", "unanswered", "partial", "confidence", "maxMarks"],
 };
 
-export const extractDataFromImage = async (imageFile: File, apiKey: string): Promise<{ report: Partial<TestReport>, questions: Partial<QuestionLog>[], confidence: Record<string, 'high'|'medium'|'low'> }> => {
+export const extractDataFromImage = async (
+    scoreSheetFile: File,
+    apiKey: string,
+    modelName: string = "gemini-2.5-flash",
+    instructionSheetFile?: File
+): Promise<{ report: Partial<TestReport>, questions: Partial<QuestionLog>[], confidence: Record<string, 'high'|'medium'|'low'> }> => {
   try {
     const ai = new GoogleGenAI({ apiKey });
-    const imagePart = await fileToGenerativePart(imageFile);
-    const prompt = `You are an expert OCR system for academic reports. Extract key data points from the image of a JEE test report.
+    const scoreSheetPart = await fileToGenerativePart(scoreSheetFile);
+    
+    const parts: any[] = [scoreSheetPart];
+    
+    let instructionPromptAddon = "";
+    if (instructionSheetFile) {
+        const instructionPart = await fileToGenerativePart(instructionSheetFile);
+        parts.push(instructionPart);
+        instructionPromptAddon = `
+        **CRITICAL INSTRUCTION FOR MARKING SCHEME (IMAGE 2):**
+        You have been provided a second image (Instruction Sheet).
+        1. Analyze the table. Look for columns: 'Section', 'Q. No.', 'Question Type', '+ve', '-ve', 'No. of Qs', 'Total Marks'.
+        2. Extract the precise Positive and Negative marks for each question range.
+        3. Normalize 'Question Type' names to one of: "Single Correct", "Multiple Correct", "Integer", "Matrix Match".
+           - "One or more correct" -> "Multiple Correct"
+           - "Numerical" / "Non-negative integer" -> "Integer"
+        4. Use these exact values in the \`questions\` array: \`questionType\`, \`positiveMarks\`, \`negativeMarks\`.
+        5. Calculate \`maxMarks\` for each subject by summing positive marks of all questions in that subject.
+        `;
+    }
 
-    1.  **Summary Data:** Extract Test Date, Test Name, and subject-wise details for Physics, Chemistry, Maths, and the Total. For each subject, extract:
-        *   \`marks\`: The absolute score. **Crucially, ignore any percentage values (e.g., values with a '%' sign).**
-        *   \`rank\`: The rank obtained.
-        *   \`correct\`: The count of correct answers.
-        *   \`wrong\`: The count of wrong answers.
-        *   \`unanswered\`: The count of unanswered questions.
-        *   \`partial\`: The count of partially correct answers.
-        *   \`confidence\`: Your confidence level ('high', 'medium', or 'low') for the extracted data in this subject block. Be more cautious (medium/low) if the handwriting is messy, the image is blurry, or values are ambiguous.
+    const prompt = `You are an expert OCR system for JEE Academic Reports. Extract data from the provided image(s).
+    
+    **Image 1:** Student Score Sheet (Marks, Ranks, Question Grid).
+    **Image 2 (Optional):** Instruction Sheet (Marking Scheme).
+    ${instructionPromptAddon}
 
-    2.  **Question Data:** If the image contains a detailed question-by-question breakdown, extract each row. For each question, provide:
-        *   \`questionNumber\`: The question number.
-        *   \`subject\`: The subject (Physics, Chemistry, or Maths).
-        *   \`questionType\`: The type of question (e.g., 'Single Correct (+4 -1)', 'Integer (+3 0)').
-        *   \`status\`: The student's result for the question (e.g., 'Unanswered', 'Wrong', 'Fully Correct', 'Partially Correct').
+    **Extraction Rules:**
+    1. **Summary Data:** Extract Marks, Rank, Correct, Wrong, Unanswered, Partial counts for Physics, Chemistry, Maths. Ignore % signs.
+    2. **Question Grid:** Extract row-by-row.
+       - **Status Mapping (CRITICAL):**
+         - 'W' or 'w' -> "Wrong"
+         - 'U' or 'u' or '-' -> "Unanswered"
+         - 'C' or 'c' -> "Fully Correct"
+         - 'P' or 'p' -> "Partially Correct"
+         - If text is full word, use it.
+       - **Marking Scheme:** If Instruction Sheet is present, map the Q.No to its Type and Marks. If not present, try to infer from the grid headers if available, else leave marking fields 0.
+       - **Format:** For \`questionType\`, use simple names like "Single Correct", "Multiple Correct". Do NOT put marks in the name string. Use \`positiveMarks\` and \`negativeMarks\` fields.
 
-    Return the data as a single JSON object that strictly follows the provided schema. If a value is not found, use a reasonable default like 0 for numbers or an empty string for text.`;
+    Return valid JSON.`;
 
-    // UPGRADED MODEL: Using gemini-2.5-flash for stability
+    parts.push({ text: prompt });
+
     const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: { parts: [imagePart, { text: prompt }] },
+        model: modelName,
+        contents: { parts: parts },
         config: {
             responseMimeType: "application/json",
             responseSchema: {
@@ -296,8 +325,10 @@ export const extractDataFromImage = async (imageFile: File, apiKey: string): Pro
                             properties: {
                                 questionNumber: { type: Type.NUMBER },
                                 subject: { type: Type.STRING, enum: ["physics", "chemistry", "maths"] },
-                                questionType: { type: Type.STRING },
-                                status: { type: Type.STRING, description: "Full text status like 'Fully Correct', 'Wrong', 'Unanswered', 'Partially Correct'." },
+                                questionType: { type: Type.STRING, description: "e.g. Single Correct, Multiple Correct" },
+                                positiveMarks: { type: Type.NUMBER, description: "Marks for correct answer (e.g., 4, 3)" },
+                                negativeMarks: { type: Type.NUMBER, description: "Negative marks for wrong answer (e.g., -1, -2, 0). Should be negative number or 0." },
+                                status: { type: Type.STRING, description: "Fully Correct, Wrong, Unanswered, Partially Correct" },
                                 answered: { type: Type.STRING },
                                 finalKey: { type: Type.STRING },
                             },
@@ -336,25 +367,30 @@ export const extractDataFromImage = async (imageFile: File, apiKey: string): Pro
     };
 
     const statusStringToEnum = (statusStr: string): QuestionStatus => {
-        const normalizedStatus = (statusStr || '').trim().toLowerCase().replace(/\s+/g, '');
-        for (const enumKey in QuestionStatus) {
-            const enumValue = QuestionStatus[enumKey as keyof typeof QuestionStatus];
-            if (enumValue.toLowerCase().replace(/\s+/g, '') === normalizedStatus) {
-                return enumValue;
-            }
-        }
-        if (normalizedStatus === 'c' || normalizedStatus === 'correct') return QuestionStatus.FullyCorrect;
-        if (normalizedStatus === 'w') return QuestionStatus.Wrong;
-        if (normalizedStatus === 'u') return QuestionStatus.Unanswered;
+        const normalized = (statusStr || '').trim().toUpperCase();
+        // Specific short-code handling requested by user
+        if (normalized === 'W') return QuestionStatus.Wrong;
+        if (normalized === 'U' || normalized === '-') return QuestionStatus.Unanswered;
+        if (normalized === 'C') return QuestionStatus.FullyCorrect;
+        if (normalized === 'P') return QuestionStatus.PartiallyCorrect;
+
+        // Fallback to fuzzy match
+        const normLower = normalized.toLowerCase().replace(/\s+/g, '');
+        if (normLower.includes('wrong')) return QuestionStatus.Wrong;
+        if (normLower.includes('unanswered')) return QuestionStatus.Unanswered;
+        if (normLower.includes('partially')) return QuestionStatus.PartiallyCorrect;
+        if (normLower.includes('correct')) return QuestionStatus.FullyCorrect;
         
-        return QuestionStatus.Unanswered; // Default fallback
+        return QuestionStatus.Unanswered; // Safe default
     };
 
 
     const questions: Partial<QuestionLog>[] = (parsedJson.questions || []).map((q: any) => ({
         subject: q.subject,
         questionNumber: q.questionNumber,
-        questionType: q.questionType,
+        questionType: q.questionType || "Single Correct",
+        positiveMarks: q.positiveMarks,
+        negativeMarks: q.negativeMarks,
         status: statusStringToEnum(q.status),
         answered: q.answered,
         finalKey: q.finalKey,
@@ -369,6 +405,71 @@ export const extractDataFromImage = async (imageFile: File, apiKey: string): Pro
 
 export const validateOCRData = async (report: Partial<TestReport>, logs: Partial<QuestionLog>[], apiKey: string): Promise<string[]> => {
     try {
+        // Perform local validation first (faster/cheaper)
+        const warnings: string[] = [];
+        
+        // 1. Check total questions consistency
+        const extractedTotalQ = logs.length;
+        const subjectQCounts = { physics: 0, chemistry: 0, maths: 0 };
+        logs.forEach(l => { if(l.subject) subjectQCounts[l.subject as 'physics'|'chemistry'|'maths']++ });
+        
+        // 2. Check Marks Consistency
+        // Group by subject
+        const subjectGroups: Record<string, Partial<QuestionLog>[]> = { physics: [], chemistry: [], maths: [] };
+        logs.forEach(l => { if(l.subject) subjectGroups[l.subject as string]?.push(l); });
+
+        ['physics', 'chemistry', 'maths'].forEach(subject => {
+            const subLogs = subjectGroups[subject];
+            if (subLogs.length === 0) return;
+
+            // Check if explicit marks are present
+            const hasExplicitMarks = subLogs.some(l => l.positiveMarks !== undefined);
+            
+            if (hasExplicitMarks) {
+                let calcScore = 0;
+                let calcCorrect = 0, calcWrong = 0, calcUn = 0;
+
+                subLogs.forEach(l => {
+                    if (l.status === QuestionStatus.FullyCorrect) {
+                        calcScore += (l.positiveMarks || 4);
+                        calcCorrect++;
+                    } else if (l.status === QuestionStatus.Wrong) {
+                        calcScore += (l.negativeMarks || -1);
+                        calcWrong++;
+                    } else if (l.status === QuestionStatus.Unanswered) {
+                        calcUn++;
+                    }
+                });
+
+                // Compare with Report Summary
+                const reportSub = report[subject as keyof TestReport] as any;
+                if (reportSub) {
+                    if (Math.abs(reportSub.marks - calcScore) > 2) {
+                        warnings.push(`Discrepancy in ${subject} Marks: Summary says ${reportSub.marks}, calculated from questions is ${calcScore}. Check marking scheme.`);
+                    }
+                    if (reportSub.correct !== calcCorrect) warnings.push(`${subject}: Correct count mismatch (Summary: ${reportSub.correct}, Grid: ${calcCorrect})`);
+                    if (reportSub.wrong !== calcWrong) warnings.push(`${subject}: Wrong count mismatch (Summary: ${reportSub.wrong}, Grid: ${calcWrong})`);
+                }
+            }
+        });
+
+        // 3. Check Logic Consistency
+        logs.forEach(l => {
+            if (l.status === QuestionStatus.FullyCorrect && l.marksAwarded !== undefined && l.positiveMarks !== undefined) {
+                if (l.marksAwarded !== l.positiveMarks) warnings.push(`Q${l.questionNumber} (${l.subject}): Marked Correct but marks (${l.marksAwarded}) != positive scheme (${l.positiveMarks}).`);
+            }
+            if (l.status === QuestionStatus.Wrong && l.marksAwarded !== undefined && l.negativeMarks !== undefined) {
+                if (l.marksAwarded !== l.negativeMarks) warnings.push(`Q${l.questionNumber} (${l.subject}): Marked Wrong but marks (${l.marksAwarded}) != negative scheme (${l.negativeMarks}).`);
+            }
+            if (l.status === QuestionStatus.Unanswered && l.marksAwarded !== 0 && l.marksAwarded !== undefined) {
+                warnings.push(`Q${l.questionNumber} (${l.subject}): Unanswered but has non-zero marks.`);
+            }
+        });
+
+        // If we found major issues locally, return them. Otherwise, use AI for fuzzy check.
+        if (warnings.length > 0) return warnings;
+
+        // AI Fallback for deeper logic
         const ai = new GoogleGenAI({ apiKey });
         const prompt = `Perform a sanity check on the following extracted JEE test data.
         
@@ -447,7 +548,7 @@ export const inferTestMetadata = async (testName: string, apiKey: string): Promi
 };
 
 
-export const getAIAnalysis = async (reports: TestReport[], logs: QuestionLog[], apiKey: string): Promise<string> => {
+export const getAIAnalysis = async (reports: TestReport[], logs: QuestionLog[], apiKey: string, modelName: string = "gemini-2.5-flash"): Promise<string> => {
   try {
     const ai = new GoogleGenAI({ apiKey });
     const simplifiedReports = reports.map(r => ({
@@ -487,46 +588,92 @@ export const getAIAnalysis = async (reports: TestReport[], logs: QuestionLog[], 
         .slice(0, 3)
         .map(([reason, count]) => ({ reason, count }));
 
-    const prompt = `You are an expert performance analyst for a student preparing for the JEE, a highly competitive engineering entrance exam. The student's performance data from a series of mock tests is provided below.
+    const isPro = modelName.toLowerCase().includes('pro');
 
-    **Performance Data:**
-    ${JSON.stringify(simplifiedReports, null, 2)}
+    let prompt = "";
 
-    **Error Analysis Summary:**
-    - Top Weak Topics (from incorrect and partially correct answers): ${JSON.stringify(topWeakTopics)}
-    - Top Reasons for Errors: ${JSON.stringify(topErrorReasons)}
+    if (isPro) {
+        prompt = `You are a Senior Data Scientist and Strategy Consultant for an elite JEE coaching institute. Your client is a high-potential student whose data is provided below.
+        
+        **Raw Data:**
+        ${JSON.stringify(simplifiedReports, null, 2)}
+        
+        **Error Log Summary:**
+        - Top Weak Topics: ${JSON.stringify(topWeakTopics)}
+        - Dominant Error Reasons: ${JSON.stringify(topErrorReasons)}
 
-    Please provide a comprehensive and visually appealing analysis of the student's performance. Structure your response in Markdown format.
+        **Mission:**
+        Perform a deep forensic analysis of the performance data. Do not just summarize the data; explain the *causality* and *implications*.
+        
+        **Structure Your Report As Follows:**
 
-    **CRITICAL: Interactive Elements**
-    If you identify a specific actionable step involving a topic, use a special "Action Token" in your text.
-    - To suggest a focus session: \`{{FOCUS:Topic Name}}\`
-    - To suggest reviewing concepts: \`{{REVIEW:Topic Name}}\`
-    - Example: "Your weakness in {{FOCUS:Rotational Motion}} is evident. You should also {{REVIEW:Thermodynamics}}."
-    The UI will convert these tokens into interactive buttons.
+        ### 1. Executive Diagnostic (The Verdict)
+        - Provide a brutally honest assessment of the current trajectory.
+        - Classify the student's current state (e.g., "Plateauing", "Volatile Growth", "Crisis Mode").
+        
+        ### 2. The 'Performance Anchor' Analysis
+        - Identify the SINGLE biggest factor dragging down the rank. Is it a specific subject? Is it negative marking? Is it a topic cluster (e.g., Calculus)?
+        - Use specific numbers to quantify the "cost" of this anchor (e.g., "You lost 45 marks due to...").
 
-    Your analysis must cover:
+        ### 3. Cross-Subject Correlations
+        - Look for hidden patterns. Does a weakness in Maths (e.g., Vectors) affect Physics scores? 
+        - Correlate error types with subjects (e.g., "You are conceptual in Physics but careless in Chem").
 
-    ### Overall Performance Trend
-    - Analyze the trend in total score and rank.
-    - Comment on consistency and improvement.
+        ### 4. Psychometric Profile
+        - Analyze the ratio of "Unanswered" to "Wrong". Are they risk-averse (too many unattempted) or reckless (too many negatives)?
+        - Diagnose "Panic" vs "Fatigue".
 
-    ### Subject-wise Strengths and Weaknesses
-    - Identify the strongest and weakest subjects.
-    - Provide specific data points.
+        ### 5. Strategic Roadmap (80/20 Rule)
+        - Provide 3 specific, non-obvious recommendations.
+        - Use **Action Tokens** for immediate intervention:
+          - \`{{FOCUS:Topic Name}}\` for deep study.
+          - \`{{REVIEW:Topic Name}}\` for quick revision.
+        - Example: "Stop attempting Integer questions in the first 15 minutes. Instead, {{FOCUS:Modern Physics}} to secure easy marks."
 
-    ### Actionable Recommendations
-    - Based on error analysis, provide advice.
-    - Use the Action Tokens (e.g., \`{{FOCUS:Topic}}\`) for key recommendations so the student can act immediately.
+        **Tone:** Professional, rigorous, data-driven, and constructive. Avoid generic advice like "work harder". Be specific.
+        `;
+    } else {
+        // Standard Flash Prompt
+        prompt = `You are an expert performance analyst for a student preparing for the JEE, a highly competitive engineering entrance exam. The student's performance data from a series of mock tests is provided below.
 
-    ### Performance Projection
-    - A brief, encouraging projection of future performance.
+        **Performance Data:**
+        ${JSON.stringify(simplifiedReports, null, 2)}
 
-    Keep the tone professional, encouraging, and highly analytical.`;
+        **Error Analysis Summary:**
+        - Top Weak Topics (from incorrect and partially correct answers): ${JSON.stringify(topWeakTopics)}
+        - Top Reasons for Errors: ${JSON.stringify(topErrorReasons)}
 
-    // UPGRADED MODEL: Using gemini-2.5-flash for stability
+        Please provide a comprehensive and visually appealing analysis of the student's performance. Structure your response in Markdown format.
+
+        **CRITICAL: Interactive Elements**
+        If you identify a specific actionable step involving a topic, use a special "Action Token" in your text.
+        - To suggest a focus session: \`{{FOCUS:Topic Name}}\`
+        - To suggest reviewing concepts: \`{{REVIEW:Topic Name}}\`
+        - Example: "Your weakness in {{FOCUS:Rotational Motion}} is evident. You should also {{REVIEW:Thermodynamics}}."
+        The UI will convert these tokens into interactive buttons.
+
+        Your analysis must cover:
+
+        ### Overall Performance Trend
+        - Analyze the trend in total score and rank.
+        - Comment on consistency and improvement.
+
+        ### Subject-wise Strengths and Weaknesses
+        - Identify the strongest and weakest subjects.
+        - Provide specific data points.
+
+        ### Actionable Recommendations
+        - Based on error analysis, provide advice.
+        - Use the Action Tokens (e.g., \`{{FOCUS:Topic}}\`) for key recommendations so the student can act immediately.
+
+        ### Performance Projection
+        - A brief, encouraging projection of future performance.
+
+        Keep the tone professional, encouraging, and highly analytical.`;
+    }
+
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: modelName,
       contents: { parts: [{ text: prompt }] },
     });
 
@@ -538,7 +685,7 @@ export const getAIAnalysis = async (reports: TestReport[], logs: QuestionLog[], 
   }
 };
 
-export const generateStudyPlan = async (reports: TestReport[], logs: QuestionLog[], apiKey: string): Promise<string> => {
+export const generateStudyPlan = async (reports: TestReport[], logs: QuestionLog[], apiKey: string, modelName: string = "gemini-2.5-flash"): Promise<string> => {
       try {
         const ai = new GoogleGenAI({ apiKey });
         const simplifiedReports = reports.map(r => ({
@@ -581,9 +728,8 @@ export const generateStudyPlan = async (reports: TestReport[], logs: QuestionLog
 
         Format your response in clear Markdown. Use '###' for day headings and '*' for list items. The tone should be motivating and encouraging.`;
 
-        // UPGRADED MODEL: Using gemini-2.5-flash for stability
         const response = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
+          model: modelName,
           contents: { parts: [{ text: prompt }] },
         });
 
@@ -672,7 +818,6 @@ export const generateChecklistFromPlan = async (weakTopics: string[], apiKey: st
     const ai = new GoogleGenAI({ apiKey });
     const prompt = `You are an academic coach for a student preparing for the JEE exam. Based on their identified weak topics: ${weakTopics.join(', ')}. Create a short list of 5 concrete, actionable checklist items for their daily plan. The items should be concise phrases.`;
     
-    // UPGRADED MODEL: Using gemini-2.5-flash for stability
     const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: { parts: [{ text: prompt }] },
@@ -742,7 +887,8 @@ export const generateEndOfDaySummary = async (
 
 export const getThematicAnalysis = async (
   weakTopics: { topic: string; count: number }[],
-  apiKey: string
+  apiKey: string,
+  modelName: string = "gemini-2.5-flash"
 ): Promise<string> => {
   if (weakTopics.length < 2) {
     return "Not enough data for a thematic analysis. Please log more incorrect questions across different topics to use this feature.";
@@ -761,9 +907,8 @@ export const getThematicAnalysis = async (
 
     Provide a concise, insightful analysis in 2-3 sentences that pinpoints the core thematic weakness. Keep the tone professional and analytical.`;
 
-    // UPGRADED MODEL: Using gemini-2.5-flash for stability
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: modelName,
       contents: { parts: [{ text: prompt }] },
     });
 
@@ -779,7 +924,8 @@ export const getAIChiefAnalystSummary = async (
   errorReasons: { name: string; value: number }[],
   correlationData: { data: { x: string; y: string; value: number }[] },
   apiKey: string,
-  improvise: boolean = false
+  improvise: boolean = false,
+  modelName: string = "gemini-2.5-flash"
 ): Promise<string> => {
   if (weakTopics.length === 0 && errorReasons.length === 0) {
     return "Not enough data for a chief analysis. Please log more test data to use this feature.";
@@ -796,25 +942,49 @@ export const getAIChiefAnalystSummary = async (
         .slice(0, 2)
     : [];
 
-  const prompt = `You are an expert AI Chief Analyst for a student preparing for the JEE, a highly competitive engineering entrance exam. Your role is to synthesize data from various analyses and provide a single, powerful, and concise diagnostic summary. Do not just repeat the data; explain *what it means* and *why it matters*.
-    ${improvise ? 'Provide a fresh, insightful perspective on this data, perhaps highlighting a different angle than a previous analysis.' : ''}
+  const isPro = modelName.toLowerCase().includes('pro');
+  
+  let prompt = "";
 
-    **Available Data:**
-    - **Top Weak Topics (by error count):** ${JSON.stringify(topWeakTopics)}
-    - **Top Error Reasons (by count):** ${JSON.stringify(topErrorReasons)}
-    - **Key Performance Correlations:** ${JSON.stringify(marksCorrelations.map(c => ({ metric: c.x, correlation: c.value.toFixed(2) })))}
+  if (isPro) {
+      prompt = `You are an Elite Chief Strategy Officer.
+      
+      **Data Brief:**
+      - Weakest Links: ${JSON.stringify(topWeakTopics)}
+      - Error DNA: ${JSON.stringify(topErrorReasons)}
+      - Key Drivers: ${JSON.stringify(marksCorrelations.map(c => ({ metric: c.x, correlation: c.value.toFixed(2) })))}
+      
+      ${improvise ? '**Directive:** Provide a counter-intuitive insight. Ignore the obvious. Find a hidden leverage point.' : ''}
 
-    Based on this data, provide a diagnostic summary in 2-4 sentences. Pinpoint the *primary performance blocker* and explain its impact. The tone should be that of a senior consultant delivering a critical executive summary.
+      **Task:**
+      Provide a 2-4 sentence high-level executive summary.
+      - Do NOT simply regurgitate the data.
+      - Focus on **Root Cause**, **Impact**, and **Correction**.
+      - Use professional, confident language.
+      - Connect disparate facts (e.g., "Your high error rate in Physics combined with time pressure suggests...").
+      
+      **Tone:** Senior Consultant. Concise. Insightful.
+      `;
+  } else {
+      prompt = `You are an expert AI Chief Analyst for a student preparing for the JEE, a highly competitive engineering entrance exam. Your role is to synthesize data from various analyses and provide a single, powerful, and concise diagnostic summary. Do not just repeat the data; explain *what it means* and *why it matters*.
+        ${improvise ? 'Provide a fresh, insightful perspective on this data, perhaps highlighting a different angle than a previous analysis.' : ''}
 
-    **Example Output:**
-    > "Your primary performance blocker is **Conceptual Gaps in Physics**, especially in topics like 'Rotational Motion'. These errors are most frequent in Multiple Correct questions, costing you an average of 12 marks per test. The strong negative correlation between 'Wrong Answers' and 'Total Marks' (-0.85) indicates that reducing these errors is the single most effective way to boost your rank."
-  `;
+        **Available Data:**
+        - **Top Weak Topics (by error count):** ${JSON.stringify(topWeakTopics)}
+        - **Top Error Reasons (by count):** ${JSON.stringify(topErrorReasons)}
+        - **Key Performance Correlations:** ${JSON.stringify(marksCorrelations.map(c => ({ metric: c.x, correlation: c.value.toFixed(2) })))}
+
+        Based on this data, provide a diagnostic summary in 2-4 sentences. Pinpoint the *primary performance blocker* and explain its impact. The tone should be that of a senior consultant delivering a critical executive summary.
+
+        **Example Output:**
+        > "Your primary performance blocker is **Conceptual Gaps in Physics**, especially in topics like 'Rotational Motion'. These errors are most frequent in Multiple Correct questions, costing you an average of 12 marks per test. The strong negative correlation between 'Wrong Answers' and 'Total Marks' (-0.85) indicates that reducing these errors is the single most effective way to boost your rank."
+      `;
+  }
 
   try {
     const ai = new GoogleGenAI({ apiKey });
-    // UPGRADED MODEL: Using gemini-2.5-flash for stability
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: modelName,
       contents: { parts: [{ text: prompt }] },
     });
     return response.text.trim();
@@ -827,7 +997,8 @@ export const getAIChiefAnalystSummary = async (
 export const generateFocusedStudyPlan = async (
   subject: string,
   weakTopics: string[],
-  apiKey: string
+  apiKey: string,
+  modelName: string = "gemini-2.5-flash"
 ): Promise<string> => {
   try {
     const ai = new GoogleGenAI({ apiKey });
@@ -844,9 +1015,8 @@ export const generateFocusedStudyPlan = async (
 
     Format your response in clear Markdown. Use '###' for day headings. The tone should be supportive and targeted.`;
 
-    // UPGRADED MODEL: Using gemini-2.5-flash for stability
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: modelName,
       contents: { parts: [{ text: prompt }] },
     });
 
@@ -857,7 +1027,7 @@ export const generateFocusedStudyPlan = async (
   }
 };
 
-export const explainTopic = async (topic: string, apiKey: string, complexity: 'standard' | 'simple' = 'standard'): Promise<string> => {
+export const explainTopic = async (topic: string, apiKey: string, complexity: 'standard' | 'simple' = 'standard', modelName: string = "gemini-2.5-flash"): Promise<string> => {
   try {
     const ai = new GoogleGenAI({ apiKey });
     const complexityInstruction = complexity === 'simple' 
@@ -872,9 +1042,8 @@ export const explainTopic = async (topic: string, apiKey: string, complexity: 's
     
     Use Markdown for formatting.`;
     
-    // UPGRADED MODEL: Using gemini-2.5-flash for stability
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: modelName,
       contents: { parts: [{ text: prompt }] },
     });
     
@@ -886,14 +1055,13 @@ export const explainTopic = async (topic: string, apiKey: string, complexity: 's
   }
 };
 
-export const generateGatekeeperQuiz = async (topic: string, apiKey: string): Promise<QuizQuestion[]> => {
+export const generateGatekeeperQuiz = async (topic: string, apiKey: string, modelName: string = "gemini-2.5-flash"): Promise<QuizQuestion[]> => {
     try {
         const ai = new GoogleGenAI({ apiKey });
         const prompt = `Generate 3 distinct, conceptual multiple-choice questions for the JEE-level chapter "${topic}". The questions must test fundamental understanding, not just rote memorization. For each question, provide four options (A, B, C, D), identify the correct option letter, and give a brief explanation for the correct answer.`;
         
-        // UPGRADED MODEL: Using gemini-2.5-flash for stability
         const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
+            model: modelName,
             contents: { parts: [{ text: prompt }] },
             config: {
                 responseMimeType: "application/json",
@@ -937,16 +1105,15 @@ export const generateGatekeeperQuiz = async (topic: string, apiKey: string): Pro
     }
 };
 
-export const generateTasksFromGoal = async (goalText: string, apiKey: string): Promise<{ task: string, time: number }[]> => {
+export const generateTasksFromGoal = async (goalText: string, apiKey: string, modelName: string = "gemini-2.5-flash"): Promise<{ task: string, time: number }[]> => {
   try {
     const ai = new GoogleGenAI({ apiKey });
     const prompt = `You are an academic coach for a student preparing for the JEE exam. Their weekly goal is: "${goalText}".
     Break this down into 3-4 concrete, actionable daily tasks. For each task, provide a realistic time estimate in minutes.
     Return a JSON object following the schema.`;
     
-    // UPGRADED MODEL: Using gemini-2.5-flash for stability
     const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: modelName,
         contents: { parts: [{ text: prompt }] },
         config: {
             responseMimeType: "application/json",
@@ -993,7 +1160,7 @@ export const generateTasksFromGoal = async (goalText: string, apiKey: string): P
   }
 };
 
-export const generateSmartTasks = async (weakTopics: string[], apiKey: string): Promise<{ task: string; time: number; topic: string; }[]> => {
+export const generateSmartTasks = async (weakTopics: string[], apiKey: string, modelName: string = "gemini-2.5-flash"): Promise<{ task: string; time: number; topic: string; }[]> => {
   if (weakTopics.length === 0) {
     return [
       { task: 'Review any challenging chapter from Physics', time: 60, topic: 'General Physics' },
@@ -1004,9 +1171,8 @@ export const generateSmartTasks = async (weakTopics: string[], apiKey: string): 
     const ai = new GoogleGenAI({ apiKey });
     const prompt = `You are an academic coach for a JEE student. Based on their identified weak topics: ${weakTopics.slice(0,5).join(', ')}. Create a short list of 2-3 highly specific and actionable tasks for a "Today's Focus" block. For each task, provide a realistic time estimate in minutes and link it to the relevant weak topic. Return a JSON object following the schema.`;
     
-    // UPGRADED MODEL: Using gemini-2.5-flash for stability
     const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: modelName,
         contents: { parts: [{ text: prompt }] },
         config: {
             responseMimeType: "application/json",
@@ -1056,7 +1222,7 @@ export const generateSmartTasks = async (weakTopics: string[], apiKey: string): 
   }
 };
 
-export const generateSmartTaskOrder = async (tasks: DailyTask[], userProfile: UserProfile, logs: QuestionLog[], apiKey: string): Promise<string[]> => {
+export const generateSmartTaskOrder = async (tasks: DailyTask[], userProfile: UserProfile, logs: QuestionLog[], apiKey: string, modelName: string = "gemini-2.5-flash"): Promise<string[]> => {
     if (tasks.length <= 1) return tasks.map(t => t.id);
 
     try {
@@ -1085,9 +1251,8 @@ export const generateSmartTaskOrder = async (tasks: DailyTask[], userProfile: Us
         Return ONLY a JSON object containing an array of task IDs in the optimized order.
         `;
 
-        // UPGRADED MODEL: Using gemini-2.5-flash for stability
         const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
+            model: modelName,
             contents: { parts: [{ text: prompt }] },
             config: {
                 responseMimeType: "application/json",
@@ -1113,7 +1278,7 @@ export const generateSmartTaskOrder = async (tasks: DailyTask[], userProfile: Us
     }
 };
 
-export const generateLearningPath = async (topic: string, userWeaknesses: string[], apiKey: string): Promise<{ task: string; time: number; topic: string; }[]> => {
+export const generateLearningPath = async (topic: string, userWeaknesses: string[], apiKey: string, modelName: string = "gemini-2.5-flash"): Promise<{ task: string; time: number; topic: string; }[]> => {
     try {
         const ai = new GoogleGenAI({ apiKey });
         const prompt = `You are an elite academic strategist for a JEE student targeting the chapter "${topic}".
@@ -1127,7 +1292,7 @@ export const generateLearningPath = async (topic: string, userWeaknesses: string
         `;
 
         const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
+            model: modelName,
             contents: { parts: [{ text: prompt }] },
             config: {
                 responseMimeType: "application/json",
@@ -1164,7 +1329,7 @@ export const generateLearningPath = async (topic: string, userWeaknesses: string
     }
 };
 
-export const generateNextWhy = async (context: string, previousAnswer: string, step: number, apiKey: string): Promise<{ question: string; isFinal: boolean; solution?: string }> => {
+export const generateNextWhy = async (context: string, previousAnswer: string, step: number, apiKey: string, modelName: string = "gemini-2.5-flash"): Promise<{ question: string; isFinal: boolean; solution?: string }> => {
     try {
         const ai = new GoogleGenAI({ apiKey });
         const prompt = `You are an expert Socratic investigator helping a student analyze a mistake.
@@ -1180,7 +1345,7 @@ export const generateNextWhy = async (context: string, previousAnswer: string, s
         `;
 
         const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
+            model: modelName,
             contents: { parts: [{ text: prompt }] },
             config: {
                 responseMimeType: "application/json",

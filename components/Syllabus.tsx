@@ -20,7 +20,8 @@ interface SyllabusProps {
     apiKey: string;
     onStartFocusSession: (topic: string) => void;
     setView: (view: any) => void;
-    addTasksToPlanner?: (tasks: { task: string, time: number, topic: string }[]) => void; 
+    addTasksToPlanner?: (tasks: { task: string, time: number, topic: string }[]) => void;
+    modelName?: string;
 }
 
 const COLORS_PIE: Record<string, string> = {
@@ -953,7 +954,7 @@ const ViewControl: React.FC<{ mode: string; setMode: (m: any) => void }> = ({ mo
     );
 };
 
-export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile, questionLogs, reports, apiKey, onStartFocusSession, setView, addTasksToPlanner }) => {
+export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile, questionLogs, reports, apiKey, onStartFocusSession, setView, addTasksToPlanner, modelName }) => {
     const [activeSubject, setActiveSubject] = useState<'physics' | 'chemistry' | 'maths'>('physics');
     const [activeUnit, setActiveUnit] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
@@ -1061,7 +1062,7 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
     const handleExplainTopic = async (topic: string, complexity: 'standard' | 'simple' = 'standard') => {
         setExplainModalData({ topic, content: '', loading: true, complexity });
         try {
-            const explanation = await explainTopic(topic, apiKey, complexity);
+            const explanation = await explainTopic(topic, apiKey, complexity, modelName);
             setExplainModalData(prev => prev ? { ...prev, content: explanation, loading: false } : null);
         } catch (error) {
             setExplainModalData(prev => prev ? { ...prev, content: "Failed to load explanation.", loading: false } : null);
@@ -1071,7 +1072,7 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
     const triggerCompletionQuiz = useCallback(async (topic: string) => {
         setQuizState({ topic, loading: true });
         try {
-            const questions = await generateGatekeeperQuiz(topic, apiKey);
+            const questions = await generateGatekeeperQuiz(topic, apiKey, modelName);
             if (questions && questions.length > 0) {
                 setQuizState(prev => prev ? { ...prev, questions, loading: false } : null);
             } else {
@@ -1082,7 +1083,7 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
             setQuizState(null);
             alert("Failed to generate Gatekeeper Quiz. Please check your internet connection or API key limits. Syllabus status not updated.");
         }
-    }, [apiKey]);
+    }, [apiKey, modelName]);
 
     const handleGenerateLearningPath = async () => {
         if (!selectedChapterForModal || !apiKey) return;
@@ -1095,7 +1096,7 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
                 return !mastery || mastery.score < 1200;
             });
 
-            const path = await generateLearningPath(selectedChapterForModal, weakPrereqs, apiKey);
+            const path = await generateLearningPath(selectedChapterForModal, weakPrereqs, apiKey, modelName);
             if (addTasksToPlanner) {
                 addTasksToPlanner(path);
             }

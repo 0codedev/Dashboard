@@ -1,18 +1,19 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import type { QuestionLog, TestReport, PanicEvent, DependencyAlert, RootCauseFilter } from '../types';
-import { ErrorReason, QuestionStatus, QuestionType, TestType } from '../types';
+import type { QuestionLog, TestReport, PanicEvent, DependencyAlert, GuessStats } from '../types';
+import { ErrorReason, QuestionStatus, QuestionType, TestType, TestSubType } from '../types';
 import {
     BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid,
     Tooltip, Legend, ResponsiveContainer, ReferenceLine, ScatterChart,
     Scatter, Label, Sector, Line, LabelList, Rectangle, AreaChart, Area, Sankey, ComposedChart, Brush, ZAxis
 } from 'recharts';
-import { getAIChiefAnalystSummary, generateNextWhy } from '../services/geminiService';
+import { getAIChiefAnalystSummary } from '../services/geminiService';
 import { useRootCauseAnalytics } from '../hooks/useRootCauseAnalytics';
 import CustomTooltip from './common/CustomTooltip';
 import Modal from './common/Modal';
 import { JEE_SYLLABUS, SUBJECT_COLORS } from '../constants';
 import { DynamicKnowledgeGraph } from './visualizations/DynamicKnowledgeGraph';
+import { WeakestTopicsChart } from './visualizations/WeakestTopicsChart';
 import { ExecutiveBriefing } from './visualizations/ExecutiveBriefing';
 import { getMarkingScheme } from '../utils/metrics';
 import { Button } from './common/Button';
@@ -20,11 +21,11 @@ import { Button } from './common/Button';
 interface RootCauseProps {
   logs: QuestionLog[];
   reports: TestReport[];
-  rootCauseFilter: RootCauseFilter;
-  setRootCauseFilter: (filter: RootCauseFilter) => void;
+  rootCauseFilter: { subject?: string | null };
+  setRootCauseFilter: (filter: { subject?: string | null }) => void;
   apiKey: string;
-  // New optional prop for adding tasks directly
-  onAddTask?: (task: { task: string, time: number, topic: string }) => void;
+  modelName?: string;
+  onAddTask?: (task: { task: string; time: number; topic: string }) => void;
 }
 
 type WidgetId = 'conceptualKnowledgeGraph' | 'weakestTopics' | 'errorReason' | 'questionType' | 'scoreContribution' | 'lostMarksWaterfall' | 'metricScatterPlot' | 'errorTrend' | 'fatigueAnalysis' | 'errorFlowSankey' | 'paretoAnalysis' | 'errorReasonsBySubject' | 'speedVsAccuracy' | 'weakestTopics_full' | 'panicAnalysis' | 'guessingGame' | 'scoreSimulator' | 'dependencyAlerts';
@@ -62,7 +63,7 @@ const DEFAULT_ROOT_CAUSE_LAYOUT: WidgetLayout[] = [
     { id: 'errorTrend', visible: true, size: 'wide' },
     { id: 'fatigueAnalysis', visible: true, size: 'normal' },
     { id: 'errorReason', visible: true, size: 'normal' },
-    { id: 'guessingGame', visible: true, size: 'normal' },
+    { id: 'guessingGame', visible: true, size: 'normal' }, // Now larger visually but same slot
     { id: 'questionType', visible: false, size: 'normal' },
 ];
 
@@ -72,6 +73,19 @@ const COLORS_PIE: Record<string, string> = {
     [ErrorReason.SillyMistake]: '#F87171', // red-400
     [ErrorReason.TimePressure]: '#818CF8', // indigo-400
     [ErrorReason.Guess]: '#A78BFA', // violet-400
+};
+
+// Pastel Palette for Waterfall
+const PASTEL_COLORS: Record<string, string> = {
+    [ErrorReason.SillyMistake]: '#fda4af', // rose-300
+    [ErrorReason.ConceptualGap]: '#fcd34d', // amber-300
+    [ErrorReason.TimePressure]: '#a5b4fc', // indigo-300
+    [ErrorReason.MisreadQuestion]: '#fdba74', // orange-300
+    [ErrorReason.Guess]: '#99f6e4', // teal-300
+    'Unattempted': '#94a3b8', // slate-400
+    'Partial Loss': '#f0abfc', // fuchsia-300
+    'Actual': '#34d399', // emerald-400
+    'Potential': '#64748b' // slate-500
 };
 
 // --- Child Components (Charts) ---
@@ -104,23 +118,6 @@ const ScoreContributionWidget: React.FC<{ reports: TestReport[] }> = ({ reports 
         ];
     }, [reports, localTestId]);
 
-    const renderCustomTooltip = ({ active, payload }: any) => {
-        if (active && payload && payload.length) {
-            const d = payload[0];
-            const total = data.reduce((sum, item) => sum + item.value, 0);
-            const percent = total > 0 ? (d.value / total) * 100 : 0;
-            return (
-                <div className="bg-slate-900/90 border border-slate-600 p-3 rounded shadow-xl text-xs z-50">
-                    <p className="font-bold text-white mb-1 text-sm">{d.name}</p>
-                    <p className="text-gray-300">Marks: <span className="text-white font-mono">{d.value.toFixed(0)}</span></p>
-                    <p className="text-gray-300 mt-1">Contribution:</p>
-                    <p className="text-lg font-bold" style={{ color: d.payload.color }}>{percent.toFixed(1)}%</p>
-                </div>
-            );
-        }
-        return null;
-    };
-
     return (
         <div className="flex flex-col h-full relative">
              <div className="absolute top-0 left-0 right-0 flex justify-center z-10">
@@ -134,37 +131,39 @@ const ScoreContributionWidget: React.FC<{ reports: TestReport[] }> = ({ reports 
                     {reports.map(r => <option key={r.id} value={r.id}>{r.testName}</option>).reverse()}
                 </select>
             </div>
-            <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                    <Pie
-                        data={data}
-                        cx="50%"
-                        cy="55%"
-                        innerRadius="55%"
-                        outerRadius="75%"
-                        paddingAngle={5}
-                        dataKey="value"
-                        stroke="none"
-                    >
-                        {data.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                        <Label 
-                            value={`${data.reduce((sum, item) => sum + item.value, 0).toFixed(0)}`} 
-                            position="center" 
-                            className="fill-white text-2xl font-bold" 
-                        />
-                         <Label 
-                            value="Marks" 
-                            position="center" 
-                            dy={20}
-                            className="fill-gray-400 text-xs" 
-                        />
-                    </Pie>
-                    <Tooltip content={renderCustomTooltip} />
-                    <Legend verticalAlign="bottom" height={36} iconType="circle" />
-                </PieChart>
-            </ResponsiveContainer>
+            <div className="flex-grow min-h-0">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                    <PieChart>
+                        <Pie
+                            data={data}
+                            cx="50%"
+                            cy="55%"
+                            innerRadius="55%"
+                            outerRadius="75%"
+                            paddingAngle={5}
+                            dataKey="value"
+                            stroke="none"
+                        >
+                            {data.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.color} />
+                            ))}
+                            <Label 
+                                value={`${data.reduce((sum, item) => sum + item.value, 0).toFixed(0)}`} 
+                                position="center" 
+                                className="fill-white text-2xl font-bold" 
+                            />
+                             <Label 
+                                value="Marks" 
+                                position="center" 
+                                dy={20}
+                                className="fill-gray-400 text-xs" 
+                            />
+                        </Pie>
+                        <Tooltip content={<CustomTooltip />} />
+                        <Legend verticalAlign="bottom" height={36} iconType="circle" />
+                    </PieChart>
+                </ResponsiveContainer>
+            </div>
         </div>
     );
 };
@@ -178,7 +177,7 @@ const SpeedVsAccuracyWidget: React.FC<{ logs: QuestionLog[] }> = ({ logs }) => {
             const existing = topicStats.get(log.topic) || { correct: 0, attempts: 0, time: 0 };
             existing.attempts++;
             if (log.status === QuestionStatus.FullyCorrect) existing.correct++;
-            const estimatedTime = log.timeSpent || (log.questionType === QuestionType.SingleCorrect3 ? 120 : 180); 
+            const estimatedTime = log.timeSpent || (log.questionType.includes("Single Correct") ? 120 : 180); 
             existing.time += estimatedTime;
             topicStats.set(log.topic, existing);
         });
@@ -203,39 +202,41 @@ const SpeedVsAccuracyWidget: React.FC<{ logs: QuestionLog[] }> = ({ logs }) => {
                     <span className="text-red-400">Bottom-Right: Gap</span>
                 </div>
             </div>
-            <ResponsiveContainer width="100%" height="100%">
-                <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 10 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                    <XAxis type="number" dataKey="avgTime" name="Time" unit="s" stroke="#9CA3AF" domain={['auto', 'auto']} label={{ value: 'Avg Time (sec)', position: 'insideBottom', offset: -10, fill: '#9CA3AF', fontSize: 10 }}/>
-                    <YAxis type="number" dataKey="accuracy" name="Accuracy" unit="%" stroke="#9CA3AF" domain={[0, 100]} label={{ value: 'Accuracy', angle: -90, position: 'insideLeft', fill: '#9CA3AF', fontSize: 10 }}/>
-                    <Tooltip cursor={{ strokeDasharray: '3 3' }} content={({ active, payload }) => {
-                        if (active && payload && payload.length) {
-                            const d = payload[0].payload;
-                            return (
-                                <div className="bg-slate-900/90 border border-slate-600 p-2 rounded shadow text-xs z-50">
-                                    <p className="font-bold text-white">{d.topic}</p>
-                                    <p>Accuracy: {d.accuracy.toFixed(1)}%</p>
-                                    <p>Time: {d.avgTime.toFixed(0)}s</p>
-                                    <p className="text-gray-400 mt-1">({d.attempts} attempts)</p>
-                                </div>
-                            );
-                        }
-                        return null;
-                    }}/>
-                    <ReferenceLine x={avgTime} stroke="#64748B" strokeDasharray="3 3" />
-                    <ReferenceLine y={avgAcc} stroke="#64748B" strokeDasharray="3 3" />
-                    <Scatter name="Topics" data={data} fill="#8884d8">
-                        {data.map((entry, index) => {
-                            let fill = '#9CA3AF';
-                            if (entry.accuracy > avgAcc && entry.avgTime < avgTime) fill = '#10B981';
-                            else if (entry.accuracy > avgAcc && entry.avgTime >= avgTime) fill = '#FBBF24';
-                            else if (entry.accuracy <= avgAcc && entry.avgTime < avgTime) fill = '#F87171';
-                            else fill = '#EF4444';
-                            return <Cell key={`cell-${index}`} fill={fill} />;
-                        })}
-                    </Scatter>
-                </ScatterChart>
-            </ResponsiveContainer>
+            <div className="flex-grow min-h-0">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                    <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                        <XAxis type="number" dataKey="avgTime" name="Time" unit="s" stroke="#9CA3AF" domain={['auto', 'auto']} label={{ value: 'Avg Time (sec)', position: 'insideBottom', offset: -10, fill: '#9CA3AF', fontSize: 10 }}/>
+                        <YAxis type="number" dataKey="accuracy" name="Accuracy" unit="%" stroke="#9CA3AF" domain={[0, 100]} label={{ value: 'Accuracy', angle: -90, position: 'insideLeft', fill: '#9CA3AF', fontSize: 10 }}/>
+                        <Tooltip cursor={{ strokeDasharray: '3 3' }} content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                                const d = payload[0].payload;
+                                return (
+                                    <div className="bg-slate-900/90 border border-slate-600 p-2 rounded shadow text-xs z-50">
+                                        <p className="font-bold text-white">{d.topic}</p>
+                                        <p>Accuracy: {d.accuracy.toFixed(1)}%</p>
+                                        <p>Time: {d.avgTime.toFixed(0)}s</p>
+                                        <p className="text-gray-400 mt-1">({d.attempts} attempts)</p>
+                                    </div>
+                                );
+                            }
+                            return null;
+                        }}/>
+                        <ReferenceLine x={avgTime} stroke="#64748B" strokeDasharray="3 3" />
+                        <ReferenceLine y={avgAcc} stroke="#64748B" strokeDasharray="3 3" />
+                        <Scatter name="Topics" data={data} fill="#8884d8">
+                            {data.map((entry, index) => {
+                                let fill = '#9CA3AF';
+                                if (entry.accuracy > avgAcc && entry.avgTime < avgTime) fill = '#10B981';
+                                else if (entry.accuracy > avgAcc && entry.avgTime >= avgTime) fill = '#FBBF24';
+                                else if (entry.accuracy <= avgAcc && entry.avgTime < avgTime) fill = '#F87171';
+                                else fill = '#EF4444';
+                                return <Cell key={`cell-${index}`} fill={fill} />;
+                            })}
+                        </Scatter>
+                    </ScatterChart>
+                </ResponsiveContainer>
+            </div>
         </div>
     );
 };
@@ -328,31 +329,33 @@ const MetricScatterWidget: React.FC<{ reports: TestReport[] }> = ({ reports }) =
                     Corr: <span className={`font-bold ${Math.abs(correlation) > 0.7 ? 'text-green-400' : Math.abs(correlation) > 0.4 ? 'text-yellow-400' : 'text-gray-200'}`}>{correlation.toFixed(2)}</span>
                 </div>
             </div>
-            <ResponsiveContainer width="100%" height="100%">
-                <ScatterChart margin={{ top: 10, right: 10, bottom: 10, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                    <XAxis type="number" dataKey="x" name={xAxis} stroke="#9CA3AF" tick={{fontSize: 10}} domain={['auto', 'auto']} />
-                    <YAxis type="number" dataKey="y" name={yAxis} stroke="#9CA3AF" tick={{fontSize: 10}} domain={['auto', 'auto']} />
-                    <Tooltip cursor={{ strokeDasharray: '3 3' }} content={({ active, payload }) => {
-                        if (active && payload && payload.length) {
-                            const d = payload[0].payload;
-                            return (
-                                <div className="bg-slate-900 border border-slate-600 p-2 rounded shadow text-xs z-50">
-                                    <p className="font-bold text-white">{d.test}</p>
-                                    <p style={{ color: SUBJECT_COLORS[d.subject.toLowerCase()] }}>{d.subject}</p>
-                                    <p>X: {d.x.toFixed(1)}</p>
-                                    <p>Y: {d.y.toFixed(1)}</p>
-                                </div>
-                            );
-                        }
-                        return null;
-                    }}/>
-                    <Scatter name="Physics" data={data.filter(d => d.subject === 'Physics')} fill={SUBJECT_COLORS.physics} shape="circle" />
-                    <Scatter name="Chemistry" data={data.filter(d => d.subject === 'Chemistry')} fill={SUBJECT_COLORS.chemistry} shape="square" />
-                    <Scatter name="Maths" data={data.filter(d => d.subject === 'Maths')} fill={SUBJECT_COLORS.maths} shape="triangle" />
-                    {data.length > 1 && <Line dataKey="y" data={trendData} stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" dot={false} activeDot={false} name="Trend" isAnimationActive={false} />}
-                </ScatterChart>
-            </ResponsiveContainer>
+            <div className="flex-grow min-h-0">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                    <ScatterChart margin={{ top: 10, right: 10, bottom: 10, left: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                        <XAxis type="number" dataKey="x" name={xAxis} stroke="#9CA3AF" tick={{fontSize: 10}} domain={['auto', 'auto']} />
+                        <YAxis type="number" dataKey="y" name={yAxis} stroke="#9CA3AF" tick={{fontSize: 10}} domain={['auto', 'auto']} />
+                        <Tooltip cursor={{ strokeDasharray: '3 3' }} content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                                const d = payload[0].payload;
+                                return (
+                                    <div className="bg-slate-900 border border-slate-600 p-2 rounded shadow text-xs z-50">
+                                        <p className="font-bold text-white">{d.test}</p>
+                                        <p style={{ color: SUBJECT_COLORS[d.subject.toLowerCase()] }}>{d.subject}</p>
+                                        <p>X: {d.x.toFixed(1)}</p>
+                                        <p>Y: {d.y.toFixed(1)}</p>
+                                    </div>
+                                );
+                            }
+                            return null;
+                        }}/>
+                        <Scatter name="Physics" data={data.filter(d => d.subject === 'Physics')} fill={SUBJECT_COLORS.physics} shape="circle" />
+                        <Scatter name="Chemistry" data={data.filter(d => d.subject === 'Chemistry')} fill={SUBJECT_COLORS.chemistry} shape="square" />
+                        <Scatter name="Maths" data={data.filter(d => d.subject === 'Maths')} fill={SUBJECT_COLORS.maths} shape="triangle" />
+                        {data.length > 1 && <Line dataKey="y" data={trendData} stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" dot={false} activeDot={false} name="Trend" isAnimationActive={false} />}
+                    </ScatterChart>
+                </ResponsiveContainer>
+            </div>
             <div className="flex justify-center gap-2 mt-2 pb-1">
                 {['Physics', 'Chemistry', 'Maths'].map(subject => (
                     <button
@@ -375,44 +378,85 @@ const MetricScatterWidget: React.FC<{ reports: TestReport[] }> = ({ reports }) =
 
 const ErrorReasonsBySubjectWidget: React.FC<{ data: any[] }> = ({ data }) => {
     return (
-        <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data} margin={{ top: 20, right: 10, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                <XAxis dataKey="name" stroke="#9CA3AF" tick={{ fontSize: 10 }} interval={0} />
-                <YAxis stroke="#9CA3AF" tick={{ fontSize: 10 }} allowDecimals={false} />
-                <Tooltip content={<CustomTooltip />} cursor={{fill: 'rgba(255,255,255,0.05)'}} />
-                <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} iconType="circle" />
-                <Bar dataKey="physics" name="Physics" stackId="a" fill={SUBJECT_COLORS.physics} barSize={30} />
-                <Bar dataKey="chemistry" name="Chemistry" stackId="a" fill={SUBJECT_COLORS.chemistry} barSize={30} />
-                <Bar dataKey="maths" name="Maths" stackId="a" fill={SUBJECT_COLORS.maths} barSize={30} radius={[4, 4, 0, 0]} />
-            </BarChart>
-        </ResponsiveContainer>
+        <div className="flex-grow min-h-0 h-full">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                <BarChart data={data} margin={{ top: 20, right: 10, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                    <XAxis dataKey="name" stroke="#9CA3AF" tick={{ fontSize: 10 }} interval={0} />
+                    <YAxis stroke="#9CA3AF" tick={{ fontSize: 10 }} allowDecimals={false} />
+                    <Tooltip content={<CustomTooltip />} cursor={{fill: 'rgba(255,255,255,0.05)'}} />
+                    <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} iconType="circle" />
+                    <Bar dataKey="physics" name="Physics" stackId="a" fill={SUBJECT_COLORS.physics} barSize={30} />
+                    <Bar dataKey="chemistry" name="Chemistry" stackId="a" fill={SUBJECT_COLORS.chemistry} barSize={30} />
+                    <Bar dataKey="maths" name="Maths" stackId="a" fill={SUBJECT_COLORS.maths} barSize={30} radius={[4, 4, 0, 0]} />
+                </BarChart>
+            </ResponsiveContainer>
+        </div>
     );
 };
 
-const CustomSankeyNode = ({ x, y, width, height, index, payload, containerWidth }: any) => {
-  const isLeft = x < containerWidth / 2;
-  const isRight = x > containerWidth / 2;
-  let fill = '#818CF8'; 
-  if (payload.name === 'Physics') fill = SUBJECT_COLORS.physics;
-  if (payload.name === 'Chemistry') fill = SUBJECT_COLORS.chemistry;
-  if (payload.name === 'Maths') fill = SUBJECT_COLORS.maths;
-  if (Object.values(ErrorReason).includes(payload.name as ErrorReason)) fill = COLORS_PIE[payload.name as keyof typeof COLORS_PIE] || '#F472B6';
+// Custom Node for Sankey with Hover Logic
+const InteractiveSankeyNode = (props: any) => {
+    const { x, y, width, height, payload, containerWidth, setActiveNode } = props;
+    const isLeft = x < containerWidth / 2;
+    const isRight = x > containerWidth / 2;
+    let fill = '#818CF8'; 
+    if (payload.name === 'Physics') fill = SUBJECT_COLORS.physics;
+    if (payload.name === 'Chemistry') fill = SUBJECT_COLORS.chemistry;
+    if (payload.name === 'Maths') fill = SUBJECT_COLORS.maths;
+    if (Object.values(ErrorReason).includes(payload.name as ErrorReason)) fill = COLORS_PIE[payload.name as keyof typeof COLORS_PIE] || '#F472B6';
 
-  return (
-    <g>
-      <Rectangle x={x} y={y} width={width} height={height} fill={fill} fillOpacity={0.8} radius={[4, 4, 4, 4]} />
-      <text x={isLeft ? x + width + 6 : (isRight ? x - 6 : x + width / 2)} y={y + height / 2} dy="0.35em" textAnchor={isLeft ? "start" : (isRight ? "end" : "middle")} fontSize={10} fill="#fff" fontWeight="bold">{payload.name}</text>
-       <text x={isLeft ? x + width + 6 : (isRight ? x - 6 : x + width / 2)} y={y + height / 2 + 12} dy="0.35em" textAnchor={isLeft ? "start" : (isRight ? "end" : "middle")} fontSize={9} fill="#9CA3AF">{payload.value} errors</text>
-    </g>
-  );
+    return (
+        <g 
+            onMouseEnter={() => setActiveNode(payload.name)} 
+            onMouseLeave={() => setActiveNode(null)}
+            style={{cursor: 'pointer'}}
+        >
+            <Rectangle x={x} y={y} width={width} height={height} fill={fill} fillOpacity={0.9} radius={[4, 4, 4, 4]} stroke="#fff" strokeWidth={1} />
+            <text x={isLeft ? x + width + 6 : (isRight ? x - 6 : x + width / 2)} y={y + height / 2} dy="0.35em" textAnchor={isLeft ? "start" : (isRight ? "end" : "middle")} fontSize={10} fill="#fff" fontWeight="bold" style={{pointerEvents: 'none'}}>{payload.name}</text>
+            <text x={isLeft ? x + width + 6 : (isRight ? x - 6 : x + width / 2)} y={y + height / 2 + 12} dy="0.35em" textAnchor={isLeft ? "start" : (isRight ? "end" : "middle")} fontSize={9} fill="#9CA3AF" style={{pointerEvents: 'none'}}>{payload.value} errors</text>
+        </g>
+    );
 };
 
-const CustomSankeyLink = (props: any) => {
-    const { sourceX, sourceY, targetX, targetY, linkWidth } = props;
+// Custom Link for Sankey with Focus Logic
+const InteractiveSankeyLink = (props: any) => {
+    const { sourceX, sourceY, targetX, targetY, linkWidth, activeNode, payload } = props;
+    const isActive = activeNode === payload.source.name || activeNode === payload.target.name;
+    const opacity = activeNode ? (isActive ? 0.6 : 0.05) : 0.3; // Highlight or Dim
+    
     const fill = props.payload.source.name === 'Physics' ? SUBJECT_COLORS.physics : props.payload.source.name === 'Chemistry' ? SUBJECT_COLORS.chemistry : props.payload.source.name === 'Maths' ? SUBJECT_COLORS.maths : '#64748B';
+    
     return (
-        <path d={`M${sourceX},${sourceY} C${sourceX + linkWidth / 2},${sourceY} ${targetX - linkWidth / 2},${targetY} ${targetX},${targetY}`} stroke={fill} strokeWidth={Math.max(1, props.payload.value * 0.5)} strokeOpacity={0.2} fill="none" />
+        <path 
+            d={`M${sourceX},${sourceY} C${sourceX + linkWidth / 2},${sourceY} ${targetX - linkWidth / 2},${targetY} ${targetX},${targetY}`} 
+            stroke={fill} 
+            strokeWidth={Math.max(1, linkWidth)} 
+            strokeOpacity={opacity} 
+            fill="none" 
+            style={{transition: 'stroke-opacity 0.3s ease'}}
+        />
+    );
+};
+
+const SankeyWidget: React.FC<{ data: any }> = ({ data }) => {
+    const [activeNode, setActiveNode] = useState<string | null>(null);
+
+    return (
+        <div className="flex-grow min-h-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                {data.nodes.length > 0 ? (
+                        <Sankey
+                        data={data}
+                        node={<InteractiveSankeyNode containerWidth={800} setActiveNode={setActiveNode} />} 
+                        link={<InteractiveSankeyLink activeNode={activeNode} />}
+                        margin={{ top: 10, right: 10, bottom: 10, left: 10 }}
+                    >
+                        <Tooltip content={<CustomTooltip />} />
+                    </Sankey>
+                ) : <div className="flex items-center justify-center h-full text-gray-500">Not enough data to map flows.</div>}
+            </ResponsiveContainer>
+        </div>
     );
 };
 
@@ -451,45 +495,120 @@ const PanicAnalysisWidget: React.FC<{ events: PanicEvent[] }> = ({ events }) => 
     );
 };
 
-// --- NEW WIDGET: Guessing Efficiency ---
-const GuessingWidget: React.FC<{ stats: any }> = ({ stats }) => {
+// --- NEW WIDGET: Guessing Efficiency (Redesigned) ---
+const GuessingWidget: React.FC<{ stats: GuessStats }> = ({ stats }) => {
+    // Intuition Data for Gauge
+    const intuitionData = [
+        { name: 'Intuition', value: stats.intuitionScore, fill: '#a855f7' }, // Purple
+        { name: 'Gap', value: 100 - stats.intuitionScore, fill: '#334155' },
+    ];
+
     return (
-        <div className="flex flex-col items-center justify-center h-full text-center space-y-4">
-            <div className="relative w-32 h-32">
-                <svg className="w-full h-full" viewBox="0 0 36 36">
-                    <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#374151" strokeWidth="4" />
-                    <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke={stats.efficiency < 25 ? '#ef4444' : '#10b981'} strokeWidth="4" strokeDasharray={`${stats.efficiency}, 100`} />
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-2xl font-bold text-white">{stats.efficiency.toFixed(0)}%</span>
-                    <span className="text-[10px] text-gray-400 uppercase">Efficiency</span>
+        <div className="h-full flex flex-col justify-between">
+            <div className="flex items-center justify-around h-1/2">
+                {/* Metric 1: Net Impact */}
+                <div className="text-center">
+                    <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Net Score Impact</p>
+                    <p className={`text-4xl font-black ${stats.netScoreImpact >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {stats.netScoreImpact > 0 ? '+' : ''}{stats.netScoreImpact}
+                    </p>
+                </div>
+
+                {/* Metric 2: Intuition Gauge */}
+                <div className="relative w-24 h-24">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                            <Pie
+                                data={intuitionData}
+                                cx="50%" cy="50%"
+                                innerRadius={28} outerRadius={40}
+                                startAngle={90} endAngle={-270}
+                                dataKey="value" stroke="none"
+                            >
+                                {intuitionData.map((entry, index) => <Cell key={index} fill={entry.fill} />)}
+                            </Pie>
+                        </PieChart>
+                    </ResponsiveContainer>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span className="text-sm font-bold text-white">{stats.intuitionScore.toFixed(0)}%</span>
+                        <span className="text-[8px] text-gray-400 uppercase">Intuition</span>
+                    </div>
                 </div>
             </div>
-            <div>
-                <p className="text-xs text-gray-400">Net Score Impact</p>
-                <p className={`text-lg font-bold ${stats.netScoreImpact >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    {stats.netScoreImpact > 0 ? '+' : ''}{stats.netScoreImpact}
-                </p>
-                <p className="text-[10px] text-gray-500 mt-1">{stats.efficiency < 25 ? "Stop guessing! It's hurting your score." : "Your intuition is generally reliable."}</p>
+
+            {/* Risk Profile Bar */}
+            <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50">
+                <div className="flex justify-between text-[10px] text-gray-400 mb-2 uppercase font-bold tracking-wider">
+                    <span>Risk Profile</span>
+                    <span>Total Guesses: {stats.totalGuesses}</span>
+                </div>
+                
+                <div className="flex h-4 rounded-full overflow-hidden mb-2">
+                    {/* Safe Guesses */}
+                    <div className="bg-emerald-500/80 h-full flex items-center justify-center text-[9px] text-white font-bold" style={{width: `${(stats.safeGuesses / (stats.totalGuesses || 1)) * 100}%`}} title="Safe Bets (No Negative Marking)">
+                        {stats.safeGuesses > 0 && stats.safeGuesses}
+                    </div>
+                    {/* Risky Guesses */}
+                    <div className="bg-amber-500/80 h-full flex items-center justify-center text-[9px] text-white font-bold" style={{width: `${(stats.riskyGuesses / (stats.totalGuesses || 1)) * 100}%`}} title="Risky Gambles (Negative Marking involved)">
+                        {stats.riskyGuesses > 0 && stats.riskyGuesses}
+                    </div>
+                </div>
+                
+                <div className="flex justify-between text-[10px]">
+                    <div className="flex items-center gap-1">
+                        <div className="w-2 h-2 bg-emerald-500/80 rounded-full"></div>
+                        <span className="text-gray-300">Safe Bets ({stats.safeGuesses})</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                        <div className="w-2 h-2 bg-amber-500/80 rounded-full"></div>
+                        <span className="text-gray-300">Risky Gambles ({stats.riskyGuesses})</span>
+                    </div>
+                </div>
+                
+                {stats.riskyMisses > 0 && (
+                    <p className="text-[10px] text-red-400 mt-2 text-center">
+                        ⚠ {stats.riskyMisses} risky gambles failed, causing negative marks.
+                    </p>
+                )}
             </div>
         </div>
     );
 };
 
 // --- NEW WIDGET: Score Simulator ---
-const ScoreSimulatorWidget: React.FC<{ initialScore: number, errorProfile: { name: string, value: number }[] }> = ({ initialScore, errorProfile }) => {
+const ScoreSimulatorWidget: React.FC<{ initialScore: number, errorProfile: { name: string, value: number }[], logs: QuestionLog[], totalTests: number }> = ({ initialScore, errorProfile, logs, totalTests }) => {
     const [reduction, setReduction] = useState<Record<string, number>>({ 'Silly Mistake': 0, 'Conceptual Gap': 0, 'Time Pressure': 0 });
     const [examType, setExamType] = useState<'Mains' | 'Advanced'>('Mains');
     
+    // Dynamic Advanced Marks Calculation
+    const avgAdvancedMarks = useMemo(() => {
+        const correctLogs = logs.filter(l => l.marksAwarded > 0);
+        if (correctLogs.length === 0) return 3.5; // Fallback
+        
+        const totalPositive = correctLogs.reduce((sum, l) => sum + l.marksAwarded, 0);
+        return totalPositive / correctLogs.length;
+    }, [logs]);
+
     const projectedGain = useMemo(() => {
         let gain = 0;
-        const marksPerError = examType === 'Mains' ? 4 : 3;
+        const marksPerError = examType === 'Mains' ? 4 : avgAdvancedMarks;
+        const testsCount = totalTests > 0 ? totalTests : 1;
+
         errorProfile.forEach(err => {
             const factor = (reduction[err.name] || 0) / 100;
-            gain += (err.value * marksPerError) * factor; 
+            const avgErrorsPerTest = err.value / testsCount;
+            gain += (avgErrorsPerTest * marksPerError) * factor; 
         });
+        
+        const maxPossibleScore = examType === 'Mains' ? 300 : 360; 
+        const rawProjected = initialScore + gain;
+        
+        if (rawProjected > maxPossibleScore) {
+            return Math.max(0, maxPossibleScore - initialScore);
+        }
+
         return Math.round(gain);
-    }, [reduction, errorProfile, examType]);
+    }, [reduction, errorProfile, examType, avgAdvancedMarks, totalTests, initialScore]);
 
     return (
         <div className="flex flex-col h-full">
@@ -510,7 +629,7 @@ const ScoreSimulatorWidget: React.FC<{ initialScore: number, errorProfile: { nam
                             onClick={() => setExamType('Advanced')} 
                             className={`px-2 py-0.5 text-[10px] rounded transition-colors ${examType === 'Advanced' ? 'bg-cyan-600 text-white' : 'text-gray-400 hover:text-white'}`}
                         >
-                            Adv (+3)
+                            Adv (~{avgAdvancedMarks.toFixed(1)})
                         </button>
                     </div>
                 </div>
@@ -566,6 +685,165 @@ const DependencyAlertsWidget: React.FC<{ alerts: DependencyAlert[] }> = ({ alert
     );
 };
 
+const AIChiefAnalyst: React.FC<{
+  weakTopics: { topic: string; count: number }[];
+  errorReasons: { name: string; value: number }[];
+  correlationData: any;
+  apiKey: string;
+  model?: string;
+}> = ({ weakTopics, errorReasons, correlationData, apiKey, model }) => {
+  const [summary, setSummary] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const stringifiedData = JSON.stringify({ weakTopics, errorReasons, correlationData });
+
+  const generateSummary = useCallback(async (improvise = false) => {
+    setIsLoading(true);
+    setError('');
+    setSummary('');
+    try {
+      const result = await getAIChiefAnalystSummary(weakTopics, errorReasons, correlationData, apiKey, improvise, model);
+      setSummary(result);
+    } catch (e: any) {
+      setError(e.message || 'Failed to generate summary.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [apiKey, weakTopics, errorReasons, correlationData, model]);
+  
+  useEffect(() => {
+      setSummary('');
+      setError('');
+      setIsLoading(false);
+  }, [stringifiedData]);
+
+  return (
+    <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700">
+      <div className="flex items-center gap-4">
+        <div className="w-10 h-10 bg-indigo-500/20 rounded-lg flex items-center justify-center text-indigo-300 text-xl border border-indigo-500/30 flex-shrink-0">💡</div>
+        <div><h3 className="text-xl font-bold text-[rgb(var(--color-primary))]">AI Chief Analyst Summary</h3></div>
+      </div>
+      <div className="mt-3 pl-14">
+        {isLoading && <p className="text-sm text-gray-400 animate-pulse">Synthesizing data to find the root cause...</p>}
+        {error && <p className="text-sm text-red-400">{error}</p>}
+        {summary && (<div><p className="text-[rgb(var(--color-primary-accent-rgb))] leading-relaxed">{summary}</p></div>)}
+        
+        {!isLoading && (
+             <div className="mt-4 flex flex-wrap gap-2">
+                <button onClick={() => generateSummary(false)} disabled={isLoading} className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-1 px-3 rounded-full transition-colors disabled:opacity-50 flex items-center gap-1.5">{summary ? 'Re-run Analysis' : 'Run Analysis'}</button>
+                 <button onClick={() => generateSummary(true)} disabled={isLoading} className="text-xs bg-indigo-600/50 hover:bg-indigo-600 text-white font-semibold py-1 px-3 rounded-full transition-colors disabled:opacity-50 flex items-center gap-1.5" title="Generate summary with a fresh perspective"><svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h5M20 20v-5h-5M4 4l5 5M20 20l-5-5" /></svg>{summary ? 'Improvise' : 'Run & Improvise'}</button>
+            </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const ErrorReasonPieChart: React.FC<{ data: any[], totalErrors: number, onSliceClick: (name: string) => void }> = ({ data, totalErrors, onSliceClick }) => {
+    const [activeIndex, setActiveIndex] = useState(0);
+    const onPieEnter = useCallback((_: any, index: number) => { setActiveIndex(index); }, []);
+
+    const renderActiveShape = (props: any) => {
+        const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill, payload, value } = props;
+        return (
+            <g>
+                <text x={cx} y={cy - 5} textAnchor="middle" fill="#E5E7EB" fontSize={16} fontWeight="bold">{payload.name}</text>
+                <text x={cx} y={cy + 15} textAnchor="middle" fill="#9CA3AF" fontSize={14}>{value} count</text>
+                <Sector cx={cx} cy={cy} innerRadius={innerRadius} outerRadius={outerRadius + 6} startAngle={startAngle} endAngle={endAngle} fill={fill} stroke="#1f2937" strokeWidth={3} />
+            </g>
+        );
+    };
+    const PieComponent = Pie as any;
+    return (
+        <div className="flex-grow min-h-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                <PieChart>
+                    <PieComponent activeIndex={activeIndex} activeShape={renderActiveShape} data={data} dataKey="value" nameKey="name" cx="50%" cy="45%" innerRadius={'60%'} outerRadius={'80%'} onMouseEnter={onPieEnter} onClick={(d: any) => onSliceClick(d.name)} cursor="pointer" stroke="#1f2937" strokeWidth={2}>
+                        {data.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS_PIE[entry.name as keyof typeof COLORS_PIE] || '#8884d8'} />)}
+                    </PieComponent>
+                    <Tooltip content={<CustomTooltip totalErrors={totalErrors}/>} />
+                    <Legend iconType="square" wrapperStyle={{ fontSize: '12px' }} />
+                </PieChart>
+            </ResponsiveContainer>
+        </div>
+    );
+};
+
+const LostMarksWaterfall: React.FC<{ logs: QuestionLog[], reports: TestReport[] }> = ({ logs, reports }) => {
+    const chartData = useMemo(() => {
+        if (logs.length === 0) return [];
+        
+        const actualScore = logs.reduce((acc, log) => acc + log.marksAwarded, 0);
+        const deductions: Record<string, number> = { 'Unattempted': 0, [ErrorReason.SillyMistake]: 0, [ErrorReason.ConceptualGap]: 0, [ErrorReason.TimePressure]: 0, [ErrorReason.MisreadQuestion]: 0, [ErrorReason.Guess]: 0, 'Partial Loss': 0 };
+
+        logs.forEach(log => {
+             const { correct: maxMarks, wrong: negMarks } = getMarkingScheme(log.questionType);
+             if (log.status === QuestionStatus.Unanswered) { deductions['Unattempted'] += maxMarks; } 
+             else if (log.status === QuestionStatus.Wrong) {
+                 const lost = maxMarks + Math.abs(negMarks);
+                 const reason = log.reasonForError || ErrorReason.Guess;
+                 deductions[reason] = (deductions[reason] || 0) + lost;
+             } else if (log.status === QuestionStatus.PartiallyCorrect) {
+                 const lost = maxMarks - log.marksAwarded;
+                 deductions['Partial Loss'] += lost;
+             }
+        });
+
+        const totalDeductions = Object.values(deductions).reduce((a, b) => a + b, 0);
+        const potentialScore = actualScore + totalDeductions;
+        const data = [];
+        
+        data.push({ name: 'Potential', value: [0, potentialScore], fill: PASTEL_COLORS['Potential'], isTotal: true, displayValue: potentialScore });
+
+        let currentHeight = potentialScore;
+        const deductionEntries = Object.entries(deductions)
+            .filter(([, val]) => val > 0)
+            .sort(([, a], [, b]) => b - a);
+
+        deductionEntries.forEach(([reason, loss], index) => {
+            const nextHeight = currentHeight - loss;
+            const color = PASTEL_COLORS[reason] || '#f472b6'; // Fallback
+            data.push({ 
+                name: reason, 
+                value: [nextHeight, currentHeight], 
+                fill: color, 
+                isTotal: false, 
+                displayValue: -loss 
+            });
+            currentHeight = nextHeight;
+        });
+
+        data.push({ name: 'Actual', value: [0, Math.max(0, currentHeight)], fill: PASTEL_COLORS['Actual'], isTotal: true, displayValue: currentHeight }); 
+        return data;
+    }, [logs]);
+
+    return (
+        <div className="flex-grow min-h-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                <BarChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                    <XAxis dataKey="name" stroke="#9CA3AF" tick={{ fontSize: 10 }} interval={0} angle={-15} textAnchor="end" />
+                    <YAxis stroke="#9CA3AF" />
+                    <Tooltip cursor={{fill: 'transparent'}} content={({ active, payload }) => { if (active && payload && payload.length) { const d = payload[0].payload; return ( <div className="p-2 bg-slate-900/90 border border-slate-600 rounded shadow text-xs"> <p className="font-bold text-white">{d.name}</p> <p className={`${d.displayValue < 0 ? 'text-red-400' : 'text-green-400'}`}>{d.isTotal ? 'Score: ' : 'Lost: '} {Math.abs(d.displayValue).toFixed(0)}</p> </div> ); } return null; }} />
+                    <Bar dataKey="value" shape={(props: any) => { 
+                        const { fill, x, y, width, height, payload } = props;
+                        let connector = null;
+                        const index = chartData.indexOf(payload);
+                        if (index < chartData.length - 1) {
+                            const lineY = payload.isTotal ? y : y + height;
+                            connector = <line x1={x + width} y1={lineY} x2={x + width + 30} y2={lineY} stroke="#94a3b8" strokeDasharray="3 3" strokeWidth={1} />;
+                        }
+                        return ( <g> <rect x={x} y={y} width={width} height={height} fill={fill} rx={4} ry={4} /> {connector}</g> ); 
+                    }}>
+                        <LabelList dataKey="value" position="top" content={(props: any) => { const { x, y, width, value, index } = props; const d = chartData[index]; const val = d ? d.displayValue : 0; if (Math.abs(val) < 1) return null; const color = val > 0 ? '#10b981' : '#f87171'; const displayTxt = val > 0 && !d?.isTotal ? `+${val.toFixed(0)}` : val.toFixed(0); return ( <text x={x + width / 2} y={y - 5} fill={d?.isTotal ? '#fff' : color} textAnchor="middle" fontSize={10} fontWeight="bold">{displayTxt}</text> ) }}/>
+                    </Bar>
+                </BarChart>
+            </ResponsiveContainer>
+        </div>
+    );
+};
+
 const ChartCard: React.FC<{ 
     title: React.ReactNode; 
     children: React.ReactNode; 
@@ -615,18 +893,14 @@ const ChartCard: React.FC<{
                 {actionButton && !isEditing && <div className="flex-shrink-0" onClick={e => e.stopPropagation()}>{actionButton}</div>}
             </div>
         </div>
-        <div className="flex-grow h-full relative min-h-0" onClick={e => e.stopPropagation()}>{children}</div>
+        <div className="flex-grow h-full relative min-h-0 flex flex-col" onClick={e => e.stopPropagation()}>{children}</div>
     </div>
 );
 
-// Updated DrillDownModal with 5 Whys Investigator
-const DrillDownModal: React.FC<{ data: ModalData, logs: QuestionLog[], apiKey: string, onAddTask?: (task: any) => void }> = ({ data, logs, apiKey, onAddTask }) => {
+// Updated DrillDownModal with 5 Whys
+const DrillDownModal: React.FC<{ data: ModalData, logs: QuestionLog[] }> = ({ data, logs }) => {
     const { drillDownKey } = data;
     const [fiveWhysStep, setFiveWhysStep] = useState<number | null>(null);
-    const [userAnswer, setUserAnswer] = useState('');
-    const [aiQuestion, setAiQuestion] = useState('');
-    const [aiSolution, setAiSolution] = useState('');
-    const [isThinking, setIsThinking] = useState(false);
     
     const relevantLogs = useMemo(() => {
         if (!drillDownKey) return [];
@@ -639,99 +913,53 @@ const DrillDownModal: React.FC<{ data: ModalData, logs: QuestionLog[], apiKey: s
         return [];
     }, [drillDownKey, data.type, logs]);
 
-    const handleFiveWhysStart = () => {
-        setFiveWhysStep(1);
-        setAiQuestion(`Why do you think you made a "${drillDownKey}" error?`);
-        setAiSolution('');
-    };
-
-    const handleNextWhy = async () => {
-        if (!fiveWhysStep) return;
-        setIsThinking(true);
-        const result = await generateNextWhy(
-            `Analyzing error type: ${drillDownKey}. Relevant topic context if available: ${relevantLogs[0]?.topic || 'General'}.`,
-            userAnswer,
-            fiveWhysStep,
-            apiKey
-        );
-        
-        if (result.isFinal) {
-            setAiSolution(result.solution || "Review your fundamentals.");
-            setFiveWhysStep(6); // Done
-        } else {
-            setAiQuestion(result.question);
-            setFiveWhysStep(p => (p ? p + 1 : 1));
-        }
-        setUserAnswer('');
-        setIsThinking(false);
-    };
-
-    const handleResetWhy = () => {
-        setFiveWhysStep(null);
-        setUserAnswer('');
-        setAiQuestion('');
-        setAiSolution('');
-    };
-
-    const handleAddSolutionToPlan = () => {
-        if (onAddTask && aiSolution) {
-            onAddTask({ 
-                task: `Fix Root Cause: ${drillDownKey}`, 
-                time: 45, 
-                topic: relevantLogs[0]?.topic || 'General' 
-            });
-            alert("Added to Daily Planner!");
-        }
-    }
+    const handleFiveWhysStart = () => setFiveWhysStep(1);
+    const handleNextWhy = () => setFiveWhysStep(p => (p ? p + 1 : 1));
+    const handleResetWhy = () => setFiveWhysStep(null);
 
     if (relevantLogs.length === 0) {
         return <p>No detailed logs found for this selection.</p>;
     }
 
+    const whys = [
+        "Why did you make this mistake?",
+        "Why did that happen?",
+        "And why was that the case?",
+        "What is the root cause of that?",
+        "So, what is the fundamental issue?"
+    ];
+
     return (
         <div className="flex flex-col h-full">
             {data.type === 'errorReasonDetail' && (
-                <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700 mb-4">
+                <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700 mb-4 flex justify-between items-center">
+                    <div>
+                        <h4 className="font-bold text-indigo-300">Root Cause Investigator</h4>
+                        <p className="text-xs text-gray-400">Use the "5 Whys" technique to find the real problem.</p>
+                    </div>
                     {!fiveWhysStep ? (
-                        <div className="flex justify-between items-center">
-                            <div>
-                                <h4 className="font-bold text-indigo-300">Root Cause Investigator</h4>
-                                <p className="text-xs text-gray-400">Use the "5 Whys" technique with AI to find the real problem.</p>
-                            </div>
-                            <Button variant="primary" size="sm" onClick={handleFiveWhysStart}>Start 5 Whys</Button>
-                        </div>
+                        <Button variant="primary" size="sm" onClick={handleFiveWhysStart}>Start 5 Whys</Button>
                     ) : (
-                        <div className="animate-fade-in">
-                            <div className="flex justify-between items-center mb-3">
-                                <h3 className="text-sm font-bold text-white">
-                                    {fiveWhysStep > 5 ? "Diagnosis Complete" : `The 5 Whys: Step ${fiveWhysStep}/5`}
-                                </h3>
-                                <button onClick={handleResetWhy} className="text-gray-500 hover:text-white text-xs">Close</button>
-                            </div>
-                            
-                            {fiveWhysStep > 5 ? (
-                                <div className="bg-green-900/20 p-3 rounded border border-green-500/30">
-                                    <p className="text-green-300 font-medium mb-2">💡 Strategy:</p>
-                                    <p className="text-gray-200 text-sm mb-3">{aiSolution}</p>
-                                    <Button variant="primary" size="sm" onClick={handleAddSolutionToPlan}>Add to Daily Plan</Button>
-                                </div>
+                        <Button variant="ghost" size="sm" onClick={handleResetWhy}>Close Investigator</Button>
+                    )}
+                </div>
+            )}
+
+            {fiveWhysStep && (
+                <div className="bg-indigo-900/20 p-6 rounded-lg border border-indigo-500/30 mb-6 animate-scale-in">
+                    <h3 className="text-xl font-bold text-white mb-4">The 5 Whys: Step {fiveWhysStep}/5</h3>
+                    <p className="text-lg text-indigo-200 mb-6 font-medium">{whys[Math.min(fiveWhysStep - 1, 4)]}</p>
+                    
+                    <div className="space-y-3">
+                        <textarea className="w-full bg-slate-800 border border-slate-700 rounded p-3 text-white h-24 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Type your answer honestly..."></textarea>
+                        <div className="flex justify-end gap-2">
+                            {fiveWhysStep < 5 ? (
+                                <Button variant="primary" onClick={handleNextWhy}>Next Why →</Button>
                             ) : (
-                                <div className="space-y-3">
-                                    <p className="text-indigo-200 text-sm font-medium">{isThinking ? "Thinking..." : aiQuestion}</p>
-                                    <textarea 
-                                        className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-white text-sm h-20 focus:ring-2 focus:ring-indigo-500 outline-none" 
-                                        placeholder="Type your honest answer..."
-                                        value={userAnswer}
-                                        onChange={e => setUserAnswer(e.target.value)}
-                                        onKeyDown={e => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleNextWhy(); } }}
-                                    ></textarea>
-                                    <div className="flex justify-end">
-                                        <Button variant="primary" size="sm" onClick={handleNextWhy} disabled={isThinking || !userAnswer.trim()}>Next →</Button>
-                                    </div>
-                                </div>
+                                <Button variant="primary" className="bg-green-600 hover:bg-green-500" onClick={handleResetWhy}>Finish & Log Action</Button>
                             )}
                         </div>
-                    )}
+                    </div>
                 </div>
             )}
 
@@ -763,271 +991,9 @@ const DrillDownModal: React.FC<{ data: ModalData, logs: QuestionLog[], apiKey: s
     );
 };
 
-const AIChiefAnalyst: React.FC<{
-  weakTopics: { topic: string; count: number }[];
-  errorReasons: { name: string; value: number }[];
-  correlationData: any;
-  apiKey: string;
-}> = ({ weakTopics, errorReasons, correlationData, apiKey }) => {
-  const [summary, setSummary] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  const stringifiedData = JSON.stringify({ weakTopics, errorReasons, correlationData });
-
-  const generateSummary = useCallback(async (improvise = false) => {
-    setIsLoading(true);
-    setError('');
-    setSummary('');
-    try {
-      const result = await getAIChiefAnalystSummary(weakTopics, errorReasons, correlationData, apiKey, improvise);
-      setSummary(result);
-    } catch (e: any) {
-      setError(e.message || 'Failed to generate summary.');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [apiKey, weakTopics, errorReasons, correlationData]);
-  
-  useEffect(() => {
-      setSummary('');
-      setError('');
-      setIsLoading(false);
-  }, [stringifiedData]);
-
-  return (
-    <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700">
-      <div className="flex items-center gap-4">
-        <div className="w-10 h-10 bg-indigo-500/20 rounded-lg flex items-center justify-center text-indigo-300 text-xl border border-indigo-500/30 flex-shrink-0">💡</div>
-        <div><h3 className="text-xl font-bold text-[rgb(var(--color-primary))]">AI Chief Analyst Summary</h3></div>
-      </div>
-      <div className="mt-3 pl-14">
-        {isLoading && <p className="text-sm text-gray-400 animate-pulse">Synthesizing data to find the root cause...</p>}
-        {error && <p className="text-sm text-red-400">{error}</p>}
-        {summary && (<div><p className="text-[rgb(var(--color-primary-accent-rgb))] leading-relaxed">{summary}</p></div>)}
-        
-        {!isLoading && (
-             <div className="mt-4 flex flex-wrap gap-2">
-                <button onClick={() => generateSummary(false)} disabled={isLoading} className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-1 px-3 rounded-full transition-colors disabled:opacity-50 flex items-center gap-1.5">{summary ? 'Re-run Analysis' : 'Run Analysis'}</button>
-                 <button onClick={() => generateSummary(true)} disabled={isLoading} className="text-xs bg-indigo-600/50 hover:bg-indigo-600 text-white font-semibold py-1 px-3 rounded-full transition-colors disabled:opacity-50 flex items-center gap-1.5" title="Generate summary with a fresh perspective"><svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h5M20 20v-5h-5M4 4l5 5M20 20l-5-5" /></svg>{summary ? 'Improvise' : 'Run & Improvise'}</button>
-            </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-const ErrorReasonPieChart: React.FC<{ data: any[], totalErrors: number, onSliceClick: (name: string) => void }> = ({ data, totalErrors, onSliceClick }) => {
-    const [activeIndex, setActiveIndex] = useState(0);
-    const onPieEnter = useCallback((_: any, index: number) => { setActiveIndex(index); }, []);
-
-    const renderActiveShape = (props: any) => {
-        const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill, payload, value } = props;
-        return (
-            <g>
-                <text x={cx} y={cy - 5} textAnchor="middle" fill="#E5E7EB" fontSize={16} fontWeight="bold">{payload.name}</text>
-                <text x={cx} y={cy + 15} textAnchor="middle" fill="#9CA3AF" fontSize={14}>{value} count</text>
-                <Sector cx={cx} cy={cy} innerRadius={innerRadius} outerRadius={outerRadius + 6} startAngle={startAngle} endAngle={endAngle} fill={fill} stroke="#1f2937" strokeWidth={3} />
-            </g>
-        );
-    };
-    const PieComponent = Pie as any;
-    return (
-        <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-                <PieComponent activeIndex={activeIndex} activeShape={renderActiveShape} data={data} dataKey="value" nameKey="name" cx="50%" cy="45%" innerRadius={'60%'} outerRadius={'80%'} onMouseEnter={onPieEnter} onClick={(d: any) => onSliceClick(d.name)} cursor="pointer" stroke="#1f2937" strokeWidth={2}>
-                    {data.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS_PIE[entry.name as keyof typeof COLORS_PIE] || '#8884d8'} />)}
-                </PieComponent>
-                <Tooltip content={<CustomTooltip totalErrors={totalErrors}/>} />
-                <Legend iconType="square" wrapperStyle={{ fontSize: '12px' }} />
-            </PieChart>
-        </ResponsiveContainer>
-    );
-};
-
-const LostMarksWaterfall: React.FC<{ logs: QuestionLog[], reports: TestReport[] }> = ({ logs, reports }) => {
-    const chartData = useMemo(() => {
-        if (logs.length === 0) return [];
-        
-        const actualScore = logs.reduce((acc, log) => acc + log.marksAwarded, 0);
-        const deductions: Record<string, number> = { 'Unattempted': 0, [ErrorReason.SillyMistake]: 0, [ErrorReason.ConceptualGap]: 0, [ErrorReason.TimePressure]: 0, [ErrorReason.MisreadQuestion]: 0, [ErrorReason.Guess]: 0, 'Partial Loss': 0 };
-
-        logs.forEach(log => {
-             const { correct: maxMarks, wrong: negMarks } = getMarkingScheme(log.questionType);
-             if (log.status === QuestionStatus.Unanswered) { deductions['Unattempted'] += maxMarks; } 
-             else if (log.status === QuestionStatus.Wrong) {
-                 const lost = maxMarks + Math.abs(negMarks);
-                 const reason = log.reasonForError || ErrorReason.Guess;
-                 deductions[reason] = (deductions[reason] || 0) + lost;
-             } else if (log.status === QuestionStatus.PartiallyCorrect) {
-                 const lost = maxMarks - log.marksAwarded;
-                 deductions['Partial Loss'] += lost;
-             }
-        });
-
-        const totalDeductions = Object.values(deductions).reduce((a, b) => a + b, 0);
-        const potentialScore = actualScore + totalDeductions;
-        const data = [];
-        
-        data.push({ name: 'Potential', value: [0, potentialScore], fill: '#64748b', isTotal: true, displayValue: potentialScore });
-
-        let currentHeight = potentialScore;
-        const deductionEntries = Object.entries(deductions)
-            .filter(([, val]) => val > 0)
-            .sort(([, a], [, b]) => b - a);
-
-        deductionEntries.forEach(([reason, loss], index) => {
-            const nextHeight = currentHeight - loss;
-            const color = COLORS_PIE[reason] || '#f472b6'; // Fallback pink
-            data.push({ 
-                name: reason, 
-                value: [nextHeight, currentHeight], 
-                fill: color, 
-                isTotal: false, 
-                displayValue: -loss 
-            });
-            currentHeight = nextHeight;
-        });
-
-        data.push({ name: 'Actual', value: [0, Math.max(0, currentHeight)], fill: '#10b981', isTotal: true, displayValue: currentHeight }); 
-        return data;
-    }, [logs]);
-
-    return (
-        <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                <XAxis dataKey="name" stroke="#9CA3AF" tick={{ fontSize: 10 }} interval={0} angle={-15} textAnchor="end" />
-                <YAxis stroke="#9CA3AF" />
-                <Tooltip cursor={{fill: 'transparent'}} content={({ active, payload }) => { if (active && payload && payload.length) { const d = payload[0].payload; return ( <div className="p-2 bg-slate-900/90 border border-slate-600 rounded shadow text-xs"> <p className="font-bold text-white">{d.name}</p> <p className={`${d.displayValue < 0 ? 'text-red-400' : 'text-green-400'}`}>{d.isTotal ? 'Score: ' : 'Lost: '} {Math.abs(d.displayValue).toFixed(0)}</p> </div> ); } return null; }} />
-                <Bar dataKey="value" shape={(props: any) => { 
-                    const { fill, x, y, width, height, payload } = props;
-                    let connector = null;
-                    const index = chartData.indexOf(payload);
-                    if (index < chartData.length - 1) {
-                        const lineY = payload.isTotal ? y : y + height;
-                        connector = <line x1={x + width} y1={lineY} x2={x + width + 30} y2={lineY} stroke="#94a3b8" strokeDasharray="3 3" strokeWidth={1} />;
-                    }
-                    return ( <g> <rect x={x} y={y} width={width} height={height} fill={fill} rx={2} ry={2} /> {connector}</g> ); 
-                }}>
-                    <LabelList dataKey="value" position="top" content={(props: any) => { const { x, y, width, value, index } = props; const d = chartData[index]; const val = d ? d.displayValue : 0; if (Math.abs(val) < 1) return null; const color = val > 0 ? '#10b981' : '#f87171'; const displayTxt = val > 0 && !d?.isTotal ? `+${val.toFixed(0)}` : val.toFixed(0); return ( <text x={x + width / 2} y={y - 5} fill={d?.isTotal ? '#fff' : color} textAnchor="middle" fontSize={10} fontWeight="bold">{displayTxt}</text> ) }}/>
-                </Bar>
-            </BarChart>
-        </ResponsiveContainer>
-    );
-};
-
-// Weakest Topics Chart
-const WeakestTopicsChart: React.FC<{ data: { topic: string; count: number }[]; onClick: (topic: any) => void; totalErrorCount: number; logs: QuestionLog[]; fitContainer?: boolean, onAddPlan?: (topic: string) => void }> = ({ data, onClick, totalErrorCount, logs, fitContainer = false, onAddPlan }) => {
-    const [metric, setMetric] = useState<string>('count');
-
-    const processedData = useMemo(() => {
-        const allTopics = new Set(logs.map(l => l.topic).filter(t => t && t !== 'N/A'));
-        const stats = Array.from(allTopics).map(topic => {
-            const topicLogs = logs.filter(l => l.topic === topic);
-            const attempts = topicLogs.length;
-            const errors = topicLogs.filter(l => l.status === QuestionStatus.Wrong || l.status === QuestionStatus.PartiallyCorrect).length;
-            const correct = topicLogs.filter(l => l.status === QuestionStatus.FullyCorrect).length;
-            const marks = topicLogs.reduce((sum, l) => sum + l.marksAwarded, 0);
-            const accuracy = attempts > 0 ? (correct / attempts) * 100 : 0;
-            const avgMarks = attempts > 0 ? marks / attempts : 0;
-            return { topic, count: errors, attempts, accuracy, avgMarks, totalMarks: marks };
-        });
-        
-        const sorted = stats.sort((a, b) => {
-            if (metric === 'count') return b.count - a.count;
-            if (metric === 'accuracy') return a.accuracy - b.accuracy;
-            if (metric === 'avgMarks') return a.avgMarks - b.avgMarks;
-            return 0;
-        });
-
-        if (fitContainer) {
-            // Limit to top 10 for compact, non-scroll view
-            return sorted.slice(0, 10);
-        }
-        return sorted;
-    }, [logs, metric, fitContainer]);
-
-    const currentMetricLabel = useMemo(() => { if (metric === 'count') return 'Error Count'; if (metric === 'accuracy') return 'Accuracy (%)'; if (metric === 'avgMarks') return 'Avg Marks'; return 'Value'; }, [metric]);
-
-    // Calculate height for vertical scrolling only if not fitting to container
-    const chartHeight = fitContainer ? '100%' : Math.max(processedData.length * 32, 400);
-
-    return (
-        <div className="h-full flex flex-col">
-            <div className="flex justify-end items-center mb-2 px-2">
-                 <div className="flex items-center gap-2">
-                    <label className="text-xs text-gray-400">Metric:</label>
-                    <select value={metric} onChange={e => setMetric(e.target.value)} className="bg-slate-700 text-xs p-1 rounded-md border border-slate-600 focus:ring-1 focus:ring-cyan-500 outline-none">
-                        <option value="count">Error Count</option>
-                        <option value="accuracy">Lowest Accuracy</option>
-                        <option value="avgMarks">Lowest Avg Marks</option>
-                    </select>
-                </div>
-            </div>
-            <div className={`flex-grow ${fitContainer ? 'overflow-hidden' : 'overflow-y-auto pr-2 custom-scrollbar'}`}>
-                <div style={{ height: chartHeight, width: '100%' }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                        <BarChart 
-                            layout="vertical" 
-                            data={processedData} 
-                            margin={{ top: 5, right: 40, left: 20, bottom: 5 }} // Left margin handled by YAxis width
-                            barCategoryGap={fitContainer ? 4 : 8}
-                        >
-                            <CartesianGrid strokeDasharray="3 3" stroke="#374151" horizontal={false} vertical={true} />
-                            <XAxis type="number" stroke="#9CA3AF" hide />
-                            <YAxis 
-                                type="category" 
-                                dataKey="topic" 
-                                stroke="#9CA3AF" 
-                                tick={{ fontSize: 11, fill: '#E5E7EB' }} 
-                                width={140} 
-                                interval={0}
-                            />
-                            <Tooltip 
-                                cursor={{fill: 'rgba(255,255,255,0.05)'}} 
-                                content={({ active, payload }) => { 
-                                    if (active && payload && payload.length) { 
-                                        const d = payload[0].payload; 
-                                        return ( 
-                                            <div className="p-2 bg-slate-900 border border-slate-600 rounded shadow-lg text-xs z-50"> 
-                                                <p className="font-bold text-white mb-1">{d.topic}</p> 
-                                                <p className="text-cyan-300">{currentMetricLabel}: {typeof d[metric] === 'number' ? d[metric].toFixed(1) : d[metric]}</p>
-                                                <p className="text-gray-400 mt-1">Avg Marks: {d.avgMarks.toFixed(1)}</p>
-                                                <p className="text-gray-400">Accuracy: {d.accuracy.toFixed(1)}%</p>
-                                            </div> 
-                                        ); 
-                                    } 
-                                    return null; 
-                                }} 
-                            />
-                            <Bar 
-                                dataKey={metric} 
-                                fill="#3b82f6" 
-                                radius={[0, 4, 4, 0]} 
-                                onClick={(d) => onClick(d)} 
-                                cursor="pointer" 
-                                barSize={fitContainer ? undefined : 20}
-                            >
-                                <LabelList 
-                                    dataKey={metric} 
-                                    position="right" 
-                                    fill="#9CA3AF" 
-                                    fontSize={10} 
-                                    formatter={(val: number) => typeof val === 'number' ? val.toFixed(metric === 'count' ? 0 : 1) : val} 
-                                />
-                            </Bar>
-                        </BarChart>
-                    </ResponsiveContainer>
-                </div>
-            </div>
-        </div>
-    );
-};
-
 // --- Main RootCause Component ---
 
-export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFilter, setRootCauseFilter, apiKey, onAddTask }) => {
+export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFilter, setRootCauseFilter, apiKey, modelName, onAddTask }) => {
     const [viewMode, setViewMode] = useState<'dashboard' | 'briefing'>('dashboard');
     
     const [isCustomizing, setIsCustomizing] = useState(false);
@@ -1048,19 +1014,11 @@ export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFi
             const savedLayout = localStorage.getItem('rootCauseWidgetLayout_v7');
             if (savedLayout) {
                 const parsed = JSON.parse(savedLayout);
-                // Robust merge to respect saved order and visibility, but include new defaults
                 const savedWidgetMap = new Map(parsed.map((w: WidgetLayout) => [w.id, w]));
-                
-                const mergedLayout: WidgetLayout[] = parsed.filter((w: WidgetLayout) => 
-                    DEFAULT_ROOT_CAUSE_LAYOUT.some(d => d.id === w.id)
-                );
-
-                DEFAULT_ROOT_CAUSE_LAYOUT.forEach(defaultWidget => {
-                    if (!savedWidgetMap.has(defaultWidget.id)) {
-                        mergedLayout.push(defaultWidget);
-                    }
-                });
-                return mergedLayout;
+                return DEFAULT_ROOT_CAUSE_LAYOUT.map(defaultWidget => {
+                    const savedWidget = savedWidgetMap.get(defaultWidget.id);
+                    return savedWidget && typeof savedWidget === 'object' ? { ...defaultWidget, ...savedWidget } : defaultWidget;
+                }).filter(w => DEFAULT_ROOT_CAUSE_LAYOUT.some(d => d.id === w.id));
             }
         } catch (e) { console.error("Failed to load layout from localStorage", e); }
         return DEFAULT_ROOT_CAUSE_LAYOUT;
@@ -1098,10 +1056,8 @@ export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFi
     const filteredLogs = useMemo(() => {
         return logs.filter(log => {
             const subjectMatch = !rootCauseFilter.subject || log.subject === rootCauseFilter.subject;
-            const reasonMatch = !rootCauseFilter.reason || log.reasonForError === rootCauseFilter.reason;
-            const topicMatch = !rootCauseFilter.topic || log.topic === rootCauseFilter.topic;
             const testMatch = selectedTest === 'all' || log.testId === selectedTest;
-            return subjectMatch && reasonMatch && topicMatch && testMatch;
+            return subjectMatch && testMatch;
         });
     }, [logs, rootCauseFilter, selectedTest]);
 
@@ -1125,38 +1081,27 @@ export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFi
             },
             errorFlowSankey: {
                 title: "Flow of Failure (Root Cause)",
-                info: "A Sankey Diagram connecting Subject -> Weak Topics -> Error Reason. This reveals the 'Path of Failure'. For instance, if Physics flows heavily into 'Rotational Motion' and then 'Conceptual Gap', you know exactly where to focus.",
-                component: (
-                    <ResponsiveContainer width="100%" height="100%">
-                        {analysisData.sankeyData.nodes.length > 0 ? (
-                             <Sankey
-                                data={analysisData.sankeyData}
-                                node={<CustomSankeyNode containerWidth={800} />} 
-                                link={<CustomSankeyLink />}
-                                margin={{ top: 10, right: 10, bottom: 10, left: 10 }}
-                            >
-                                <Tooltip content={<CustomTooltip />} />
-                            </Sankey>
-                        ) : <div className="flex items-center justify-center h-full text-gray-500">Not enough data to map flows.</div>}
-                    </ResponsiveContainer>
-                )
+                info: "A Sankey Diagram connecting Subject -> Weak Topics -> Error Reason. This reveals the 'Path of Failure'. For instance, if Physics flows heavily into 'Rotational Motion' and then 'Conceptual Gap', you know exactly where to focus. Hover on nodes to highlight paths.",
+                component: <SankeyWidget data={analysisData.sankeyData} />
             },
             paretoAnalysis: {
                 title: "80/20 Rule (Pareto)",
                 info: "The Pareto Principle states that 80% of consequences come from 20% of causes. This chart shows your error count by topic (bars) and the cumulative impact (line). Fixing the few topics on the left will resolve the majority of your errors.",
                 component: (
-                    <ResponsiveContainer width="100%" height="100%">
-                        <ComposedChart data={analysisData.paretoData} margin={{ top: 20, right: 20, bottom: 60, left: 20 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                            <XAxis dataKey="topic" angle={-45} textAnchor="end" interval={0} stroke="#9CA3AF" tick={{ fontSize: 10 }} />
-                            <YAxis yAxisId="left" stroke="#9CA3AF" label={{ value: 'Error Count', angle: -90, position: 'insideLeft', fill: '#9CA3AF' }} />
-                            <YAxis yAxisId="right" orientation="right" stroke="#10B981" unit="%" domain={[0, 100]} />
-                            <Tooltip content={<CustomTooltip />} />
-                            <Legend wrapperStyle={{ bottom: 0 }} />
-                            <Bar yAxisId="left" dataKey="count" name="Errors" fill="#6366F1" barSize={20} />
-                            <Line yAxisId="right" type="monotone" dataKey="cumulativePercentage" name="Cumulative Impact" stroke="#10B981" strokeWidth={2} dot={false} />
-                        </ComposedChart>
-                    </ResponsiveContainer>
+                    <div className="flex-grow min-h-0">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                            <ComposedChart data={analysisData.paretoData} margin={{ top: 20, right: 20, bottom: 60, left: 20 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                                <XAxis dataKey="topic" angle={-45} textAnchor="end" interval={0} stroke="#9CA3AF" tick={{ fontSize: 10 }} />
+                                <YAxis yAxisId="left" stroke="#9CA3AF" label={{ value: 'Error Count', angle: -90, position: 'insideLeft', fill: '#9CA3AF' }} />
+                                <YAxis yAxisId="right" orientation="right" stroke="#10B981" unit="%" domain={[0, 100]} />
+                                <Tooltip content={<CustomTooltip />} />
+                                <Legend wrapperStyle={{ bottom: 0 }} />
+                                <Bar yAxisId="left" dataKey="count" name="Errors" fill="#6366F1" barSize={20} />
+                                <Line yAxisId="right" type="monotone" dataKey="cumulativePercentage" name="Cumulative Impact" stroke="#10B981" strokeWidth={2} dot={false} />
+                            </ComposedChart>
+                        </ResponsiveContainer>
+                    </div>
                 )
             },
             lostMarksWaterfall: {
@@ -1166,9 +1111,8 @@ export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFi
             },
             weakestTopics: {
                 title: "Weakest Topics Analysis",
-                info: "This chart ranks topics by the total number of incorrect or partially correct questions. Use 'Expand' to see the full list vertically.",
+                info: "This chart ranks topics by the total number of incorrect or partially correct questions. Click to see details.",
                 component: <WeakestTopicsChart data={analysisData.weakestTopics} onClick={(data) => openModal('topicDetail', `Topic Details: ${data.topic}`, data.topic)} totalErrorCount={analysisData.totalErrors} logs={filteredLogs} fitContainer={true} />,
-                actionButton: <button onClick={() => openModal('widget', 'Full Weakest Topics', undefined, 'weakestTopics_full')} className="text-xs bg-indigo-600/50 hover:bg-indigo-600 text-white font-semibold py-1 px-3 rounded-full transition-colors">Expand</button>
             },
             errorTrend: {
                 title: "Error Evolution (Temporal)",
@@ -1180,57 +1124,61 @@ export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFi
                     </div>
                 ),
                 component: (
-                    <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={analysisData.errorTrendData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                            <defs>
+                    <div className="flex-grow min-h-0">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                            <AreaChart data={analysisData.errorTrendData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                                <defs>
+                                    {Object.keys(COLORS_PIE).map(reason => (
+                                        <linearGradient key={reason} id={`color${reason.replace(/\s/g, '')}`} x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor={COLORS_PIE[reason]} stopOpacity={0.8}/>
+                                            <stop offset="95%" stopColor={COLORS_PIE[reason]} stopOpacity={0}/>
+                                        </linearGradient>
+                                    ))}
+                                </defs>
+                                <XAxis dataKey="date" stroke="#9CA3AF" tick={{fontSize: 10}} tickFormatter={(str) => new Date(str).toLocaleDateString(undefined, {month:'short', day:'numeric'})} />
+                                <YAxis stroke="#9CA3AF" unit={errorTrendMode === 'percent' ? '%' : ''} />
+                                <Tooltip content={<CustomTooltip />} />
+                                <Legend iconType="circle" wrapperStyle={{ fontSize: '11px' }} />
                                 {Object.keys(COLORS_PIE).map(reason => (
-                                    <linearGradient key={reason} id={`color${reason.replace(/\s/g, '')}`} x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor={COLORS_PIE[reason]} stopOpacity={0.8}/>
-                                        <stop offset="95%" stopColor={COLORS_PIE[reason]} stopOpacity={0}/>
-                                    </linearGradient>
+                                    <Area 
+                                        key={reason}
+                                        type="monotone" 
+                                        dataKey={errorTrendMode === 'percent' ? `${reason}%` : reason} 
+                                        name={reason}
+                                        stackId="1" 
+                                        stroke={COLORS_PIE[reason]} 
+                                        fill={`url(#color${reason.replace(/\s/g, '')})`} 
+                                    />
                                 ))}
-                            </defs>
-                            <XAxis dataKey="date" stroke="#9CA3AF" tick={{fontSize: 10}} tickFormatter={(str) => new Date(str).toLocaleDateString(undefined, {month:'short', day:'numeric'})} />
-                            <YAxis stroke="#9CA3AF" unit={errorTrendMode === 'percent' ? '%' : ''} />
-                            <Tooltip content={<CustomTooltip />} />
-                            <Legend iconType="circle" wrapperStyle={{ fontSize: '11px' }} />
-                            {Object.keys(COLORS_PIE).map(reason => (
-                                <Area 
-                                    key={reason}
-                                    type="monotone" 
-                                    dataKey={errorTrendMode === 'percent' ? `${reason}%` : reason} 
-                                    name={reason}
-                                    stackId="1" 
-                                    stroke={COLORS_PIE[reason]} 
-                                    fill={`url(#color${reason.replace(/\s/g, '')})`} 
-                                />
-                            ))}
-                            <Brush dataKey="date" height={30} stroke="#475569" fill="#1e293b" tickFormatter={() => ''} />
-                        </AreaChart>
-                    </ResponsiveContainer>
+                                <Brush dataKey="date" height={30} stroke="#475569" fill="#1e293b" tickFormatter={() => ''} />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    </div>
                 )
             },
             fatigueAnalysis: {
                 title: "Exam Fatigue Analysis",
                 info: "Correlates question position (1-10, 11-20...) with Error Rate. A rising trend indicates fatigue or loss of focus towards the end of the paper.",
                 component: (
-                    <ResponsiveContainer width="100%" height="100%">
-                        <ComposedChart data={analysisData.fatigueData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
-                            <CartesianGrid stroke="#374151" strokeDasharray="3 3" vertical={false} />
-                            <XAxis dataKey="range" stroke="#9CA3AF" label={{ value: 'Question Range', position: 'insideBottom', offset: -10, fill: '#9CA3AF', fontSize: 10 }} />
-                            <YAxis yAxisId="left" stroke="#F87171" unit="%" label={{ value: 'Error Rate', angle: -90, position: 'insideLeft', fill: '#F87171' }} />
-                            <YAxis yAxisId="right" orientation="right" stroke="#6B7280" label={{ value: 'Attempts', angle: 90, position: 'insideRight', fill: '#6B7280' }} />
-                            <Tooltip content={<CustomTooltip />} />
-                            <Bar yAxisId="right" dataKey="attempts" name="Attempts" fill="#374151" barSize={20} />
-                            <Line yAxisId="left" type="monotone" dataKey="errorRate" name="Error Rate" stroke="#F87171" strokeWidth={3} dot={{r: 4, fill: '#F87171'}} />
-                        </ComposedChart>
-                    </ResponsiveContainer>
+                    <div className="flex-grow min-h-0">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                            <ComposedChart data={analysisData.fatigueData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                                <CartesianGrid stroke="#374151" strokeDasharray="3 3" vertical={false} />
+                                <XAxis dataKey="range" stroke="#9CA3AF" label={{ value: 'Question Range', position: 'insideBottom', offset: -10, fill: '#9CA3AF', fontSize: 10 }} />
+                                <YAxis yAxisId="left" stroke="#F87171" unit="%" label={{ value: 'Error Rate', angle: -90, position: 'insideLeft', fill: '#F87171' }} />
+                                <YAxis yAxisId="right" orientation="right" stroke="#6B7280" label={{ value: 'Attempts', angle: 90, position: 'insideRight', fill: '#6B7280' }} />
+                                <Tooltip content={<CustomTooltip />} />
+                                <Bar yAxisId="right" dataKey="attempts" name="Attempts" fill="#374151" barSize={20} />
+                                <Line yAxisId="left" type="monotone" dataKey="errorRate" name="Error Rate" stroke="#F87171" strokeWidth={3} dot={{r: 4, fill: '#F87171'}} />
+                            </ComposedChart>
+                        </ResponsiveContainer>
+                    </div>
                 )
             },
             errorReason: {
                 title: "Error Reason Distribution",
                 info: "This pie chart shows the breakdown of why you are making mistakes (e.g., conceptual gaps, silly mistakes). Understanding this helps you focus on strategy (e.g., more careful work) vs. just studying more.",
-                component: <ErrorReasonPieChart data={analysisData.errorReasonDistribution} totalErrors={analysisData.totalErrors} onSliceClick={(name) => setRootCauseFilter({ ...rootCauseFilter, reason: name as ErrorReason })} />,
+                component: <ErrorReasonPieChart data={analysisData.errorReasonDistribution} totalErrors={analysisData.totalErrors} onSliceClick={(name) => openModal('errorReasonDetail', `Error Reason: ${name}`, name)} />,
                 actionButton: <button onClick={() => openModal('simulator', 'Performance Simulator', undefined, undefined, {type: 'reason', data: analysisData.errorReasonDistribution})} className="text-xs bg-indigo-600/50 hover:bg-indigo-600 text-white font-semibold py-1 px-3 rounded-full transition-colors">Simulate</button>
             },
             metricScatterPlot: { 
@@ -1256,15 +1204,17 @@ export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFi
                 ),
                 component: (
                      <div className="flex flex-col h-full">
-                         <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={analysisData.performanceByQuestionType} margin={{ top: 5, right: 20, left: -10, bottom: 50 }}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                                    <XAxis dataKey="name" stroke="#9CA3AF" angle={-40} textAnchor="end" interval={0} height={80} tick={{ fontSize: 10 }}/>
-                                    <YAxis stroke="#9CA3AF" />
-                                    <Tooltip content={<CustomTooltip />} />
-                                    <Bar dataKey={qTypeMetric} fill={qTypeMetric === 'errorRate' ? '#EF4444' : qTypeMetric === 'avgMarks' ? '#10B981' : '#FBBF24'} />
-                                </BarChart>
-                            </ResponsiveContainer>
+                         <div className="flex-grow min-h-0">
+                             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                                    <BarChart data={analysisData.performanceByQuestionType} margin={{ top: 5, right: 20, left: -10, bottom: 50 }}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                                        <XAxis dataKey="name" stroke="#9CA3AF" angle={-40} textAnchor="end" interval={0} height={80} tick={{ fontSize: 10 }}/>
+                                        <YAxis stroke="#9CA3AF" />
+                                        <Tooltip content={<CustomTooltip />} />
+                                        <Bar dataKey={qTypeMetric} fill={qTypeMetric === 'errorRate' ? '#EF4444' : qTypeMetric === 'avgMarks' ? '#10B981' : '#FBBF24'} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                        </div>
                     </div>
                 ),
             },
@@ -1286,13 +1236,13 @@ export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFi
             },
             guessingGame: {
                 title: "Guessing Efficiency",
-                info: "Analyzes your 'Luck vs. Intuition'. If your guessing efficiency is low (<25%), you are losing marks by guessing. If high, your intuition is good.",
+                info: "Analyzes your 'Luck vs. Intuition'. 'Safe Bets' are guesses on questions with no negative marking (like Integers). 'Risky Gambles' are guesses that can hurt your score. High Intuition means your gut feeling is often right.",
                 component: <GuessingWidget stats={analysisData.guessStats} />
             },
             scoreSimulator: {
                 title: "Bayesian Score Simulator",
                 info: "An interactive 'What-If' engine. Adjust the sliders to see how reducing specific error types (like Silly Mistakes) would improve your average score. Toggles for Mains (+4) vs Advanced (+3) assumptions.",
-                component: <ScoreSimulatorWidget initialScore={reports.length > 0 ? reports.reduce((a,b)=>a+b.total.marks,0)/reports.length : 0} errorProfile={analysisData.errorReasonDistribution} />
+                component: <ScoreSimulatorWidget initialScore={reports.length > 0 ? reports.reduce((a,b)=>a+b.total.marks,0)/reports.length : 0} errorProfile={analysisData.errorReasonDistribution} logs={filteredLogs} totalTests={reports.length} />
             },
             dependencyAlerts: {
                 title: "Dependency Alerts",
@@ -1305,23 +1255,15 @@ export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFi
         if (modalData?.widgetId === 'weakestTopics_full') {
              widgets['weakestTopics_full'] = {
                 title: "All Weak Topics",
-                component: <WeakestTopicsChart data={analysisData.weakestTopics} onClick={(data) => openModal('topicDetail', `Topic Details: ${data.topic}`, data.topic)} totalErrorCount={analysisData.totalErrors} logs={filteredLogs} fitContainer={false} />, // fitContainer false for expanded
+                component: <WeakestTopicsChart data={analysisData.weakestTopics} onClick={(data) => openModal('topicDetail', `Topic Details: ${data.topic}`, data.topic)} totalErrorCount={analysisData.totalErrors} logs={filteredLogs} fitContainer={false} />, 
                 info: "Full list of all weak topics."
              };
         }
 
         return widgets;
-    }, [filteredLogs, filteredReportsForCharts, analysisData, qTypeMetric, errorTrendMode, reports, modalData?.widgetId, setRootCauseFilter, rootCauseFilter]);
+    }, [filteredLogs, filteredReportsForCharts, analysisData, qTypeMetric, errorTrendMode, reports, modalData?.widgetId]);
 
     const hiddenWidgets = DEFAULT_ROOT_CAUSE_LAYOUT.filter(w => !layout.find(l => l.id === w.id)?.visible);
-
-    const handleDrillDown = (type: 'subject' | 'errorReason', value: string) => {
-        const newFilter = { ...rootCauseFilter };
-        if (type === 'subject') newFilter.subject = value;
-        if (type === 'errorReason') newFilter.reason = value as ErrorReason;
-        setRootCauseFilter(newFilter);
-        setViewMode('dashboard');
-    };
 
     return (
         <div className="space-y-6 pb-20">
@@ -1353,41 +1295,27 @@ export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFi
                     </div>
                     <div className="flex items-center gap-2">
                         <label className="text-sm text-gray-400">Subject:</label>
-                        <select value={rootCauseFilter.subject || ''} onChange={e => setRootCauseFilter({ ...rootCauseFilter, subject: e.target.value || null })} className="bg-slate-700 p-2 rounded-md border border-slate-600 focus:ring-1 focus:ring-[rgb(var(--color-primary-rgb))] focus:outline-none">
+                        <select value={rootCauseFilter.subject || ''} onChange={e => setRootCauseFilter({ subject: e.target.value || null })} className="bg-slate-700 p-2 rounded-md border border-slate-600 focus:ring-1 focus:ring-[rgb(var(--color-primary-rgb))] focus:outline-none">
                             <option value="">All Subjects</option>
                             {Array.from(new Set(logs.map(l => l.subject))).map((s: string) => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
                         </select>
                     </div>
-                    
-                    {/* Filter Reset Logic for Cross-Filtering */}
-                    {(rootCauseFilter.reason || rootCauseFilter.topic) && (
-                        <button onClick={() => setRootCauseFilter({ ...rootCauseFilter, reason: null, topic: null })} className="text-xs text-red-400 hover:text-red-300 border border-red-500/30 px-2 py-1 rounded">
-                            Clear Selection
-                        </button>
-                    )}
-
                     {viewMode === 'dashboard' && (
                         <Button variant={isCustomizing ? 'primary' : 'secondary'} onClick={() => setIsCustomizing(!isCustomizing)}>{isCustomizing ? 'Done' : 'Customize'}</Button>
                     )}
                 </div>
             </div>
 
-            {/* Filter Banner */}
-            {rootCauseFilter.reason && (
-                <div className="bg-indigo-900/30 border border-indigo-500/30 p-2 rounded text-center text-sm text-indigo-200">
-                    Filtering dashboard by Error Type: <strong>{rootCauseFilter.reason}</strong>
-                </div>
-            )}
-
             {viewMode === 'briefing' ? (
-                <ExecutiveBriefing reports={filteredReportsForCharts} logs={filteredLogs} onDrillDown={handleDrillDown} />
+                <ExecutiveBriefing reports={filteredReportsForCharts} logs={filteredLogs} />
             ) : (
                 <>
                     <AIChiefAnalyst
                         weakTopics={analysisData.weakestTopics}
                         errorReasons={analysisData.errorReasonDistribution}
-                        correlationData={{ data: [] }} // Fix: Provide empty data structure to avoid undefined error
+                        correlationData={{ data: [] }}
                         apiKey={apiKey}
+                        model={modelName}
                     />
                     
                     <div className="flex gap-6 relative">
@@ -1396,13 +1324,17 @@ export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFi
                                 const widgetConfig = WIDGETS[widget.id];
                                 if (!widgetConfig) return null;
                                 const isDraggable = isCustomizing;
+                                
+                                // Special Logic: Weakest Topics should open full view on click
+                                const targetWidgetId = widget.id === 'weakestTopics' ? 'weakestTopics_full' : widget.id;
+
                                 return (
                                     <div key={widget.id} className={`${widget.size === 'wide' ? 'lg:col-span-2' : ''} h-[28rem] ${isDraggable ? 'cursor-move' : ''} ${dragOverId === widget.id && draggingId ? 'drag-over-indicator' : ''}`} draggable={isDraggable} onDragStart={(e) => handleDragStart(e, widget.id)} onDragEnter={(e) => handleDragEnter(e, widget.id)} onDragEnd={handleDragEnd} onDragLeave={() => setDragOverId(null)}>
                                         <ChartCard 
                                             title={widgetConfig.title} 
                                             isEditing={isCustomizing} 
                                             isDragging={draggingId === widget.id} 
-                                            onChartClick={() => openModal('widget', typeof widgetConfig.title === 'string' ? widgetConfig.title : 'Expanded View', undefined, widget.id)} 
+                                            onChartClick={() => openModal('widget', typeof widgetConfig.title === 'string' ? widgetConfig.title : 'Expanded View', undefined, targetWidgetId)} 
                                             actionButton={widgetConfig.actionButton} 
                                             onInfoClick={() => openModal('info', typeof widgetConfig.title === 'string' ? widgetConfig.title : 'About this chart', undefined, undefined, undefined, widgetConfig.info)}
                                             headerControls={widgetConfig.headerControls}
@@ -1453,7 +1385,7 @@ export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFi
                     isInfo={modalData.type === 'info'}
                 >
                     {modalData.type === 'errorReasonDetail' || modalData.type === 'topicDetail' ? (
-                        <DrillDownModal data={modalData} logs={filteredLogs} apiKey={apiKey} onAddTask={onAddTask} />
+                        <DrillDownModal data={modalData} logs={filteredLogs} />
                     ) : modalData.type === 'info' ? (
                         <div className="text-sm text-gray-300 space-y-2 p-1">{modalData.infoContent}</div>
                     ) : modalData.type === 'simulator' ? (

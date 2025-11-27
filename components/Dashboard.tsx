@@ -33,6 +33,7 @@ interface DashboardProps {
   setRootCauseFilter: (filter: RootCauseFilter) => void;
   onStartFocusSession: (topic: string) => void;
   longTermGoals: LongTermGoal[];
+  modelName?: string; // Added: Use user's preferred model for deep analysis
 }
 
 type WidgetId = 'heatmap' | 'performanceTrend' | 'subjectComparison' | 'subjectStrengthsRadar' | 'percentilePredictor' | 'aiAnalysis' | 'strategicROI' | 'paperStrategy' | 'rankPredictor' | 'volatility' | 'rankSimulator' | 'goalProgress';
@@ -78,6 +79,7 @@ const InsightBanner: React.FC<{ reports: TestReport[], apiKey: string }> = ({ re
             if (reports.length === 0) return;
 
             setLoading(true);
+            // Always use Flash for quick insights
             const text = await generateDashboardInsight(reports, apiKey);
             setInsight(text);
             sessionStorage.setItem('dashboardDailyInsight', text);
@@ -443,7 +445,7 @@ const KPIModal: React.FC<{ title: string, metricKey: string, reports: TestReport
     );
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, setView, setRootCauseFilter, onStartFocusSession, longTermGoals }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, setView, setRootCauseFilter, onStartFocusSession, longTermGoals, modelName }) => {
     const [isCustomizing, setIsCustomizing] = useState(false);
     const [enableAiInsights, setEnableAiInsights] = useState(false);
     const [contextualInsight, setContextualInsight] = useState<{ widgetId: WidgetId | null; text: string; isLoading: boolean }>({ widgetId: null, text: '', isLoading: false });
@@ -496,6 +498,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
                 return;
             }
 
+            // Always use Flash for chart summaries
             const performanceSummary = await generateChartAnalysis("Performance Trend", `Last 5 scores: ${reports.slice(-5).map(r => r.total.marks).join(', ')}`, apiKey);
             // Simple heuristic for subject comparison summary to save API calls or could also call API
             const sub = reports[reports.length - 1];
@@ -567,12 +570,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
         if (!apiKey) { setAiAnalysis({ content: '', isLoading: false, error: "API Key not set." }); return; }
         setAiAnalysis({ content: '', isLoading: true, error: null });
         try {
-            const result = await getAIAnalysis(reports, logs, apiKey);
+            // Uses the selected model for deep analysis
+            const result = await getAIAnalysis(reports, logs, apiKey, modelName);
             setAiAnalysis({ content: result, isLoading: false, error: null });
         } catch (e) {
             setAiAnalysis({ content: '', isLoading: false, error: e instanceof Error ? e.message : 'An unknown error occurred.' });
         }
-    }, [apiKey, reports, logs]);
+    }, [apiKey, reports, logs, modelName]);
 
     const WIDGETS: Record<WidgetId, { title: string; component: React.ReactNode; getDataForInsight: () => string; info: React.ReactNode; }> = {
         heatmap: { title: "Test Activity Heatmap", component: <CalendarHeatmapWidget reports={processedReports} />, getDataForInsight: () => `Analyze activity from ${reports.length} tests over the past year.`, info: "This heatmap shows your test-taking frequency and average score over the past year. Darker shades of cyan indicate higher scores on those days." },
@@ -611,6 +615,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
             setContextualInsight({ widgetId, isLoading: true, text: '' });
             try {
                 const prompt = WIDGETS[widgetId].getDataForInsight();
+                // Always use Flash for hover insights to ensure low latency
                 const insight = await generateContextualInsight(prompt, apiKey);
                 setContextualInsight({ widgetId, isLoading: false, text: insight });
             } catch (error) {

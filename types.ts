@@ -19,10 +19,10 @@ export interface DailyTask {
   completed: boolean;
   linkedTopic?: string;
   taskType: TaskType;
-  effort?: TaskEffort; // Added
-  estimatedTime: number; // in minutes
+  effort?: TaskEffort;
+  estimatedTime: number;
   accomplishment?: string;
-  scheduledTime?: string; // e.g., "09:00", "14:30"
+  scheduledTime?: string;
 }
 
 export interface StudyGoal {
@@ -45,7 +45,7 @@ export interface SubjectData {
   wrong: number;
   unanswered: number;
   partial: number;
-  maxMarks?: number; // Added: Max possible marks for this specific test
+  maxMarks?: number;
 }
 
 export interface CalculatedMetrics {
@@ -87,8 +87,8 @@ export interface TestReport {
   testName: string;
   type?: TestType;
   subType?: TestSubType;
-  difficulty?: DifficultyLevel; // Added
-  topperScore?: number; // Added: Score of the institute topper
+  difficulty?: DifficultyLevel; 
+  topperScore?: number; 
 
   physics: SubjectData;
   chemistry: SubjectData;
@@ -102,11 +102,21 @@ export interface TestReport {
 }
 
 export enum QuestionType {
-  SingleCorrect3 = "Single Correct (+3, -1)",
-  SingleCorrect4 = "Single Correct (+4, -1)",
-  MultipleCorrect = "Multiple Correct (+4, -2)",
-  Integer3 = "Integer (+3, 0)",
-  Integer4 = "Integer (+4, 0)",
+  // Generic
+  SingleCorrect = "Single Correct",
+  MultipleCorrect = "Multiple Correct",
+  Integer = "Integer",
+  MatrixMatch = "Matrix Match",
+  
+  // Specific Schemes (Restored for Dropdowns)
+  SingleCorrect31 = "Single Correct (+3, -1)",
+  SingleCorrect41 = "Single Correct (+4, -1)",
+  SingleCorrect40 = "Single Correct (+4, 0)",
+  MultipleCorrect42 = "Multiple Correct (+4, -2)",
+  MultipleCorrect41 = "Multiple Correct (+4, -1)",
+  Integer30 = "Integer (+3, 0)",
+  Integer40 = "Integer (+4, 0)",
+  Integer41 = "Integer (+4, -1)"
 }
 
 export enum QuestionStatus {
@@ -128,14 +138,16 @@ export interface QuestionLog {
   testId: string;
   subject: "physics" | "chemistry" | "maths";
   questionNumber: number;
-  questionType: QuestionType;
+  questionType: string; // Flexible string
+  positiveMarks?: number; 
+  negativeMarks?: number; 
   status: QuestionStatus;
   marksAwarded: number;
   topic: string;
-  reasonForError?: ErrorReason;
+  reasonForError?: string; // Changed to string to allow custom reasons
   answered?: string;
   finalKey?: string;
-  timeSpent?: number; // Added: Time spent in Speed vs Accuracy
+  timeSpent?: number;
 }
 
 // --- Advanced Analysis Types ---
@@ -152,8 +164,14 @@ export interface PanicEvent {
 export interface GuessStats {
     totalGuesses: number;
     correctGuesses: number;
-    efficiency: number; // %
+    efficiency: number; // Net Score / Potential Score
     netScoreImpact: number;
+    
+    // New Detailed Metrics
+    intuitionScore: number; // % of guesses that were correct (ignoring marking scheme)
+    safeGuesses: number; // Guesses on questions with 0 negative marks
+    riskyGuesses: number; // Guesses on questions with negative marks
+    riskyMisses: number; // Risky guesses that went wrong
 }
 
 export interface DependencyAlert {
@@ -170,7 +188,7 @@ export type GenUIToolType = 'chart' | 'checklist' | 'syllabus_node' | 'none';
 
 export interface GenUIComponentData {
     type: GenUIToolType;
-    data: any; // Flexible payload
+    data: any; 
     id: string;
 }
 
@@ -184,7 +202,7 @@ export interface ChatMessage {
   role: 'user' | 'model';
   content: ChatMessageContent;
   timestamp?: number;
-  isThinking?: boolean; // For thinking models
+  isThinking?: boolean; 
   thinkingContent?: string;
 }
 
@@ -195,10 +213,11 @@ export interface RootCauseFilter {
 }
 
 export interface AiAssistantPreferences {
+  model: string; 
   responseLength: 'short' | 'medium' | 'long';
   tone: 'encouraging' | 'neutral' | 'direct';
-  customInstructions?: string; // Added: Allow user to define persona
-  socraticMode?: boolean; // Added
+  customInstructions?: string; 
+  socraticMode?: boolean; 
 }
 
 export interface NotificationPreferences {
@@ -236,17 +255,17 @@ export interface ChapterProgress {
     subTopicStatus?: Record<string, boolean>;
     revisionCount: number;
     aiSuggestedStrength?: 'strength' | 'weakness' | 'dismissed' | null;
-    lastRevised?: string; // ISO Date string
-    nextRevisionDate?: string; // ISO Date string
+    lastRevised?: string; 
+    nextRevisionDate?: string; 
     lectureCompleted?: boolean;
     notesCompleted?: boolean;
-    completionDate?: string; // ISO Date string
+    completionDate?: string; 
 }
 
 export interface QuizQuestion {
   question: string;
-  options: { [key: string]: string }; // e.g., { A: 'Option 1', B: 'Option 2' }
-  answer: string; // The key of the correct option, e.g., 'A'
+  options: { [key: string]: string };
+  answer: string; 
   explanation: string;
 }
 
@@ -263,13 +282,13 @@ export interface UserProfile {
       [TestSubType.JEEMains]: number;
       [TestSubType.JEEAdvanced]: number;
   };
-  targetTimePerQuestion: { // In seconds
+  targetTimePerQuestion: { 
       physics: number;
       chemistry: number;
       maths: number;
   };
-  targetExamDate?: string; // ISO Date string, e.g., "2025-01-26"
-  syllabusCompletionBufferDays?: number; // New: Days before exam to finish syllabus
+  targetExamDate?: string; 
+  syllabusCompletionBufferDays?: number; 
 }
 
 

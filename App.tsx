@@ -30,7 +30,19 @@ const App: React.FC = () => {
     const [prefilledTask, setPrefilledTask] = useState<Partial<DailyTask> | null>(null);
 
     const [aiPreferences, setAiPreferences] = useState<AiAssistantPreferences>(() => {
-        try { const saved = localStorage.getItem('aiAssistantPreferences_v1'); return saved ? JSON.parse(saved) : { responseLength: 'medium', tone: 'encouraging' }; } catch { return { responseLength: 'medium', tone: 'encouraging' }; }
+        try { 
+            const saved = localStorage.getItem('aiAssistantPreferences_v1'); 
+            const parsed = saved ? JSON.parse(saved) : {};
+            return { 
+                model: parsed.model || 'gemini-2.5-flash', 
+                responseLength: parsed.responseLength || 'medium', 
+                tone: parsed.tone || 'encouraging',
+                customInstructions: parsed.customInstructions,
+                socraticMode: parsed.socraticMode
+            }; 
+        } catch { 
+            return { model: 'gemini-2.5-flash', responseLength: 'medium', tone: 'encouraging' }; 
+        }
     });
     const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(() => {
         try { const saved = localStorage.getItem('notificationPreferences_v1'); return saved ? JSON.parse(saved) : { achievements: true, proactiveInsights: true, proactiveInsightSensitivity: 'medium' }; } catch { return { achievements: true, proactiveInsights: true, proactiveInsightSensitivity: 'medium' }; }
@@ -318,13 +330,13 @@ const App: React.FC = () => {
         ).sort((a, b) => b[1] - a[1]).slice(0, 5).map(e => e[0]);
 
         try {
-            const plan = await generateFocusedStudyPlan(subject, weakTopics, apiKey);
+            const plan = await generateFocusedStudyPlan(subject, weakTopics, apiKey, aiPreferences.model);
             jeeData.setChatHistory(prev => prev.map(msg => msg.content === loadingMessage ? { ...msg, content: plan } : msg));
         } catch (error) {
             const errorMessage = "Sorry, I couldn't generate the plan right now. Please try asking me again later.";
             jeeData.setChatHistory(prev => prev.map(msg => msg.content === loadingMessage ? { ...msg, content: errorMessage } : msg));
         }
-    }, [apiKey, proactiveInsight, jeeData.questionLogs, jeeData.setChatHistory]);
+    }, [apiKey, proactiveInsight, jeeData.questionLogs, jeeData.setChatHistory, aiPreferences.model]);
 
     const handleDismissInsight = () => {
         insightDismissedForThisDataset.current = true;
@@ -397,15 +409,15 @@ const App: React.FC = () => {
                 toasts={toasts}
                 setToasts={setToasts}
             >
-                {view === 'daily-planner' && <DailyPlanner goals={jeeData.studyGoals} setGoals={jeeData.setStudyGoals} apiKey={apiKey} logs={jeeData.questionLogs} proactiveInsight={proactiveInsight} onAcceptPlan={handleAcceptPlan} onDismissInsight={handleDismissInsight} addXp={() => addXp('completeTask')} userProfile={userProfile} prefilledTask={prefilledTask} setPrefilledTask={setPrefilledTask} />}
-                {view === 'dashboard' && <Dashboard reports={jeeData.filteredReports} logs={jeeData.filteredLogs} apiKey={apiKey} setView={setView} setRootCauseFilter={setRootCauseFilter} onStartFocusSession={handleStartFocusSession} longTermGoals={jeeData.longTermGoals} />}
-                {view === 'syllabus' && <Syllabus userProfile={userProfile} setUserProfile={setUserProfile} questionLogs={jeeData.questionLogs} reports={jeeData.filteredReports} apiKey={apiKey} onStartFocusSession={handleStartFocusSession} setView={setView} addTasksToPlanner={addTasksToPlanner}/>}
+                {view === 'daily-planner' && <DailyPlanner goals={jeeData.studyGoals} setGoals={jeeData.setStudyGoals} apiKey={apiKey} logs={jeeData.questionLogs} proactiveInsight={proactiveInsight} onAcceptPlan={handleAcceptPlan} onDismissInsight={handleDismissInsight} addXp={() => addXp('completeTask')} userProfile={userProfile} prefilledTask={prefilledTask} setPrefilledTask={setPrefilledTask} modelName={aiPreferences.model} />}
+                {view === 'dashboard' && <Dashboard reports={jeeData.filteredReports} logs={jeeData.filteredLogs} apiKey={apiKey} setView={setView} setRootCauseFilter={setRootCauseFilter} onStartFocusSession={handleStartFocusSession} longTermGoals={jeeData.longTermGoals} modelName={aiPreferences.model} />}
+                {view === 'syllabus' && <Syllabus userProfile={userProfile} setUserProfile={setUserProfile} questionLogs={jeeData.questionLogs} reports={jeeData.filteredReports} apiKey={apiKey} onStartFocusSession={handleStartFocusSession} setView={setView} addTasksToPlanner={addTasksToPlanner} modelName={aiPreferences.model} />}
                 {view === 'detailed-reports' && <DetailedReportsView allReports={jeeData.testReports} filteredReports={jeeData.filteredReports} setReports={setTestReports} onViewQuestionLog={handleViewQuestionLogForTest} onDeleteReport={handleDeleteReport}/>}
                 {view === 'deep-analysis' && <DeepAnalysis reports={jeeData.filteredReports} />}
-                {view === 'root-cause' && <RootCause logs={jeeData.filteredLogs} reports={jeeData.filteredReports} rootCauseFilter={rootCauseFilter} setRootCauseFilter={setRootCauseFilter} apiKey={apiKey} />}
-                {view === 'ai-assistant' && <AiAssistant reports={jeeData.filteredReports} questionLogs={jeeData.questionLogs} setView={setView} setActiveLogFilter={setActiveLogFilter} apiKey={apiKey} chatHistory={jeeData.chatHistory} setChatHistory={jeeData.setChatHistory} studyGoals={jeeData.studyGoals} setStudyGoals={jeeData.setStudyGoals} preferences={aiPreferences} />}
+                {view === 'root-cause' && <RootCause logs={jeeData.filteredLogs} reports={jeeData.filteredReports} rootCauseFilter={rootCauseFilter} setRootCauseFilter={setRootCauseFilter} apiKey={apiKey} onAddTask={(task) => addTasksToPlanner([task])} modelName={aiPreferences.model} />}
+                {view === 'ai-assistant' && <AiAssistant reports={jeeData.filteredReports} questionLogs={jeeData.questionLogs} setView={setView} setActiveLogFilter={setActiveLogFilter} apiKey={apiKey} chatHistory={jeeData.chatHistory} setChatHistory={jeeData.setChatHistory} studyGoals={jeeData.studyGoals} setStudyGoals={jeeData.setStudyGoals} preferences={aiPreferences} onUpdatePreferences={setAiPreferences} />}
                 {view === 'question-log-editor' && <QuestionLogEditor logs={jeeData.questionLogs} reports={jeeData.testReports} setLogs={setQuestionLogs} activeLogFilter={activeLogFilter} setActiveLogFilter={setActiveLogFilter} />}
-                {view === 'data-entry' && <OcrProcessor onAddData={addData} apiKey={apiKey} />}
+                {view === 'data-entry' && <OcrProcessor onAddData={addData} apiKey={apiKey} modelName={aiPreferences.model} />}
                 {view === 'achievements' && <Achievements gamificationState={gamificationState} achievements={achievements} levelInfo={levelInfo} />}
                 {view === 'settings' && (
                     <Settings 

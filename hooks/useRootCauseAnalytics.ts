@@ -182,6 +182,7 @@ export const useRootCauseAnalytics = (filteredLogs: QuestionLog[], reports: Test
     const panicEvents: PanicEvent[] = [];
     const reportMap = new Map(reports.map(r => [r.id, r]));
     
+    // Group ALL logs by test first
     const logsByTest = new Map<string, QuestionLog[]>();
     filteredLogs.forEach(log => {
         if (!logsByTest.has(log.testId)) logsByTest.set(log.testId, []);
@@ -189,13 +190,31 @@ export const useRootCauseAnalytics = (filteredLogs: QuestionLog[], reports: Test
     });
 
     logsByTest.forEach((testLogs, testId) => {
-        // Sort by question number
         const sorted = testLogs.sort((a, b) => a.questionNumber - b.questionNumber);
+        // If all question numbers are 0 or undefined (bad import), fallback to index
+        const useIndex = sorted.every(l => l.questionNumber === 0);
+        
         let currentChain = 0;
         let chainLostMarks = 0;
         let chainStartIndex = -1;
 
         sorted.forEach((log, index) => {
+            const currentQNo = useIndex ? index + 1 : log.questionNumber;
+            const prevQNo = useIndex ? index : (index > 0 ? sorted[index - 1].questionNumber : -99);
+
+            // Check strict sequence
+            if (index > 0 && currentQNo !== prevQNo + 1) {
+                 if (currentChain >= 3) {
+                    const testName = reportMap.get(testId)?.testName || 'Unknown Test';
+                    const startQ = sorted[chainStartIndex].questionNumber || (chainStartIndex + 1);
+                    const endQ = sorted[index - 1].questionNumber || index;
+                    panicEvents.push({ testId, testName, startQuestion: startQ, endQuestion: endQ, length: currentChain, lostMarks: chainLostMarks });
+                }
+                currentChain = 0;
+                chainLostMarks = 0;
+                chainStartIndex = -1;
+            }
+
             if (log.status === QuestionStatus.Wrong || log.status === QuestionStatus.Unanswered) {
                 if (currentChain === 0) chainStartIndex = index;
                 currentChain++;
@@ -203,19 +222,12 @@ export const useRootCauseAnalytics = (filteredLogs: QuestionLog[], reports: Test
                 // Panic cost: Missed opportunity (correct) + negative penalty (if wrong)
                 chainLostMarks += (correct + (log.status === QuestionStatus.Wrong ? Math.abs(wrong) : 0));
             } else {
-                // Chain broken
-                if (currentChain >= 3) { // Threshold for panic spiral
+                // Chain broken by a correct answer
+                if (currentChain >= 3) { 
                     const testName = reportMap.get(testId)?.testName || 'Unknown Test';
-                    const startQ = sorted[chainStartIndex].questionNumber;
-                    const endQ = sorted[index - 1].questionNumber;
-                    panicEvents.push({
-                        testId,
-                        testName,
-                        startQuestion: startQ,
-                        endQuestion: endQ,
-                        length: currentChain,
-                        lostMarks: chainLostMarks
-                    });
+                    const startQ = sorted[chainStartIndex].questionNumber || (chainStartIndex + 1);
+                    const endQ = sorted[index - 1].questionNumber || index;
+                    panicEvents.push({ testId, testName, startQuestion: startQ, endQuestion: endQ, length: currentChain, lostMarks: chainLostMarks });
                 }
                 currentChain = 0;
                 chainLostMarks = 0;
@@ -225,36 +237,50 @@ export const useRootCauseAnalytics = (filteredLogs: QuestionLog[], reports: Test
         // Check for spiral at end of paper
         if (currentChain >= 3) {
              const testName = reportMap.get(testId)?.testName || 'Unknown Test';
-             const startQ = sorted[chainStartIndex].questionNumber;
-             const endQ = sorted[sorted.length - 1].questionNumber;
-             panicEvents.push({
-                testId,
-                testName,
-                startQuestion: startQ,
-                endQuestion: endQ,
-                length: currentChain,
-                lostMarks: chainLostMarks
-            });
+             const startQ = sorted[chainStartIndex].questionNumber || (chainStartIndex + 1);
+             const endQ = sorted[sorted.length - 1].questionNumber || sorted.length;
+             panicEvents.push({ testId, testName, startQuestion: startQ, endQuestion: endQ, length: currentChain, lostMarks: chainLostMarks });
         }
     });
 
     // 9. Psychological Profiling (Guessing)
-    const guessLogs = filteredLogs.filter(l => (l.reasonForError as any) === ErrorReason.Guess || ((l.reasonForError as any) === ErrorReason.Guess && l.status === QuestionStatus.FullyCorrect));
-    // Note: Standard logs usually only track errors. Ideally, 'Guess' should be a flag separate from ErrorReason to track successful guesses. 
-    // Assuming strictly for now that we only know about FAILED guesses or explicit tags.
-    // Heuristic: If reasonForError is 'Guess' -> it was a Wrong Guess.
-    // If we don't have data on Correct Guesses, we can't calc true efficiency.
-    // However, if QuestionLog allowed tagging 'Guess' even on correct, we'd use that.
-    // For now, let's assume we only see WRONG guesses from standard error log flow.
-    // *Advanced*: Look for patterns of "Marked for Review" + Correct? (Not in current data model)
-    // *Simulated Metric*: Assuming for every 1 Wrong Guess marked, there might be un-logged correct guesses? No, unsafe.
-    // We will report on "Failed Guesses" and their cost.
+    // A guess is defined as explicitly tagged "Guess" OR inferred if explicitly tagged.
+    // We iterate through all logs to find any that were guessed.
+    const allGuesses = filteredLogs.filter(l => l.reasonForError === ErrorReason.Guess);
+    
+    let totalGuesses = allGuesses.length;
+    let correctGuesses = 0;
+    let netScoreImpact = 0;
+    let safeGuesses = 0;
+    let riskyGuesses = 0;
+    let riskyMisses = 0;
+
+    allGuesses.forEach(l => {
+        netScoreImpact += l.marksAwarded;
+        if (l.status === QuestionStatus.FullyCorrect) {
+            correctGuesses++;
+        }
+        
+        const scheme = getMarkingScheme(l.questionType, l);
+        if (scheme.wrong === 0) {
+            safeGuesses++;
+        } else {
+            riskyGuesses++;
+            if (l.status === QuestionStatus.Wrong) {
+                riskyMisses++;
+            }
+        }
+    });
     
     const guessStats: GuessStats = {
-        totalGuesses: guessLogs.length, // Only failed guesses in current model usually
-        correctGuesses: 0, // Placeholder unless data model improves
-        efficiency: 0,
-        netScoreImpact: guessLogs.reduce((acc, l) => acc + l.marksAwarded, 0) // Usually negative
+        totalGuesses,
+        correctGuesses,
+        efficiency: totalGuesses > 0 ? (netScoreImpact / (totalGuesses * 4)) * 100 : 0, // Normalized efficiency
+        netScoreImpact,
+        intuitionScore: totalGuesses > 0 ? (correctGuesses / totalGuesses) * 100 : 0,
+        safeGuesses,
+        riskyGuesses,
+        riskyMisses
     };
 
     // 10. Dependency Propagation (Graph Theory)
@@ -262,12 +288,9 @@ export const useRootCauseAnalytics = (filteredLogs: QuestionLog[], reports: Test
     const weakTopicSet = new Set(weakestTopics.map(t => t.topic));
     
     weakestTopics.forEach(wt => {
-        // Does this weak topic have a parent?
-        // TOPIC_DEPENDENCIES: Child -> [Parents]
         const parents = TOPIC_DEPENDENCIES[wt.topic] || [];
         parents.forEach(parent => {
             if (weakTopicSet.has(parent)) {
-                // Root cause found!
                 dependencyAlerts.push({
                     topic: wt.topic, // The symptom
                     rootCauseTopic: parent, // The disease
@@ -283,7 +306,7 @@ export const useRootCauseAnalytics = (filteredLogs: QuestionLog[], reports: Test
         performanceByQuestionType: Array.from(performanceByQuestionType.entries()).map(([name, data]) => ({ 
             name, 
             errors: data.errors,
-            totalAttempts: data.count, // New Metric
+            totalAttempts: data.count, 
             errorRate: data.count > 0 ? (data.errors / data.count) * 100 : 0,
             avgMarks: data.count > 0 ? data.totalMarks / data.count : 0,
         })).sort((a, b) => b.errors - a.errors),
@@ -293,7 +316,7 @@ export const useRootCauseAnalytics = (filteredLogs: QuestionLog[], reports: Test
         fatigueData,
         sankeyData: { nodes: sankeyNodes, links: sankeyLinks },
         paretoData,
-        panicEvents: panicEvents.sort((a, b) => b.lostMarks - a.lostMarks).slice(0, 5), // Top 5 worst spirals
+        panicEvents: panicEvents.sort((a, b) => b.lostMarks - a.lostMarks), // Worst first
         guessStats,
         dependencyAlerts: dependencyAlerts.sort((a, b) => b.errorCount - a.errorCount)
     };
