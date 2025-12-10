@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect } from 'react';
 import type { TestReport, SubjectData, QuestionLog } from '../types';
 import { QuestionType, TestType, TestSubType, QuestionStatus, DifficultyLevel } from '../types';
@@ -8,7 +9,7 @@ import { calculateMarks, getMarkingScheme } from '../utils/metrics';
 interface OcrProcessorProps {
   onAddData: (data: { report: TestReport; logs: QuestionLog[] }) => void;
   apiKey: string;
-  modelName?: string; // Added: Model selection from settings
+  modelName?: string; 
 }
 
 const initialReportState: Partial<TestReport> = {
@@ -266,9 +267,16 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey, m
     setWorkflowStep('processing');
     setError(null);
     
+    // FORCE GEMINI FLASH FOR OCR
+    // We ignore the `modelName` prop (user's chat preference) because Gemma (text-only) cannot do OCR.
+    // We strictly use 'gemini-2.5-flash' for vision tasks.
+    const VISION_MODEL = 'gemini-2.5-flash';
+    console.debug(`Processing image with dedicated vision model: ${VISION_MODEL}`);
+
     try {
       // Use selected model for OCR as per setting, passing both files
-      const { report, questions, confidence } = await extractDataFromImage(imageFile, apiKey, modelName, instructionFile || undefined);
+      // NOTE: modelName is crucial here. If changed in settings, it must propagate.
+      const { report, questions, confidence } = await extractDataFromImage(imageFile, apiKey, VISION_MODEL, instructionFile || undefined);
       
       // Smart Auto-Detection for Test Metadata (Uses Flash internally)
       if (report.testName) {
@@ -314,7 +322,7 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey, m
       setError(err instanceof Error ? err.message : 'An unknown error occurred.');
       setWorkflowStep('upload'); // Go back to upload step on error
     }
-  }, [imageFile, instructionFile, apiKey, modelName]);
+  }, [imageFile, instructionFile, apiKey]); // removed modelName dependency
 
     const handleInputChange = <K extends keyof Omit<TestReport, 'id'>>(
         key: K,
@@ -479,7 +487,7 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey, m
                 onClick={processImage}
                 className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-lg transition-all duration-300 ease-in-out shadow-lg hover:shadow-indigo-500/50 flex items-center gap-2"
                 >
-                <span>⚡</span> Process Images with AI
+                <span>⚡</span> Process Images with AI (Gemini 2.5 Flash)
                 </button>
             </div>
           )}
@@ -488,7 +496,7 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey, m
 
       {entryMode === 'ocr' && workflowStep === 'processing' && (
          <div className="animate-fade-in">
-             <p className="text-center text-lg text-indigo-300 mb-4">Analyzing image{instructionFile ? 's' : ''} and extracting data... This may take a moment.</p>
+             <p className="text-center text-lg text-indigo-300 mb-4">Analyzing image{instructionFile ? 's' : ''} and extracting data using {modelName || 'Gemini'}... This may take a moment.</p>
              <SkeletonLoader />
          </div>
       )}

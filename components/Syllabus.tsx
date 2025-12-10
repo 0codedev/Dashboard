@@ -5,7 +5,7 @@ import { TargetExam, SyllabusStatus, QuestionStatus, ErrorReason, TestType } fro
 import { JEE_SYLLABUS, SUBJECT_CONFIG, TOPIC_WEIGHTAGE, TOPIC_DEPENDENCIES, SUBJECT_COLORS } from '../constants';
 import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip as RechartsTooltip } from 'recharts';
 import Modal from './common/Modal';
-import { explainTopic, generateGatekeeperQuiz, generateLearningPath } from '../services/geminiService';
+import { explainTopic, generateGatekeeperQuiz, generateLearningPath, generatePreMortem } from '../services/geminiService';
 import { SyllabusSunburst } from './visualizations/SyllabusSunburst';
 import { SyllabusSubwayMap } from './visualizations/SyllabusSubwayMap';
 import { SyllabusRiverFlow } from './visualizations/SyllabusRiverFlow';
@@ -186,6 +186,8 @@ interface ChapterCardProps {
     onGeneratePath?: () => void;
     isGeneratingPath?: boolean;
     onCardClick?: (topic: string) => void;
+    onPredictHurdles: (topic: string) => void;
+    isHurdleLoading?: boolean;
 }
 
 const statusColors: Record<SyllabusStatus, string> = {
@@ -429,7 +431,7 @@ const DependencyIndicator: React.FC<{ topic: string, userProfile: UserProfile }>
     );
 }
 
-const ChapterCard: React.FC<ChapterCardProps> = ({ cardRef, chapter, progress, onSyllabusChange, questionLogs, reports, onStartFocusSession, onExplainTopic, userProfile, mastery, onTriggerQuiz, onCompletionEffect, isQuizLoading, forceExpanded, showAIPath, onGeneratePath, isGeneratingPath, onCardClick }) => {
+const ChapterCard: React.FC<ChapterCardProps> = ({ cardRef, chapter, progress, onSyllabusChange, questionLogs, reports, onStartFocusSession, onExplainTopic, userProfile, mastery, onTriggerQuiz, onCompletionEffect, isQuizLoading, forceExpanded, showAIPath, onGeneratePath, isGeneratingPath, onCardClick, onPredictHurdles, isHurdleLoading }) => {
     const [isExpandedState, setIsExpandedState] = useState(false);
     const isExpanded = forceExpanded || isExpandedState;
 
@@ -765,6 +767,15 @@ const ChapterCard: React.FC<ChapterCardProps> = ({ cardRef, chapter, progress, o
                             <div className="mt-4 pt-4 border-t border-slate-700/50 flex flex-wrap gap-2">
                                 <button onClick={() => onStartFocusSession(chapter.name)} className="flex-1 text-sm bg-indigo-600/50 hover:bg-indigo-600 text-white font-semibold py-2 px-3 rounded-md transition-colors flex items-center justify-center gap-2">⚡️ Start Focus</button>
                                 <button onClick={() => onExplainTopic(chapter.name)} className="flex-1 text-sm bg-cyan-600/50 hover:bg-cyan-600 text-white font-semibold py-2 px-3 rounded-md transition-colors flex items-center justify-center gap-2">📖 Explain</button>
+                                {progress.status === SyllabusStatus.NotStarted && (
+                                    <button 
+                                        onClick={() => onPredictHurdles(chapter.name)} 
+                                        disabled={isHurdleLoading}
+                                        className="flex-1 text-sm bg-amber-600/50 hover:bg-amber-600 text-white font-semibold py-2 px-3 rounded-md transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                                    >
+                                        {isHurdleLoading ? '🔮 Predicting...' : '🔮 Predict Hurdles'}
+                                    </button>
+                                )}
                                 <button 
                                     onClick={() => window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(chapter.name + " JEE")}`, '_blank')}
                                     className="text-sm bg-red-600/80 hover:bg-red-600 text-white font-semibold py-2 px-3 rounded-md transition-colors flex items-center justify-center"
@@ -783,7 +794,7 @@ const ChapterCard: React.FC<ChapterCardProps> = ({ cardRef, chapter, progress, o
     );
 };
 
-const SubjectSyllabus: React.FC<Omit<SyllabusProps, 'userProfile' | 'apiKey' | 'setView' | 'setUserProfile'> & { subject: 'physics' | 'chemistry' | 'maths', userProfile: UserProfile, onSyllabusChange: (chapter: string, updatedProgress: Partial<ChapterProgress>) => void; onExplainTopic: (topic: string) => void; searchQuery: string; activeUnitFilter?: string | null; onTriggerQuiz: (topic: string) => void; onCompletionEffect: (coords: { x: number; y: number; }) => void; chapterCardRefs: React.MutableRefObject<Record<string, HTMLDivElement | null>>; quizLoadingState: string | null; onNodeClick: (topic: string) => void; }> = ({ subject, userProfile, onSyllabusChange, questionLogs, reports, onStartFocusSession, onExplainTopic, searchQuery, activeUnitFilter, onTriggerQuiz, onCompletionEffect, chapterCardRefs, quizLoadingState, onNodeClick }) => {
+const SubjectSyllabus: React.FC<Omit<SyllabusProps, 'userProfile' | 'apiKey' | 'setView' | 'setUserProfile'> & { subject: 'physics' | 'chemistry' | 'maths', userProfile: UserProfile, onSyllabusChange: (chapter: string, updatedProgress: Partial<ChapterProgress>) => void; onExplainTopic: (topic: string) => void; searchQuery: string; activeUnitFilter?: string | null; onTriggerQuiz: (topic: string) => void; onCompletionEffect: (coords: { x: number; y: number; }) => void; chapterCardRefs: React.MutableRefObject<Record<string, HTMLDivElement | null>>; quizLoadingState: string | null; onNodeClick: (topic: string) => void; onPredictHurdles: (topic: string) => void; isHurdleLoading: boolean; currentHurdleTopic: string | null }> = ({ subject, userProfile, onSyllabusChange, questionLogs, reports, onStartFocusSession, onExplainTopic, searchQuery, activeUnitFilter, onTriggerQuiz, onCompletionEffect, chapterCardRefs, quizLoadingState, onNodeClick, onPredictHurdles, isHurdleLoading, currentHurdleTopic }) => {
     const [filter, setFilter] = useState<{ status: string, strength: string }>({ status: 'all', strength: 'all' });
     const [sort, setSort] = useState<string>('default');
     const [collapsedUnits, setCollapsedUnits] = useState<Set<string>>(new Set());
@@ -911,6 +922,8 @@ const SubjectSyllabus: React.FC<Omit<SyllabusProps, 'userProfile' | 'apiKey' | '
                                             onCompletionEffect={onCompletionEffect}
                                             isQuizLoading={quizLoadingState === chapter.name}
                                             onCardClick={() => onNodeClick(chapter.name)}
+                                            onPredictHurdles={onPredictHurdles}
+                                            isHurdleLoading={isHurdleLoading && currentHurdleTopic === chapter.name}
                                         />
                                     </div>
                                 )})}
@@ -965,6 +978,17 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
     // Chapter Detail Modal State
     const [selectedChapterForModal, setSelectedChapterForModal] = useState<string | null>(null);
     const [isGeneratingPath, setIsGeneratingPath] = useState(false);
+
+    // Pre-mortem State
+    const [hurdleData, setHurdleData] = useState<{ topic: string, content: string } | null>(null);
+    const [isHurdleLoading, setIsHurdleLoading] = useState(false);
+    const [currentHurdleTopic, setCurrentHurdleTopic] = useState<string | null>(null);
+
+    // Quick Review Mode
+    const [isQuickReviewOpen, setIsQuickReviewOpen] = useState(false);
+    const [quickReviewCards, setQuickReviewCards] = useState<{ topic: string, content: string }[]>([]);
+    const [currentCardIndex, setCurrentCardIndex] = useState(0);
+    const [isCardFlipped, setIsCardFlipped] = useState(false);
 
     // Particle effect state
     const [completionEffect, setCompletionEffect] = useState<{ x: number, y: number, key: number } | null>(null);
@@ -1064,6 +1088,8 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
         try {
             const explanation = await explainTopic(topic, apiKey, complexity, modelName);
             setExplainModalData(prev => prev ? { ...prev, content: explanation, loading: false } : null);
+            // Auto-save explanation as flashcard for Active Recall
+            handleSyllabusChange(topic, { flashcard: explanation });
         } catch (error) {
             setExplainModalData(prev => prev ? { ...prev, content: "Failed to load explanation.", loading: false } : null);
         }
@@ -1107,6 +1133,72 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
         } finally {
             setIsGeneratingPath(false);
         }
+    };
+
+    const handlePredictHurdles = async (topic: string) => {
+        if (!apiKey) return;
+        setIsHurdleLoading(true);
+        setCurrentHurdleTopic(topic);
+        try {
+            const prereqs = TOPIC_DEPENDENCIES[topic] || [];
+            const prereqErrors: string[] = [];
+            
+            // Collect errors from prerequisite topics
+            prereqs.forEach(p => {
+                const errors = questionLogs.filter(l => l.topic === p && (l.status === QuestionStatus.Wrong || l.status === QuestionStatus.PartiallyCorrect));
+                if (errors.length > 0) {
+                    const reasons = errors.reduce((acc, l) => {
+                        if (l.reasonForError) acc[l.reasonForError] = (acc[l.reasonForError] || 0) + 1;
+                        return acc;
+                    }, {} as Record<string, number>);
+                    const topReasons = Object.entries(reasons)
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 2)
+                        .map(r => r[0])
+                        .join(', ');
+                    prereqErrors.push(`${p}: ${errors.length} errors (${topReasons})`);
+                }
+            });
+
+            const prediction = await generatePreMortem(topic, prereqs, prereqErrors, apiKey, modelName);
+            setHurdleData({ topic, content: prediction });
+        } catch (e) {
+            console.error(e);
+            alert("Failed to predict hurdles.");
+        } finally {
+            setIsHurdleLoading(false);
+            setCurrentHurdleTopic(null);
+        }
+    };
+
+    const startQuickReview = () => {
+        // Collect flashcards for topics with low retention
+        const cards: { topic: string, content: string }[] = [];
+        Object.entries(userProfile.syllabus).forEach(([topic, progress]) => {
+            if (progress.flashcard) {
+                // Check retention. Reusing logic is hard without extracting hook, so simplifying:
+                // If it has a flashcard, it's a candidate. Ideally check date.
+                // For this implementation, we review ALL available flashcards or just a random subset.
+                // Let's prioritize by "red battery" logic proxy: long time since revision.
+                cards.push({ topic, content: progress.flashcard });
+            }
+        });
+
+        if (cards.length === 0) {
+            alert("No flashcards saved. Use the 'Explain' feature on chapters to generate them first.");
+            return;
+        }
+
+        // Shuffle
+        for (let i = cards.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [cards[i], cards[j]] = [cards[j], cards[i]];
+        }
+
+        setQuickReviewCards(cards);
+        setCurrentCardIndex(0);
+        setIsCardFlipped(false);
+        setIsQuickReviewOpen(true);
     };
 
     // Handle Node Clicks from Visualizations
@@ -1191,6 +1283,14 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
                 <h2 className="text-2xl font-bold text-[rgb(var(--color-primary-accent-rgb))]">Syllabus Tracker</h2>
                 
                 <div className="flex items-center gap-4">
+                    <button
+                        onClick={startQuickReview}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-lg flex items-center gap-2 text-sm hover:scale-105 transition-transform"
+                        title="Review saved AI explanations as flashcards"
+                    >
+                        <span>⚡</span> Quick Review
+                    </button>
+
                     <button 
                         onClick={handleGenerateRevisionStack}
                         className="bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-4 rounded-lg shadow-lg flex items-center gap-2 text-sm hover:scale-105 transition-transform"
@@ -1263,6 +1363,9 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
                     chapterCardRefs={chapterCardRefs}
                     quizLoadingState={quizState?.loading ? quizState.topic : null}
                     onNodeClick={handleNodeClick}
+                    onPredictHurdles={handlePredictHurdles}
+                    isHurdleLoading={isHurdleLoading}
+                    currentHurdleTopic={currentHurdleTopic}
                 />
             )}
             
@@ -1291,6 +1394,64 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
                 />
             </Modal>
 
+            {/* Pre-Mortem Modal */}
+            <Modal isOpen={!!hurdleData} onClose={() => setHurdleData(null)} title={`🔮 Pre-mortem: ${hurdleData?.topic}`} isInfo>
+                <div className="p-4">
+                    <div className="bg-amber-900/20 border border-amber-600/30 rounded-lg p-4">
+                        <p className="text-amber-100 font-medium leading-relaxed">{hurdleData?.content}</p>
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                        <button onClick={() => setHurdleData(null)} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded text-sm">Got it</button>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* Quick Review (Active Recall) Modal */}
+            <Modal isOpen={isQuickReviewOpen} onClose={() => setIsQuickReviewOpen(false)} title="⚡ Quick Review">
+                <div className="flex flex-col items-center justify-center h-[400px] p-4 relative">
+                    {quickReviewCards.length > 0 ? (
+                        <div 
+                            className="relative w-full max-w-2xl h-full cursor-pointer perspective-1000"
+                            onClick={() => setIsCardFlipped(!isCardFlipped)}
+                        >
+                            <div className={`relative w-full h-full transition-transform duration-500 transform-style-3d ${isCardFlipped ? 'rotate-y-180' : ''}`}>
+                                {/* Front */}
+                                <div className="absolute inset-0 backface-hidden bg-slate-800 rounded-xl border border-slate-600 flex flex-col items-center justify-center p-8 shadow-2xl">
+                                    <span className="text-xs text-gray-400 uppercase tracking-widest mb-4">Topic</span>
+                                    <h2 className="text-3xl font-bold text-white text-center">{quickReviewCards[currentCardIndex].topic}</h2>
+                                    <p className="text-sm text-gray-500 mt-8 animate-pulse">Click to flip</p>
+                                </div>
+                                {/* Back */}
+                                <div className="absolute inset-0 backface-hidden rotate-y-180 bg-indigo-900/30 rounded-xl border border-indigo-500/50 flex flex-col p-8 shadow-2xl overflow-y-auto custom-scrollbar">
+                                    <span className="text-xs text-indigo-300 uppercase tracking-widest mb-2 sticky top-0 bg-transparent">Explanation</span>
+                                    <div className="prose prose-invert prose-sm max-w-none text-gray-200" dangerouslySetInnerHTML={{ __html: quickReviewCards[currentCardIndex].content.replace(/\n/g, '<br/>') }} />
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="text-gray-400">No flashcards loaded.</div>
+                    )}
+                    
+                    {quickReviewCards.length > 0 && (
+                        <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-4 items-center">
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); setCurrentCardIndex(p => (p - 1 + quickReviewCards.length) % quickReviewCards.length); setIsCardFlipped(false); }}
+                                className="p-2 rounded-full bg-slate-700 hover:bg-slate-600 text-white transition-colors"
+                            >
+                                ← Prev
+                            </button>
+                            <span className="text-sm text-gray-400">{currentCardIndex + 1} / {quickReviewCards.length}</span>
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); setCurrentCardIndex(p => (p + 1) % quickReviewCards.length); setIsCardFlipped(false); }}
+                                className="p-2 rounded-full bg-slate-700 hover:bg-slate-600 text-white transition-colors"
+                            >
+                                Next →
+                            </button>
+                        </div>
+                    )}
+                </div>
+            </Modal>
+
             {/* Unified Chapter Detail Modal */}
             <Modal isOpen={!!selectedChapterForModal} onClose={() => setSelectedChapterForModal(null)} title="">
                 {selectedChapterForModal && selectedChapterObj && (
@@ -1313,6 +1474,9 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
                             showAIPath={true}
                             onGeneratePath={handleGenerateLearningPath}
                             isGeneratingPath={isGeneratingPath}
+                            onCardClick={() => {}}
+                            onPredictHurdles={handlePredictHurdles}
+                            isHurdleLoading={isHurdleLoading && currentHurdleTopic === selectedChapterForModal}
                         />
                     </div>
                 )}

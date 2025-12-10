@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type, FunctionDeclaration } from "@google/genai";
-import { QuestionStatus, type TestReport, type QuestionLog, QuizQuestion, DailyTask, UserProfile, TestType, TestSubType } from "../types";
+import { QuestionStatus, type TestReport, type QuestionLog, QuizQuestion, DailyTask, UserProfile, TestType, TestSubType, ModelInfo } from "../types";
 import { getMarkingScheme } from "../utils/metrics";
 
 
@@ -236,6 +236,75 @@ export const GENUI_TOOLS = [
     }
 ];
 
+// --- Model Fetching ---
+
+export const getAvailableModels = async (apiKey: string): Promise<ModelInfo[]> => {
+    // 1. Updated Fallback List strict to Free Tier (Gemini 2.5 series & Gemma)
+    const fallbackModels: ModelInfo[] = [
+        { id: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', description: 'Main Model (High Speed & Vision)' },
+        { id: 'gemini-2.5-flash-lite', displayName: 'Gemini 2.5 Flash-Lite', description: 'Lite Version (Faster)' },
+        { id: 'gemma-3-27b-it', displayName: 'Gemma 3 27B', description: 'Text Specialist (Experimental)' },
+        { id: 'gemma-3-12b-it', displayName: 'Gemma 3 12B', description: 'Efficient Open Model' },
+    ];
+
+    // If API key is empty, return fallback immediately
+    if (!apiKey) return fallbackModels;
+
+    try {
+        const ai = new GoogleGenAI({ apiKey });
+        // Attempt to fetch models, but set a timeout to fail fast
+        const responsePromise = ai.models.list();
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000));
+        
+        const response: any = await Promise.race([responsePromise, timeoutPromise]);
+        
+        const models = response?.models;
+        
+        // 2. Strict validation. If API returns weird data, throw to catch block.
+        if (!models || !Array.isArray(models)) {
+            return fallbackModels;
+        }
+
+        const getDescription = (id: string): string => {
+            if (id.includes('flash') && !id.includes('lite')) return "Fast & Efficient";
+            if (id.includes('lite')) return "Budget Friendly";
+            if (id.includes('pro')) return "Complex Reasoning (Paid)";
+            if (id.includes('gemma')) return "Open Weight Model (Text Only)";
+            return "General Purpose";
+        };
+
+        const apiModels = models
+            .filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'))
+            .map((m: any) => {
+                const id = m.name.replace('models/', '');
+                return {
+                    id: id,
+                    displayName: m.displayName || id,
+                    description: m.description || getDescription(id)
+                };
+            })
+            .sort((a: any, b: any) => {
+                // Priority: Flash -> Lite -> Gemma -> Pro
+                const getPriority = (id: string) => {
+                    if (id.includes('flash') && !id.includes('lite')) return 1;
+                    if (id.includes('flash-lite')) return 2;
+                    if (id.includes('gemma')) return 3;
+                    return 4;
+                };
+                return getPriority(a.id) - getPriority(b.id);
+            });
+
+        if (apiModels.length === 0) return fallbackModels;
+
+        return apiModels;
+
+    } catch (e) {
+        // 3. Return fallback on ANY error (Timeout, Auth, Network, Parsing)
+        console.warn("Could not fetch dynamic models list. Using defaults.", e);
+        return fallbackModels;
+    }
+};
+
 // --- Original Service Functions ---
 
 const subjectSchemaWithConfidence = {
@@ -256,7 +325,7 @@ const subjectSchemaWithConfidence = {
 export const extractDataFromImage = async (
     scoreSheetFile: File,
     apiKey: string,
-    modelName: string = "gemini-2.5-flash",
+    modelName: string = "gemini-2.5-flash", // Default to robust vision model
     instructionSheetFile?: File
 ): Promise<{ report: Partial<TestReport>, questions: Partial<QuestionLog>[], confidence: Record<string, 'high'|'medium'|'low'> }> => {
   try {
@@ -282,30 +351,45 @@ export const extractDataFromImage = async (
         `;
     }
 
-    const prompt = `You are an expert OCR system for JEE Academic Reports. Extract data from the provided image(s).
+    const prompt = `You are an expert OCR system specialized in reading JEE Student Score Reports.
     
-    **Image 1:** Student Score Sheet (Marks, Ranks, Question Grid).
-    **Image 2 (Optional):** Instruction Sheet (Marking Scheme).
+    **IMAGE ANALYSIS INSTRUCTIONS (STRICT):**
+    
+    1. **TEST NAME (Header Section - approx Row 4):**
+       - Look specifically for the label "TEST" in the header rows (top left/center).
+       - Extract the text immediately following "TEST". 
+       - Example: If it says "TEST WTA-22 SEC 1302", the Test Name is "WTA-22 SEC 1302".
+       - Do NOT include the date or student name in the test name.
+
+    2. **SUMMARY TABLE (Top Right Quadrant):**
+       - Locate the table with headers: **SUB | MARKS | % | RANK | C | W | U | P**.
+       - **CRITICAL: Distinguish Rank from Percentage.**
+         - Column 2 is "MARKS" (e.g., 5, 29, 8).
+         - Column 3 is "%" (Percentage, e.g., 8.33, 48.33). **IGNORE THIS COLUMN.**
+         - Column 4 is "RANK" (e.g., 4614, 849, 3077). **THIS IS THE RANK.**
+         - **Logic:** If the number is small (< 100) and has a decimal, it is likely the %, NOT the Rank. Rank is usually a whole number.
+       - Extract Marks, Rank, Correct (C), Wrong (W), Unanswered (U), Partial (P) for Maths, Physics, Chemistry, and Total.
+
+    3. **QUESTION GRID (Bottom Half):**
+       - The sheet lists questions for Mathematics, Physics, and Chemistry.
+       - **Status Codes (Map exactly):**
+         - 'C' -> "Fully Correct"
+         - 'W' -> "Wrong"
+         - 'U' or '-' -> "Unanswered"
+         - 'P' -> "Partially Correct"
+       - Extract Q.No, Subject, and Status for every question visible.
+
     ${instructionPromptAddon}
 
-    **Extraction Rules:**
-    1. **Summary Data:** Extract Marks, Rank, Correct, Wrong, Unanswered, Partial counts for Physics, Chemistry, Maths. Ignore % signs.
-    2. **Question Grid:** Extract row-by-row.
-       - **Status Mapping (CRITICAL):**
-         - 'W' or 'w' -> "Wrong"
-         - 'U' or 'u' or '-' -> "Unanswered"
-         - 'C' or 'c' -> "Fully Correct"
-         - 'P' or 'p' -> "Partially Correct"
-         - If text is full word, use it.
-       - **Marking Scheme:** If Instruction Sheet is present, map the Q.No to its Type and Marks. If not present, try to infer from the grid headers if available, else leave marking fields 0.
-       - **Format:** For \`questionType\`, use simple names like "Single Correct", "Multiple Correct". Do NOT put marks in the name string. Use \`positiveMarks\` and \`negativeMarks\` fields.
-
-    Return valid JSON.`;
+    Return valid JSON matching the schema.`;
 
     parts.push({ text: prompt });
 
+    // Ensure we use a valid model. If empty or invalid, SDK will likely throw.
+    const selectedModel = modelName || 'gemini-2.5-flash';
+
     const response = await ai.models.generateContent({
-        model: modelName,
+        model: selectedModel, 
         contents: { parts: parts },
         config: {
             responseMimeType: "application/json",
@@ -368,18 +452,19 @@ export const extractDataFromImage = async (
 
     const statusStringToEnum = (statusStr: string): QuestionStatus => {
         const normalized = (statusStr || '').trim().toUpperCase();
-        // Specific short-code handling requested by user
+        
+        // Exact mapping from user requirement
         if (normalized === 'W') return QuestionStatus.Wrong;
         if (normalized === 'U' || normalized === '-') return QuestionStatus.Unanswered;
         if (normalized === 'C') return QuestionStatus.FullyCorrect;
         if (normalized === 'P') return QuestionStatus.PartiallyCorrect;
 
-        // Fallback to fuzzy match
+        // Fallback to full word matching if AI returns full words
         const normLower = normalized.toLowerCase().replace(/\s+/g, '');
         if (normLower.includes('wrong')) return QuestionStatus.Wrong;
         if (normLower.includes('unanswered')) return QuestionStatus.Unanswered;
         if (normLower.includes('partially')) return QuestionStatus.PartiallyCorrect;
-        if (normLower.includes('correct')) return QuestionStatus.FullyCorrect;
+        if (normLower.includes('fully') || normLower === 'correct') return QuestionStatus.FullyCorrect;
         
         return QuestionStatus.Unanswered; // Safe default
     };
@@ -399,7 +484,7 @@ export const extractDataFromImage = async (
     return { report, questions, confidence };
   } catch (error) {
     console.error("Error extracting data from image:", error);
-    throw new Error("Failed to process the image with Gemini API. Please check the console for details.");
+    throw new Error(`Failed to process image with model ${modelName}. API Key or Model might be invalid (Gemma cannot see images).`);
   }
 };
 
@@ -485,7 +570,7 @@ export const validateOCRData = async (report: Partial<TestReport>, logs: Partial
         `;
 
         const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
+            model: "gemini-2.5-flash-lite", // Use Lite for simple validation
             contents: { parts: [{ text: prompt }] },
             config: {
                 responseMimeType: "application/json",
@@ -522,7 +607,7 @@ export const inferTestMetadata = async (testName: string, apiKey: string): Promi
         `;
 
         const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
+            model: "gemini-2.5-flash-lite", // Use Lite for metadata
             contents: { parts: [{ text: prompt }] },
             config: {
                 responseMimeType: "application/json",
@@ -588,7 +673,8 @@ export const getAIAnalysis = async (reports: TestReport[], logs: QuestionLog[], 
         .slice(0, 3)
         .map(([reason, count]) => ({ reason, count }));
 
-    const isPro = modelName.toLowerCase().includes('pro');
+    const isPro = modelName && modelName.toLowerCase().includes('pro');
+    const selectedModel = modelName || 'gemini-2.5-flash';
 
     let prompt = "";
 
@@ -673,7 +759,7 @@ export const getAIAnalysis = async (reports: TestReport[], logs: QuestionLog[], 
     }
 
     const response = await ai.models.generateContent({
-      model: modelName,
+      model: selectedModel,
       contents: { parts: [{ text: prompt }] },
     });
 
@@ -708,6 +794,7 @@ export const generateStudyPlan = async (reports: TestReport[], logs: QuestionLog
           return acc;
         }, { reasons: {}, weakTopics: {} });
 
+        const selectedModel = modelName || 'gemini-2.5-flash';
 
         const prompt = `You are an expert academic coach for a student preparing for the JEE, a highly competitive engineering entrance exam. I will provide you with the student's recent performance data and their error logs.
 
@@ -729,7 +816,7 @@ export const generateStudyPlan = async (reports: TestReport[], logs: QuestionLog
         Format your response in clear Markdown. Use '###' for day headings and '*' for list items. The tone should be motivating and encouraging.`;
 
         const response = await ai.models.generateContent({
-          model: modelName,
+          model: selectedModel,
           contents: { parts: [{ text: prompt }] },
         });
 
@@ -751,7 +838,7 @@ export const generateContextualInsight = async (prompt: string, apiKey: string):
     Insight:`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-flash-lite", // Use Lite for utility tasks
       contents: { parts: [{ text: fullPrompt }] },
     });
 
@@ -771,7 +858,7 @@ export const generateDashboardInsight = async (reports: TestReport[], apiKey: st
     Example: "Your Physics score has stabilized, but consistency in Maths is key to breaking the top 1000."`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-flash-lite", // Use Lite for utility tasks
       contents: { parts: [{ text: prompt }] },
     });
     return response.text.trim();
@@ -785,7 +872,7 @@ export const generateChartAnalysis = async (chartTitle: string, dataSummary: str
         const ai = new GoogleGenAI({ apiKey });
         const prompt = `Analyze this data for the chart "${chartTitle}": ${dataSummary}. Provide a single, concise sentence (max 20 words) summarizing the key takeaway for a student.`;
         const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
+            model: "gemini-2.5-flash-lite", // Use Lite for utility tasks
             contents: { parts: [{ text: prompt }] },
         });
         return response.text.trim();
@@ -799,7 +886,7 @@ export const getDailyQuote = async (apiKey: string): Promise<string> => {
         const ai = new GoogleGenAI({ apiKey });
         const prompt = "Give me a short, powerful, and inspiring motivational quote for a student preparing for a highly competitive exam. The quote should be less than 25 words. Do not include the author's name.";
         const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
+            model: "gemini-2.5-flash-lite", // Use Lite for utility tasks
             contents: { parts: [{ text: prompt }] },
         });
         return response.text.trim().replace(/"/g, ''); // Clean up quotes from the response
@@ -819,7 +906,7 @@ export const generateChecklistFromPlan = async (weakTopics: string[], apiKey: st
     const prompt = `You are an academic coach for a student preparing for the JEE exam. Based on their identified weak topics: ${weakTopics.join(', ')}. Create a short list of 5 concrete, actionable checklist items for their daily plan. The items should be concise phrases.`;
     
     const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-2.5-flash-lite", // Use Lite for utility tasks
         contents: { parts: [{ text: prompt }] },
         config: {
             responseMimeType: "application/json",
@@ -874,7 +961,7 @@ export const generateEndOfDaySummary = async (
     - Keep the entire summary concise, around 2-4 sentences. Be personal and encouraging.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-flash-lite", // Use Lite for utility tasks
       contents: { parts: [{ text: prompt }] },
     });
 
@@ -896,6 +983,7 @@ export const getThematicAnalysis = async (
 
   try {
     const ai = new GoogleGenAI({ apiKey });
+    const selectedModel = modelName || 'gemini-2.5-flash';
     const prompt = `You are an expert academic coach for a student preparing for the JEE, a highly competitive engineering entrance exam. I will provide you with a list of the student's weakest topics, based on the number of incorrect answers logged for each.
 
     Weakest Topics (Topic, Error Count):
@@ -908,7 +996,7 @@ export const getThematicAnalysis = async (
     Provide a concise, insightful analysis in 2-3 sentences that pinpoints the core thematic weakness. Keep the tone professional and analytical.`;
 
     const response = await ai.models.generateContent({
-      model: modelName,
+      model: selectedModel,
       contents: { parts: [{ text: prompt }] },
     });
 
@@ -942,7 +1030,8 @@ export const getAIChiefAnalystSummary = async (
         .slice(0, 2)
     : [];
 
-  const isPro = modelName.toLowerCase().includes('pro');
+  const isPro = modelName && modelName.toLowerCase().includes('pro');
+  const selectedModel = modelName || 'gemini-2.5-flash';
   
   let prompt = "";
 
@@ -984,7 +1073,7 @@ export const getAIChiefAnalystSummary = async (
   try {
     const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
-      model: modelName,
+      model: selectedModel,
       contents: { parts: [{ text: prompt }] },
     });
     return response.text.trim();
@@ -1002,6 +1091,7 @@ export const generateFocusedStudyPlan = async (
 ): Promise<string> => {
   try {
     const ai = new GoogleGenAI({ apiKey });
+    const selectedModel = modelName || 'gemini-2.5-flash';
     const prompt = `You are an expert academic coach for a student preparing for the JEE, a highly competitive engineering entrance exam. The student is struggling with ${subject} and their accuracy has recently dropped.
 
     Their weakest topics in ${subject} are: ${weakTopics.length > 0 ? weakTopics.join(', ') : 'not specified, please give general advice for the subject'}.
@@ -1016,7 +1106,7 @@ export const generateFocusedStudyPlan = async (
     Format your response in clear Markdown. Use '###' for day headings. The tone should be supportive and targeted.`;
 
     const response = await ai.models.generateContent({
-      model: modelName,
+      model: selectedModel,
       contents: { parts: [{ text: prompt }] },
     });
 
@@ -1030,6 +1120,7 @@ export const generateFocusedStudyPlan = async (
 export const explainTopic = async (topic: string, apiKey: string, complexity: 'standard' | 'simple' = 'standard', modelName: string = "gemini-2.5-flash"): Promise<string> => {
   try {
     const ai = new GoogleGenAI({ apiKey });
+    const selectedModel = modelName || 'gemini-2.5-flash';
     const complexityInstruction = complexity === 'simple' 
         ? "Explain it like I'm 5 years old. Use simple analogies, avoid jargon, and focus on the intuition. Keep it fun and engaging." 
         : "Explain it clearly for a high school student preparing for JEE. Include core definitions, formulas, and key concepts.";
@@ -1043,7 +1134,7 @@ export const explainTopic = async (topic: string, apiKey: string, complexity: 's
     Use Markdown for formatting.`;
     
     const response = await ai.models.generateContent({
-      model: modelName,
+      model: selectedModel,
       contents: { parts: [{ text: prompt }] },
     });
     
@@ -1058,10 +1149,11 @@ export const explainTopic = async (topic: string, apiKey: string, complexity: 's
 export const generateGatekeeperQuiz = async (topic: string, apiKey: string, modelName: string = "gemini-2.5-flash"): Promise<QuizQuestion[]> => {
     try {
         const ai = new GoogleGenAI({ apiKey });
+        const selectedModel = modelName || 'gemini-2.5-flash';
         const prompt = `Generate 3 distinct, conceptual multiple-choice questions for the JEE-level chapter "${topic}". The questions must test fundamental understanding, not just rote memorization. For each question, provide four options (A, B, C, D), identify the correct option letter, and give a brief explanation for the correct answer.`;
         
         const response = await ai.models.generateContent({
-            model: modelName,
+            model: selectedModel,
             contents: { parts: [{ text: prompt }] },
             config: {
                 responseMimeType: "application/json",
@@ -1108,12 +1200,13 @@ export const generateGatekeeperQuiz = async (topic: string, apiKey: string, mode
 export const generateTasksFromGoal = async (goalText: string, apiKey: string, modelName: string = "gemini-2.5-flash"): Promise<{ task: string, time: number }[]> => {
   try {
     const ai = new GoogleGenAI({ apiKey });
+    const selectedModel = modelName || 'gemini-2.5-flash-lite';
     const prompt = `You are an academic coach for a student preparing for the JEE exam. Their weekly goal is: "${goalText}".
     Break this down into 3-4 concrete, actionable daily tasks. For each task, provide a realistic time estimate in minutes.
     Return a JSON object following the schema.`;
     
     const response = await ai.models.generateContent({
-        model: modelName,
+        model: selectedModel,
         contents: { parts: [{ text: prompt }] },
         config: {
             responseMimeType: "application/json",
@@ -1169,10 +1262,11 @@ export const generateSmartTasks = async (weakTopics: string[], apiKey: string, m
   }
   try {
     const ai = new GoogleGenAI({ apiKey });
+    const selectedModel = modelName || 'gemini-2.5-flash-lite';
     const prompt = `You are an academic coach for a JEE student. Based on their identified weak topics: ${weakTopics.slice(0,5).join(', ')}. Create a short list of 2-3 highly specific and actionable tasks for a "Today's Focus" block. For each task, provide a realistic time estimate in minutes and link it to the relevant weak topic. Return a JSON object following the schema.`;
     
     const response = await ai.models.generateContent({
-        model: modelName,
+        model: selectedModel,
         contents: { parts: [{ text: prompt }] },
         config: {
             responseMimeType: "application/json",
@@ -1227,6 +1321,7 @@ export const generateSmartTaskOrder = async (tasks: DailyTask[], userProfile: Us
 
     try {
         const ai = new GoogleGenAI({ apiKey });
+        const selectedModel = modelName || 'gemini-2.5-flash-lite';
         const taskList = tasks.map(t => ({
             id: t.id,
             text: t.text,
@@ -1252,7 +1347,7 @@ export const generateSmartTaskOrder = async (tasks: DailyTask[], userProfile: Us
         `;
 
         const response = await ai.models.generateContent({
-            model: modelName,
+            model: selectedModel,
             contents: { parts: [{ text: prompt }] },
             config: {
                 responseMimeType: "application/json",
@@ -1281,6 +1376,7 @@ export const generateSmartTaskOrder = async (tasks: DailyTask[], userProfile: Us
 export const generateLearningPath = async (topic: string, userWeaknesses: string[], apiKey: string, modelName: string = "gemini-2.5-flash"): Promise<{ task: string; time: number; topic: string; }[]> => {
     try {
         const ai = new GoogleGenAI({ apiKey });
+        const selectedModel = modelName || 'gemini-2.5-flash';
         const prompt = `You are an elite academic strategist for a JEE student targeting the chapter "${topic}".
         
         **Student Context:**
@@ -1292,7 +1388,7 @@ export const generateLearningPath = async (topic: string, userWeaknesses: string
         `;
 
         const response = await ai.models.generateContent({
-            model: modelName,
+            model: selectedModel,
             contents: { parts: [{ text: prompt }] },
             config: {
                 responseMimeType: "application/json",
@@ -1332,6 +1428,7 @@ export const generateLearningPath = async (topic: string, userWeaknesses: string
 export const generateNextWhy = async (context: string, previousAnswer: string, step: number, apiKey: string, modelName: string = "gemini-2.5-flash"): Promise<{ question: string; isFinal: boolean; solution?: string }> => {
     try {
         const ai = new GoogleGenAI({ apiKey });
+        const selectedModel = modelName || 'gemini-2.5-flash';
         const prompt = `You are an expert Socratic investigator helping a student analyze a mistake.
         
         **Context:** ${context}
@@ -1345,7 +1442,7 @@ export const generateNextWhy = async (context: string, previousAnswer: string, s
         `;
 
         const response = await ai.models.generateContent({
-            model: modelName,
+            model: selectedModel,
             contents: { parts: [{ text: prompt }] },
             config: {
                 responseMimeType: "application/json",
@@ -1367,3 +1464,30 @@ export const generateNextWhy = async (context: string, previousAnswer: string, s
         return { question: "Why do you think that happened?", isFinal: false };
     }
 }
+
+export const generatePreMortem = async (topic: string, prerequisites: string[], prereqErrors: string[], apiKey: string, modelName: string = "gemini-2.5-flash"): Promise<string> => {
+    try {
+        const ai = new GoogleGenAI({ apiKey });
+        const selectedModel = modelName || 'gemini-2.5-flash';
+        const prompt = `The student is about to start studying '${topic}'. 
+        
+        **Prerequisite Analysis:**
+        The student has logged errors in these prerequisite chapters:
+        ${prereqErrors.length > 0 ? prereqErrors.join('\n') : 'No significant errors recorded in prerequisites.'}
+        
+        Based on this specific error history, predict specific conceptual hurdles or "pitfalls" the student is likely to face in '${topic}'.
+        
+        Keep the response brief (under 50 words), warning-like, and highly specific to the connection between the prerequisite failure and the new topic. Start with "Warning:".
+        `;
+
+        const response = await ai.models.generateContent({
+            model: selectedModel,
+            contents: { parts: [{ text: prompt }] },
+        });
+
+        return response.text.trim();
+    } catch (e) {
+        console.error("Error generating pre-mortem:", e);
+        return "Warning: Ensure you review prerequisites. Unable to generate specific prediction.";
+    }
+};

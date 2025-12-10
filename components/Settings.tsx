@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import type { AiAssistantPreferences, NotificationPreferences, UserProfile, Theme, AppearancePreferences, TestReport, QuestionLog, LongTermGoal, TestSubType, GamificationState, StudyGoal, ChatMessage } from '../types';
-import { getDailyQuote } from '../services/geminiService';
+import type { AiAssistantPreferences, NotificationPreferences, UserProfile, Theme, AppearancePreferences, TestReport, QuestionLog, LongTermGoal, TestSubType, GamificationState, StudyGoal, ChatMessage, ModelInfo } from '../types';
+import { getDailyQuote, getAvailableModels } from '../services/geminiService';
 import { parseReportsFromCsv, parseLogsFromCsv, downloadReportsForSheet, downloadLogsForSheet, exportReportsToCsv, exportLogsToCsv } from '../services/sheetParser';
 import { SUBJECT_CONFIG } from '../constants';
 
@@ -299,7 +299,29 @@ const AppearanceSettings: React.FC<Pick<SettingsProps, 'theme' | 'setTheme' | 'a
     );
 };
 
-const AiSettings: React.FC<Pick<SettingsProps, 'aiPreferences' | 'setAiPreferences' | 'notificationPreferences' | 'setNotificationPreferences'>> = ({ aiPreferences, setAiPreferences, notificationPreferences, setNotificationPreferences }) => {
+const AiSettings: React.FC<Pick<SettingsProps, 'aiPreferences' | 'setAiPreferences' | 'notificationPreferences' | 'setNotificationPreferences'> & { apiKey: string }> = ({ aiPreferences, setAiPreferences, notificationPreferences, setNotificationPreferences, apiKey }) => {
+    const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+    const [isLoadingModels, setIsLoadingModels] = useState(false);
+
+    useEffect(() => {
+        let isMounted = true;
+        const fetchModels = async () => {
+            if (!apiKey) return;
+            setIsLoadingModels(true);
+            try {
+                const models = await getAvailableModels(apiKey);
+                if (isMounted) setAvailableModels(models);
+            } catch (error) {
+                // Fallback handled inside getAvailableModels, but extra safety here
+                console.error("Failed to fetch models in settings", error);
+            } finally {
+                if (isMounted) setIsLoadingModels(false);
+            }
+        };
+        fetchModels();
+        return () => { isMounted = false; };
+    }, [apiKey]);
+
     return (
         <div className="space-y-8 animate-fade-in">
             <div>
@@ -327,14 +349,30 @@ const AiSettings: React.FC<Pick<SettingsProps, 'aiPreferences' | 'setAiPreferenc
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                     <div>
-                        <label htmlFor="model-selection" className="text-xs font-medium text-gray-400 block mb-2">AI Model</label>
-                        <select id="model-selection" value={aiPreferences.model} onChange={e => setAiPreferences(prev => ({ ...prev, model: e.target.value }))} className="select-base w-full">
-                            <option value="gemini-2.5-flash">Gemini 2.5 Flash (Fastest - Default)</option>
-                            <option value="gemini-2.5-pro">Gemini 2.5 Pro (Reasoning & Vision)</option>
-                            <option value="gemini-3-pro-preview">Gemini 3.0 Pro (Experimental)</option>
+                        <div className="flex justify-between items-center mb-2">
+                            <label htmlFor="model-selection" className="text-xs font-medium text-gray-400 block">AI Model</label>
+                            {isLoadingModels && <span className="text-[10px] text-cyan-400 animate-pulse">Fetching available models...</span>}
+                        </div>
+                        <select 
+                            id="model-selection" 
+                            value={aiPreferences.model} 
+                            onChange={e => setAiPreferences(prev => ({ ...prev, model: e.target.value }))} 
+                            className="select-base w-full"
+                            disabled={isLoadingModels}
+                        >
+                            {availableModels.length > 0 ? (
+                                availableModels.map(model => (
+                                    <option key={model.id} value={model.id}>
+                                        {model.displayName} - {model.description}
+                                    </option>
+                                ))
+                            ) : (
+                                // Fallback option if list empty or loading
+                                <option value={aiPreferences.model}>{aiPreferences.model} (Default)</option>
+                            )}
                         </select>
                         <p className="text-[10px] text-gray-500 mt-1">
-                            Recommended: Use <strong>2.5 Pro</strong> for deeper analysis and better OCR. Flash is used automatically for quick tasks.
+                            Dynamically fetched from your API key permissions.
                         </p>
                     </div>
                     <div>
@@ -835,7 +873,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                     
                     {activeCategory === 'profile' && <ProfileSettings {...props} />}
                     {activeCategory === 'appearance' && <AppearanceSettings {...props} />}
-                    {activeCategory === 'ai' && <AiSettings {...props} />}
+                    {activeCategory === 'ai' && <AiSettings {...props} apiKey={props.apiKey} />}
                     {activeCategory === 'connectivity' && <ConnectivitySettings {...props} />}
                     {activeCategory === 'data' && <DataSettings {...props} />}
                 </main>

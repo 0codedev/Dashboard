@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { GoogleGenAI, LiveServerMessage, Blob as GenAiBlob, GenerateContentResponse, Modality } from "@google/genai";
+import { GoogleGenAI, LiveServerMessage, Blob as GenAiBlob, GenerateContentResponse, Modality, HarmBlockThreshold, HarmCategory } from "@google/genai";
 import type { TestReport, QuestionLog, AiFilter, ChatMessage, StudyGoal, AiAssistantPreferences, GenUIToolType, GenUIComponentData } from '../types';
 import { generateStudyPlan, explainTopic, retrieveRelevantContext, GENUI_TOOLS, decodeAudioData, encodeAudio, decodeAudio, fileToGenerativePart } from '../services/geminiService';
 import { QuestionStatus, ErrorReason } from '../types';
@@ -23,9 +23,9 @@ interface AiAssistantProps {
 }
 
 const MODELS = [
-    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', icon: '⚡', desc: 'Fastest & low latency' },
-    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', icon: '🧠', desc: 'High reasoning capability' },
-    { id: 'gemini-3-pro-preview', name: 'Gemini 3.0 Pro (Exp)', icon: '✨', desc: 'Experimental features' },
+    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', icon: '⚡', desc: 'Main Model (Vision & Speed)' },
+    { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite', icon: '🚀', desc: 'Lightweight & Fast' },
+    { id: 'gemma-3-27b-it', name: 'Gemma 3 27B', icon: '🤖', desc: 'Text Specialist (Experimental)' },
 ];
 
 // --- GenUI Components ---
@@ -565,19 +565,63 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
 
         try {
             // Prepare contents: Text + Optional Image
-            const parts: any[] = [{ text: currentInput || "Analyze this image." }];
+            const parts: any[] = [{ text: currentInput || "Analyze this." }];
             if (currentImage) {
                 const imagePart = await fileToGenerativePart(currentImage);
                 parts.unshift(imagePart); // Image comes first usually
             }
 
-            const response = await ai.models.generateContentStream({
-                model: preferences.model || 'gemini-2.5-flash', 
-                contents: [{ role: 'user', parts: parts }],
-                config: {
+            const isGemma = preferences.model.toLowerCase().includes('gemma');
+            let reqConfig: any = {};
+            let reqContents = [{ role: 'user', parts: parts }];
+
+            if (isGemma) {
+                // Gemma Logic: Text only, no system instruction in config, no tools
+                // Filter out non-text parts (images)
+                const textParts = parts.filter(p => p.text);
+                const imageParts = parts.filter(p => !p.text);
+                
+                if (imageParts.length > 0) {
+                     setChatHistory(prev => [...prev, { role: 'model', content: "⚠️ Note: Gemma models are text-only and cannot analyze images. I've ignored the attached image." }]);
+                }
+                
+                // Sanitize system prompt to remove tool references
+                const sanitizedSystemPrompt = systemInstruction
+                    .replace(/Use `renderChart`.*planning\./g, '')
+                    .replace(/Use `createActionPlan`.*planning\./g, '')
+                    .replace(/Use `renderDiagram`.*asks\./g, '')
+                    .replace(/Use `createMindMap`.*requested\./g, '')
+                    .replace(/\*\*Tool Usage:\*\*[\s\S]*?(?=\*\*)/g, ''); // Remove Tool Usage section
+
+                // Prepend system instruction to the first text part
+                if (textParts.length > 0) {
+                    textParts[0].text = `SYSTEM INSTRUCTION:\n${sanitizedSystemPrompt}\n\nUSER QUERY:\n${textParts[0].text}`;
+                }
+                
+                reqContents = [{ role: 'user', parts: textParts }];
+                // No tools, no systemInstruction in config
+                // Relax safety settings for Gemma
+                reqConfig = {
+                    safetySettings: [
+                        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+                        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                    ]
+                };
+            } else {
+                // Gemini Logic: Full capabilities
+                reqConfig = {
                     systemInstruction,
                     tools: [{ functionDeclarations: GENUI_TOOLS.map(t => ({ name: t.name, description: t.description, parameters: t.parameters })) }],
-                }
+                };
+                reqContents = [{ role: 'user', parts: parts }];
+            }
+
+            const response = await ai.models.generateContentStream({
+                model: preferences.model || 'gemini-2.5-flash', 
+                contents: reqContents,
+                config: reqConfig
             });
 
             let streamedText = '';

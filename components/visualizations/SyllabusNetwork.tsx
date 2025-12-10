@@ -1,6 +1,7 @@
+
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { UserProfile, SyllabusStatus } from '../../types';
-import { JEE_SYLLABUS, TOPIC_DEPENDENCIES, TOPIC_WEIGHTAGE, SUBJECT_COLORS } from '../../constants';
+import { JEE_SYLLABUS, TOPIC_DEPENDENCIES, TOPIC_WEIGHTAGE } from '../../constants';
 
 interface Node {
     id: string;
@@ -28,7 +29,7 @@ interface SyllabusNetworkProps {
     onNodeClick: (topic: string) => void;
 }
 
-export const SyllabusNetwork: React.FC<SyllabusNetworkProps> = ({ userProfile, masteryScores, onNodeClick }) => {
+export const SyllabusNetwork: React.FC<SyllabusNetworkProps> = React.memo(({ userProfile, masteryScores, onNodeClick }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const requestRef = useRef<number | null>(null);
@@ -43,10 +44,10 @@ export const SyllabusNetwork: React.FC<SyllabusNetworkProps> = ({ userProfile, m
     const DAMPING = 0.8;
     const CENTER_GRAVITY = 0.02;
 
-    const getRadius = (topic: string) => {
+    const getRadius = useCallback((topic: string) => {
         const w = TOPIC_WEIGHTAGE[topic];
         return w === 'High' ? 25 : w === 'Medium' ? 18 : 12;
-    };
+    }, []);
 
     useEffect(() => {
         const newNodes: Node[] = [];
@@ -124,7 +125,7 @@ export const SyllabusNetwork: React.FC<SyllabusNetworkProps> = ({ userProfile, m
         edgesRef.current = newEdges;
         setIsStable(false);
 
-    }, [userProfile, masteryScores]);
+    }, [userProfile, masteryScores, getRadius]);
 
     const draw = useCallback(() => {
         const canvas = canvasRef.current;
@@ -287,8 +288,8 @@ export const SyllabusNetwork: React.FC<SyllabusNetworkProps> = ({ userProfile, m
         return () => { if (requestRef.current) cancelAnimationFrame(requestRef.current); };
     }, [updatePhysics, draw]);
 
-    // Interaction
-    const handleMouseDown = (e: React.MouseEvent) => {
+    // Interaction Handlers (Wrapped in useCallback)
+    const handleMouseDown = useCallback((e: React.MouseEvent) => {
         const rect = canvasRef.current!.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
@@ -303,9 +304,9 @@ export const SyllabusNetwork: React.FC<SyllabusNetworkProps> = ({ userProfile, m
             clickedNode.isDragging = true;
             setIsStable(false);
         }
-    };
+    }, []);
 
-    const handleMouseMove = (e: React.MouseEvent) => {
+    const handleMouseMove = useCallback((e: React.MouseEvent) => {
         const rect = canvasRef.current!.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
@@ -317,9 +318,9 @@ export const SyllabusNetwork: React.FC<SyllabusNetworkProps> = ({ userProfile, m
                 n.vx = 0; n.vy = 0;
             }
         });
-    };
+    }, []);
 
-    const handleMouseUp = (e: React.MouseEvent) => {
+    const handleMouseUp = useCallback((e: React.MouseEvent) => {
         const rect = canvasRef.current!.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
@@ -340,7 +341,7 @@ export const SyllabusNetwork: React.FC<SyllabusNetworkProps> = ({ userProfile, m
         if (clickedNode) {
             onNodeClick(clickedNode.id);
         }
-    };
+    }, [onNodeClick]);
 
     // Resize Handler
     useEffect(() => {
@@ -381,4 +382,4 @@ export const SyllabusNetwork: React.FC<SyllabusNetworkProps> = ({ userProfile, m
             />
         </div>
     );
-};
+});

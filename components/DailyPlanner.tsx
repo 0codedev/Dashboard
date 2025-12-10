@@ -22,10 +22,11 @@ interface DailyPlannerProps {
   modelName?: string;
 }
 
-// --- Advanced Audio Engine for Focus Sounds ---
+// --- Advanced Audio Engine for Focus Sounds & Binaural Beats ---
 class AudioEngine {
     private ctx: AudioContext | null = null;
     private source: AudioBufferSourceNode | null = null;
+    private oscillators: AudioNode[] = [];
     private gainNode: GainNode | null = null;
     private isPlaying: boolean = false;
     private buffers: Map<string, AudioBuffer> = new Map();
@@ -76,7 +77,7 @@ class AudioEngine {
         return buffer;
     }
 
-    play(type: 'brown' | 'pink' | 'white', volume: number = 0.1) {
+    playNoise(type: 'brown' | 'pink' | 'white', volume: number = 0.1) {
         this.init();
         if (!this.ctx) return;
         if (this.ctx.state === 'suspended') this.ctx.resume().catch(err => console.warn("AudioContext resume failed:", err));
@@ -99,11 +100,49 @@ class AudioEngine {
         this.isPlaying = true;
     }
 
+    playBinaural(baseFreq: number, beatFreq: number, volume: number = 0.1) {
+        this.init();
+        if (!this.ctx) return;
+        if (this.ctx.state === 'suspended') this.ctx.resume().catch(err => console.warn("AudioContext resume failed:", err));
+        
+        if (this.isPlaying) this.stop();
+
+        this.gainNode = this.ctx.createGain();
+        this.gainNode.gain.value = volume;
+        this.gainNode.connect(this.ctx.destination);
+
+        // Left Oscillator (Base Freq)
+        const oscL = this.ctx.createOscillator();
+        oscL.type = 'sine';
+        oscL.frequency.value = baseFreq;
+        const panL = this.ctx.createStereoPanner();
+        panL.pan.value = -1; // Pan Left
+        oscL.connect(panL).connect(this.gainNode);
+
+        // Right Oscillator (Base + Beat)
+        const oscR = this.ctx.createOscillator();
+        oscR.type = 'sine';
+        oscR.frequency.value = baseFreq + beatFreq;
+        const panR = this.ctx.createStereoPanner();
+        panR.pan.value = 1; // Pan Right
+        oscR.connect(panR).connect(this.gainNode);
+
+        oscL.start();
+        oscR.start();
+        this.oscillators = [oscL, oscR];
+        this.isPlaying = true;
+    }
+
     stop() {
         if (this.source) {
             try { this.source.stop(); this.source.disconnect(); } catch (e) { }
             this.source = null;
         }
+        this.oscillators.forEach(osc => {
+             try { (osc as any).stop(); osc.disconnect(); } catch(e){}
+        });
+        this.oscillators = [];
+
         if (this.gainNode) { this.gainNode.disconnect(); this.gainNode = null; }
         this.isPlaying = false;
     }
@@ -170,7 +209,7 @@ const FocusAnalyticsWidget: React.FC = () => {
     );
 };
 
-const AccomplishmentModal: React.FC<{ task: DailyTask; onSave: (id: string, accomplishment: string) => void; onClose: () => void }> = ({ task, onSave, onClose }) => {
+const AccomplishmentModal: React.FC<{ task: DailyTask; onSave: (id: string, accomplishment: string) => void; onClose: () => void; interruptionCount: number }> = ({ task, onSave, onClose, interruptionCount }) => {
     const [accomplishment, setAccomplishment] = useState('');
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -182,6 +221,11 @@ const AccomplishmentModal: React.FC<{ task: DailyTask; onSave: (id: string, acco
         <Modal isOpen={true} onClose={onClose} title="Task Completed!">
             <form onSubmit={handleSubmit} className="space-y-4">
                 <p className="text-gray-300">Great job completing: <strong className="text-white">{task.text}</strong></p>
+                {interruptionCount > 3 && (
+                    <div className="bg-red-900/20 border border-red-800 p-3 rounded text-xs text-red-300">
+                        <strong>⚠️ Context Switching Detected:</strong> You paused {interruptionCount} times. This task will be flagged as "Fragmented Focus".
+                    </div>
+                )}
                 <div>
                     <label htmlFor="accomplishment-input" className="block text-sm text-gray-400 mb-1">What did you accomplish?</label>
                     <input id="accomplishment-input" ref={inputRef} type="text" value={accomplishment} onChange={(e) => setAccomplishment(e.target.value)} placeholder="e.g. Solved 15 PYQs from Rotational Motion" className="w-full p-2 bg-slate-700 border border-slate-600 rounded-md focus:ring-2 focus:ring-cyan-500 focus:outline-none text-white" />
@@ -342,8 +386,9 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
     const [isSorting, setIsSorting] = useState(false);
 
     const [isHyperFocusMode, setIsHyperFocusMode] = useState(false);
-    const [ambientSound, setAmbientSound] = useState<'off' | 'brown' | 'pink' | 'white'>('off');
+    const [ambientSound, setAmbientSound] = useState<'off' | 'brown' | 'pink' | 'white' | 'alpha' | 'theta'>('off');
     const [soundVolume, setSoundVolume] = useState(0.15);
+    const [interruptionCount, setInterruptionCount] = useState(0);
 
     const [newTaskText, setNewTaskText] = useState('');
     const [newTaskType, setNewTaskType] = useState<TaskType>(TaskType.StudySession);
@@ -386,8 +431,17 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
     }, [prefilledTask, setPrefilledTask]);
 
     useEffect(() => {
-        if (isHyperFocusMode && isTimerActive && ambientSound !== 'off') audioEngine.play(ambientSound, soundVolume);
-        else audioEngine.stop();
+        if (isHyperFocusMode && isTimerActive && ambientSound !== 'off') {
+            if (['brown', 'pink', 'white'].includes(ambientSound)) {
+                audioEngine.playNoise(ambientSound as 'brown'|'pink'|'white', soundVolume);
+            } else if (ambientSound === 'alpha') {
+                audioEngine.playBinaural(400, 10, soundVolume); // 10Hz Alpha Beat (Focus)
+            } else if (ambientSound === 'theta') {
+                audioEngine.playBinaural(400, 6, soundVolume); // 6Hz Theta Beat (Deep Focus)
+            }
+        } else {
+            audioEngine.stop();
+        }
         return () => audioEngine.stop();
     }, [isHyperFocusMode, isTimerActive, ambientSound]);
 
@@ -525,7 +579,6 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
             const orderedIds = await generateSmartTaskOrder(dailyTasks, userProfile, logs, apiKey, modelName);
             const taskMap = new Map(dailyTasks.map(t => [t.id, t]));
             const reorderedTasks = orderedIds.map(id => taskMap.get(id)).filter(Boolean) as DailyTask[];
-            // Append any new tasks that might have been added during API call
             const existingIds = new Set(orderedIds);
             const remainingTasks = dailyTasks.filter(t => !existingIds.has(t.id));
             setDailyTasks([...reorderedTasks, ...remainingTasks]);
@@ -542,9 +595,31 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
     };
 
     const handleTimerModeChange = (mode: 'focus' | 'short' | 'long' | 'custom') => { setIsTimerActive(false); setTimerMode(mode); setIsCompleted(false); endTimeRef.current = null; setActiveTask(null); if (mode === 'custom') { setShowCustomInput(true); setTimeLeft(customTime * 60); } else { setShowCustomInput(false); setTimeLeft(timerModes[mode]); } };
-    const handleTimerToggle = () => { setIsCompleted(false); if (!isTimerActive) { endTimeRef.current = Date.now() + timeLeft * 1000; if (timerMode === 'focus' || activeTask) setIsHyperFocusMode(true); } else { setIsHyperFocusMode(false); } setIsTimerActive(prev => !prev); };
-    const handleTimerReset = () => { setIsTimerActive(false); setIsHyperFocusMode(false); setIsCompleted(false); endTimeRef.current = null; setActiveTask(null); if(timerMode === 'custom') { setTimeLeft(customTime * 60); } else { setTimeLeft(timerModes[timerMode]); } };
-    const handleStartFocus = (task: DailyTask) => { setActiveTask(task); setIsTimerActive(false); setTimerMode('focus'); setShowCustomInput(false); setIsCompleted(false); endTimeRef.current = null; setTimeLeft(task.estimatedTime > 0 ? task.estimatedTime * 60 : timerModes.focus); setTimeout(() => { endTimeRef.current = Date.now() + (task.estimatedTime > 0 ? task.estimatedTime * 60 : timerModes.focus) * 1000; setIsTimerActive(true); setIsHyperFocusMode(true); }, 100); };
+    
+    const handleTimerToggle = () => { 
+        setIsCompleted(false); 
+        if (!isTimerActive) { 
+            // Resuming or Starting
+            if (!endTimeRef.current) {
+                 endTimeRef.current = Date.now() + timeLeft * 1000;
+            } else {
+                 // Recalculate end time based on remaining time when resuming
+                 endTimeRef.current = Date.now() + timeLeft * 1000;
+            }
+            if (timerMode === 'focus' || activeTask) setIsHyperFocusMode(true); 
+        } else { 
+            // Pausing
+            setIsHyperFocusMode(false); 
+            // Context Switching Tax
+            setInterruptionCount(prev => prev + 1);
+        } 
+        setIsTimerActive(prev => !prev); 
+    };
+
+    const handleTimerReset = () => { setIsTimerActive(false); setIsHyperFocusMode(false); setIsCompleted(false); endTimeRef.current = null; setActiveTask(null); setInterruptionCount(0); if(timerMode === 'custom') { setTimeLeft(customTime * 60); } else { setTimeLeft(timerModes[timerMode]); } };
+    
+    const handleStartFocus = (task: DailyTask) => { setActiveTask(task); setIsTimerActive(false); setTimerMode('focus'); setShowCustomInput(false); setIsCompleted(false); setInterruptionCount(0); endTimeRef.current = null; setTimeLeft(task.estimatedTime > 0 ? task.estimatedTime * 60 : timerModes.focus); setTimeout(() => { endTimeRef.current = Date.now() + (task.estimatedTime > 0 ? task.estimatedTime * 60 : timerModes.focus) * 1000; setIsTimerActive(true); setIsHyperFocusMode(true); }, 100); };
+    
     const formatTime = (seconds: number) => { const mins = Math.floor(seconds / 60); const secs = seconds % 60; return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`; };
     
     const handleGenerateSummary = async () => { setIsSummaryLoading(true); setSummary(''); try { const checklistSummary = dailyTasks.map(t => ({text: t.text, completed: t.completed})); const result = await generateEndOfDaySummary(goals, checklistSummary, apiKey); setSummary(result); } catch (error) { console.error("Failed to generate summary:", error); setSummary("Sorry, I couldn't generate a summary right now."); } finally { setIsSummaryLoading(false); } };
@@ -552,7 +627,18 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
     const addSuggestedTask = (task: {task: string, time: number}) => { setDailyTasks(prev => [...prev, { id: `ai-${Date.now()}-${Math.random()}`, text: task.task, completed: false, taskType: TaskType.StudySession, estimatedTime: task.time, effort: TaskEffort.Medium }]); setSuggestedTasks(prev => prev ? prev.filter(t => t.task !== task.task) : null); };
     const handleGenerateSmartTasks = async () => { setIsGeneratingTasks(true); setSmartTasks(null); try { const newTasks = await generateSmartTasks(prioritizedWeakTopics, apiKey, modelName); setSmartTasks(newTasks); } catch (e) { console.error(e); } finally { setIsGeneratingTasks(false); } };
     const addSmartTask = (task: { task: string; time: number; topic: string }) => { const newTask = { id: `smart-${Date.now()}`, text: task.task, completed: false, taskType: TaskType.ProblemPractice, estimatedTime: task.time, linkedTopic: task.topic, effort: TaskEffort.High }; setDailyTasks(p => [newTask, ...p]); setSmartTasks(p => p?.filter(t => t.task !== task.task) || null); };
-    const handleSaveAccomplishment = (taskId: string, accomplishment: string) => { setDailyTasks(prev => prev.map(t => t.id === taskId ? { ...t, accomplishment, completed: true } : t)); setAccomplishmentModal(null); setActiveTask(null); setIsCompleted(true); handleTimerReset(); };
+    
+    const handleSaveAccomplishment = (taskId: string, accomplishment: string) => { 
+        // Apply "Fragmented Focus" tag if interruptions were high
+        const taxLabel = interruptionCount > 3 ? " (Fragmented Focus ⚠️)" : "";
+        const finalAccomplishment = accomplishment + taxLabel;
+
+        setDailyTasks(prev => prev.map(t => t.id === taskId ? { ...t, accomplishment: finalAccomplishment, completed: true } : t)); 
+        setAccomplishmentModal(null); 
+        setActiveTask(null); 
+        setIsCompleted(true); 
+        handleTimerReset(); 
+    };
 
     const totalPlannedTime = useMemo(() => dailyTasks.reduce((sum, task) => sum + (task.estimatedTime || 0), 0), [dailyTasks]);
     const formatTotalTime = (minutes: number) => { if (minutes < 60) return `${minutes} min`; const hours = Math.floor(minutes / 60); const mins = minutes % 60; return `${hours}h ${mins}m`; };
@@ -562,7 +648,6 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
 
     const displayedTasks = useMemo(() => {
         if (showSchedule) {
-            // In split view, show unscheduled or all? Showing unscheduled only prevents clutter
             return dailyTasks.filter(t => !t.scheduledTime);
         }
         return dailyTasks;
@@ -570,7 +655,7 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 relative">
-             {accomplishmentModal && <AccomplishmentModal task={accomplishmentModal.task} onSave={handleSaveAccomplishment} onClose={() => setAccomplishmentModal(null)} />}
+             {accomplishmentModal && <AccomplishmentModal task={accomplishmentModal.task} onSave={handleSaveAccomplishment} onClose={() => setAccomplishmentModal(null)} interruptionCount={interruptionCount} />}
              
              {isHyperFocusMode && (
                 <div className="fixed inset-0 z-[100] bg-black flex flex-col items-center justify-center animate-fade-in overflow-hidden">
@@ -590,14 +675,17 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
                                 <button onClick={() => setAmbientSound(prev => prev === 'off' ? 'brown' : 'off')} className={`p-4 rounded-full transition-all duration-300 border ${ambientSound !== 'off' ? 'bg-cyan-600 border-cyan-500 text-white shadow-[0_0_30px_rgba(34,211,238,0.4)]' : 'bg-slate-800 border-slate-700 text-gray-400 hover:border-gray-500'}`}>
                                     {ambientSound !== 'off' ? <span className="text-2xl">🔊</span> : <span className="text-2xl">🔇</span>}
                                 </button>
-                                <span className="text-xs text-gray-500 font-medium uppercase tracking-wider">Ambient</span>
+                                <span className="text-xs text-gray-500 font-medium uppercase tracking-wider">Soundscape</span>
                             </div>
                             {ambientSound !== 'off' && (
                                 <div className="bg-slate-900/80 p-4 rounded-2xl border border-slate-800 flex gap-4 items-center animate-scale-in">
                                     <div className="flex gap-1">
-                                        {(['brown', 'pink', 'white'] as const).map(type => (
-                                            <button key={type} onClick={() => setAmbientSound(type)} className={`px-3 py-1 text-xs rounded-md border uppercase font-bold transition-colors ${ambientSound === type ? 'bg-slate-700 border-cyan-500 text-cyan-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>{type}</button>
-                                        ))}
+                                        {(['brown', 'pink', 'white'].map(type => (
+                                            <button key={type} onClick={() => setAmbientSound(type as any)} className={`px-3 py-1 text-xs rounded-md border uppercase font-bold transition-colors ${ambientSound === type ? 'bg-slate-700 border-cyan-500 text-cyan-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>{type}</button>
+                                        )))}
+                                        <div className="w-px h-6 bg-slate-700 mx-1"></div>
+                                        <button onClick={() => setAmbientSound('alpha')} className={`px-3 py-1 text-xs rounded-md border uppercase font-bold transition-colors ${ambientSound === 'alpha' ? 'bg-indigo-900/50 border-indigo-500 text-indigo-400' : 'border-transparent text-indigo-400/50 hover:text-indigo-400'}`} title="Alpha Waves (Focus)">Alpha</button>
+                                        <button onClick={() => setAmbientSound('theta')} className={`px-3 py-1 text-xs rounded-md border uppercase font-bold transition-colors ${ambientSound === 'theta' ? 'bg-purple-900/50 border-purple-500 text-purple-400' : 'border-transparent text-purple-400/50 hover:text-purple-400'}`} title="Theta Waves (Deep Focus)">Theta</button>
                                     </div>
                                     <div className="h-8 w-[1px] bg-slate-700"></div>
                                     <input type="range" min="0" max="1" step="0.01" value={soundVolume} onChange={e => setSoundVolume(parseFloat(e.target.value))} className="w-24 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"/>

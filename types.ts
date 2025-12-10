@@ -212,6 +212,12 @@ export interface RootCauseFilter {
     topic?: string | null;
 }
 
+export interface ModelInfo {
+    id: string;
+    displayName: string;
+    description: string;
+}
+
 export interface AiAssistantPreferences {
   model: string; 
   responseLength: 'short' | 'medium' | 'long';
@@ -260,6 +266,7 @@ export interface ChapterProgress {
     lectureCompleted?: boolean;
     notesCompleted?: boolean;
     completionDate?: string; 
+    flashcard?: string; // Stores the AI-generated explanation for Quick Review
 }
 
 export interface QuizQuestion {

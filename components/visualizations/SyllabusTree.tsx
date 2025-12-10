@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { UserProfile, SyllabusStatus, ChapterProgress } from '../../types';
 import { JEE_SYLLABUS, SUBJECT_COLORS } from '../../constants';
 
@@ -30,19 +30,19 @@ const ProgressBar: React.FC<{ progress: number; color: string }> = ({ progress, 
     </div>
 );
 
-export const SyllabusTree: React.FC<SyllabusTreeProps> = ({ userProfile, onNodeClick, onSyllabusChange }) => {
+export const SyllabusTree: React.FC<SyllabusTreeProps> = React.memo(({ userProfile, onNodeClick, onSyllabusChange }) => {
     const [expanded, setExpanded] = useState<Set<string>>(new Set(['subject-physics']));
 
-    const toggleExpand = (id: string) => {
+    const toggleExpand = useCallback((id: string) => {
         setExpanded(prev => {
             const next = new Set(prev);
             if (next.has(id)) next.delete(id);
             else next.add(id);
             return next;
         });
-    };
+    }, []);
     
-    const handleSubTopicToggle = (chapterName: string, subTopicName: string, isChecked: boolean) => {
+    const handleSubTopicToggle = useCallback((chapterName: string, subTopicName: string, isChecked: boolean) => {
         const progress = userProfile.syllabus[chapterName] || { status: SyllabusStatus.NotStarted, strength: null, revisionCount: 0, subTopicStatus: {} };
         const currentSubTopicStatus = progress.subTopicStatus || {};
         const newSubTopicStatus = {
@@ -50,7 +50,7 @@ export const SyllabusTree: React.FC<SyllabusTreeProps> = ({ userProfile, onNodeC
             [subTopicName]: isChecked
         };
         onSyllabusChange(chapterName, { subTopicStatus: newSubTopicStatus });
-    };
+    }, [userProfile.syllabus, onSyllabusChange]);
 
     const progressData = useMemo(() => {
         const data: Record<string, { progress: number }> = {};
@@ -192,4 +192,4 @@ export const SyllabusTree: React.FC<SyllabusTreeProps> = ({ userProfile, onNodeC
             </div>
         </div>
     );
-};
+});
