@@ -552,9 +552,9 @@ const AiSettings: React.FC<Pick<SettingsProps, 'aiPreferences' | 'setAiPreferenc
                             className="w-full bg-slate-900 border-slate-700 text-sm"
                             disabled={!notificationPreferences.proactiveInsights}
                         >
-                            <option value="high">High (Notify on >3% drop)</option>
-                            <option value="medium">Medium (Notify on >5% drop)</option>
-                            <option value="low">Low (Notify on >10% drop)</option>
+                            <option value="high">High (Notify on &gt;3% drop)</option>
+                            <option value="medium">Medium (Notify on &gt;5% drop)</option>
+                            <option value="low">Low (Notify on &gt;10% drop)</option>
                         </Select>
                     </div>
                 </div>
