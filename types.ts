@@ -216,14 +216,24 @@ export interface ModelInfo {
     id: string;
     displayName: string;
     description: string;
+    provider?: 'google' | 'groq' | 'openrouter';
 }
 
+export type LlmTaskCategory = 'analysis' | 'chat' | 'creative' | 'planning' | 'math' | 'coding';
+
 export interface AiAssistantPreferences {
-  model: string; 
+  model: string; // The primary model ID (default)
   responseLength: 'short' | 'medium' | 'long';
   tone: 'encouraging' | 'neutral' | 'direct';
   customInstructions?: string; 
-  socraticMode?: boolean; 
+  socraticMode?: boolean;
+  
+  // New: Advanced Multi-Provider Config
+  groqApiKey?: string;
+  openRouterApiKey?: string;
+  
+  // Per-task model overrides
+  modelOverrides?: Partial<Record<LlmTaskCategory, string>>;
 }
 
 export interface NotificationPreferences {

@@ -30,3 +30,12 @@ export const SkeletonMetric = () => (
         <div className="h-3 w-full bg-slate-700/30 rounded mt-2"></div>
     </div>
 );
+
+export const SkeletonText = () => (
+    <div className="space-y-3 animate-shimmer p-4">
+        <div className="h-4 bg-slate-700/30 rounded w-3/4"></div>
+        <div className="h-4 bg-slate-700/30 rounded w-full"></div>
+        <div className="h-4 bg-slate-700/30 rounded w-5/6"></div>
+        <div className="h-4 bg-slate-700/30 rounded w-2/3"></div>
+    </div>
+);

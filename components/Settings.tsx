@@ -1,9 +1,12 @@
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
-import type { AiAssistantPreferences, NotificationPreferences, UserProfile, Theme, AppearancePreferences, TestReport, QuestionLog, LongTermGoal, TestSubType, GamificationState, StudyGoal, ChatMessage, ModelInfo } from '../types';
-import { getDailyQuote, getAvailableModels } from '../services/geminiService';
-import { parseReportsFromCsv, parseLogsFromCsv, downloadReportsForSheet, downloadLogsForSheet, exportReportsToCsv, exportLogsToCsv } from '../services/sheetParser';
-import { SUBJECT_CONFIG } from '../constants';
+import React, { useState, useRef, useEffect } from 'react';
+import type { AiAssistantPreferences, NotificationPreferences, UserProfile, Theme, AppearancePreferences, TestReport, QuestionLog, LongTermGoal, GamificationState, StudyGoal, ChatMessage, LlmTaskCategory, TargetExam } from '../types';
+import { getDailyQuote } from '../services/geminiService';
+import { MODEL_REGISTRY, TASK_DEFAULTS } from '../services/llm/models';
+import Modal from './common/Modal';
+import { Button } from './common/Button';
+import { Input } from './common/Input';
+import { Select } from './common/Select';
 
 interface SettingsProps {
     apiKey: string;
@@ -32,10 +35,9 @@ interface SettingsProps {
 
     reports: TestReport[];
     logs: QuestionLog[];
-    onSyncData: (data: any) => void; // Relaxed type to accept full backup
+    onSyncData: (data: any) => void; 
     addToast: (toast: any) => void;
 
-    // New Props for Full Backup
     gamificationState: GamificationState;
     studyGoals: StudyGoal[];
     chatHistory: ChatMessage[];
@@ -45,383 +47,515 @@ type SettingsCategory = 'profile' | 'appearance' | 'ai' | 'connectivity' | 'data
 
 const ToggleSwitch: React.FC<{ checked: boolean; onChange: (checked: boolean) => void; label: string }> = ({ checked, onChange, label }) => (
     <div className="flex items-center justify-between group">
-        <span id={`label-${label.replace(/\s/g, '-')}`} className="text-gray-300 group-hover:text-gray-100 transition-colors">{label}</span>
+        <span className="text-gray-300 group-hover:text-gray-100 transition-colors text-sm font-medium">{label}</span>
         <button
             type="button"
-            role="switch"
-            aria-checked={checked}
-            aria-labelledby={`label-${label.replace(/\s/g, '-')}`}
             onClick={() => onChange(!checked)}
-            className={`relative inline-flex items-center h-6 rounded-full w-12 transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-800 focus:ring-[rgb(var(--color-primary-rgb))] ${
-                checked ? 'bg-[rgb(var(--color-primary-rgb))]' : 'bg-slate-600'
-            }`}
+            className={`relative inline-flex items-center h-6 rounded-full w-11 transition-all focus:outline-none ${checked ? 'bg-[rgb(var(--color-primary-rgb))]' : 'bg-slate-700 border border-slate-600'}`}
         >
-            <span
-                className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform shadow-md ${
-                    checked ? 'translate-x-7' : 'translate-x-1'
-                }`}
-            />
+            <span className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform shadow-md ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
         </button>
     </div>
 );
 
-const ConfirmationModal: React.FC<{
-  isOpen: boolean;
-  onClose: () => void;
-  onConfirm: () => void;
-  title: string;
-  message: React.ReactNode;
-}> = ({ isOpen, onClose, onConfirm, title, message }) => {
-    if (!isOpen) return null;
-
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 animate-fade-in" onClick={onClose}>
-            <div className="bg-slate-800 p-6 rounded-lg shadow-2xl w-11/12 max-w-md border border-slate-700 animate-scale-in" onClick={e => e.stopPropagation()}>
-                <h3 className="text-xl font-bold text-red-400 mb-4">{title}</h3>
-                <div className="text-gray-300 mb-6">{message}</div>
-                <div className="flex justify-end gap-4">
-                    <button onClick={onClose} className="btn btn-secondary">
-                        Cancel
-                    </button>
-                    <button onClick={() => { onConfirm(); onClose(); }} className="btn bg-red-600 hover:bg-red-700 text-white border-red-700">
-                        Confirm
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const StrategySlider: React.FC<{ 
-    label: string; 
-    value: number; 
-    onChange: (val: number) => void; 
-    min?: number; 
-    max?: number; 
-    unit?: string 
-}> = ({ label, value, onChange, min = 30, max = 300, unit = 's' }) => {
-    const percentage = ((value - min) / (max - min)) * 100;
-    
-    // Color gradient logic based on speed
-    let colorClass = 'bg-cyan-500';
-    if (value < 60) colorClass = 'bg-red-500'; // Too fast/panic
-    else if (value > 180) colorClass = 'bg-blue-500'; // Very slow
-    else colorClass = 'bg-green-500'; // Good pace
-
-    return (
-        <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50">
-            <div className="flex justify-between mb-2 text-xs font-medium">
-                <span className="text-gray-300">{label}</span>
-                <span className="text-[rgb(var(--color-primary-rgb))] font-mono">{value} {unit}</span>
-            </div>
-            <div className="relative h-2 bg-slate-700 rounded-full">
-                <div 
-                    className={`absolute top-0 left-0 h-full rounded-full ${colorClass} opacity-80 transition-all duration-300`} 
-                    style={{ width: `${percentage}%` }}
-                ></div>
-                <input 
-                    type="range" 
-                    min={min} 
-                    max={max} 
-                    value={value} 
-                    onChange={(e) => onChange(parseInt(e.target.value))} 
-                    className="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer"
-                />
-            </div>
-            <div className="flex justify-between mt-1 text-[9px] text-gray-500">
-                <span>Sprint ({min}s)</span>
-                <span>Marathon ({max}s)</span>
-            </div>
-        </div>
-    );
-};
-
-// Sub-components for each category
+// --- 1. PROFILE & STRATEGY SETTINGS ---
 const ProfileSettings: React.FC<Pick<SettingsProps, 'userProfile' | 'setUserProfile' | 'longTermGoals' | 'setLongTermGoals'>> = ({ userProfile, setUserProfile, longTermGoals, setLongTermGoals }) => {
-    const [newLongTermGoal, setNewLongTermGoal] = useState('');
+    const [newGoal, setNewGoal] = useState('');
 
-    const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setUserProfile(prev => ({...prev, name: e.target.value}));
+    const handleGoalAdd = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (newGoal.trim()) {
+            setLongTermGoals(prev => [...prev, { id: Date.now().toString(), text: newGoal, completed: false }]);
+            setNewGoal('');
+        }
     };
 
-    const handleStudyTimeChange = (period: 'morning' | 'afternoon' | 'evening', value: string) => {
-        setUserProfile(prev => ({ ...prev, studyTimes: { ...prev.studyTimes, [period]: value }}));
+    const handleGoalRemove = (id: string) => {
+        setLongTermGoals(prev => prev.filter(g => g.id !== id));
     };
-    
-    const handleCohortSizeChange = (type: 'JEE Mains' | 'JEE Advanced', value: number) => {
-        setUserProfile(prev => ({ ...prev, cohortSizes: { ...prev.cohortSizes, [type]: value }}));
-    }
 
-    const handleTargetTimeChange = (subject: 'physics' | 'chemistry' | 'maths', value: number) => {
-        setUserProfile(prev => ({ ...prev, targetTimePerQuestion: { ...prev.targetTimePerQuestion, [subject]: value }}));
-    }
-
-    const addLongTermGoal = (e: React.FormEvent) => { 
-        e.preventDefault(); 
-        if (newLongTermGoal.trim() === '') return; 
-        setLongTermGoals(prev => [...prev, { id: `long-${Date.now()}`, text: newLongTermGoal, completed: false }]); 
-        setNewLongTermGoal(''); 
+    const updateTime = (period: 'morning' | 'afternoon' | 'evening', val: string) => {
+        setUserProfile(prev => ({ ...prev, studyTimes: { ...prev.studyTimes, [period]: val } }));
     };
-    const toggleLongTermGoal = (id: string) => { setLongTermGoals(prev => prev.map(g => g.id === id ? { ...g, completed: !g.completed } : g)); };
-    const deleteLongTermGoal = (id: string) => { setLongTermGoals(prev => prev.filter(g => g.id !== id)); };
 
     return (
         <div className="space-y-8 animate-fade-in">
-            <div>
-                <h3 className="text-xl font-bold text-[rgb(var(--color-primary-rgb))] mb-2 border-b border-[rgb(var(--color-primary-rgb))] pb-2 inline-block">Profile & Strategy</h3>
-                <p className="text-sm text-gray-400 mt-2">Configure your digital twin for accurate simulations.</p>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                 <div className="bg-slate-800/30 p-4 rounded-xl border border-slate-700">
-                    <h4 className="text-sm font-bold text-gray-200 mb-4 flex items-center gap-2"><span className="text-lg">👤</span> Identity & Goals</h4>
+            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
+                <h3 className="text-lg font-bold text-cyan-400 mb-6 flex items-center gap-2">
+                    <span className="text-xl">👤</span> Identity & Goals
+                </h3>
+                
+                <div className="grid grid-cols-1 gap-6 mb-6">
                     <div>
-                        <label htmlFor="user-name" className="block text-xs font-medium text-gray-400 mb-1">Display Name</label>
-                        <input id="user-name" type="text" value={userProfile.name} onChange={handleNameChange} placeholder="Enter your name" className="input-base w-full"/>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4 mt-4">
-                        <div>
-                            <label htmlFor="exam-date" className="block text-xs font-medium text-gray-400 mb-1">Target Exam Date</label>
-                            <input 
-                                id="exam-date"
-                                type="date" 
-                                value={userProfile.targetExamDate || ''} 
-                                onChange={e => setUserProfile(prev => ({ ...prev, targetExamDate: e.target.value }))} 
-                                className="input-base mt-1 w-full"
-                            />
-                        </div>
-                        <div>
-                            <label htmlFor="buffer-days" className="block text-xs font-medium text-gray-400 mb-1">Syllabus Buffer (Days)</label>
-                            <input 
-                                id="buffer-days"
-                                type="number" 
-                                value={userProfile.syllabusCompletionBufferDays || 90} 
-                                onChange={e => setUserProfile(prev => ({ ...prev, syllabusCompletionBufferDays: parseInt(e.target.value) || 0 }))} 
-                                className="input-base mt-1 w-full"
-                                placeholder="e.g. 90"
-                            />
-                        </div>
-                    </div>
-                    
-                    <h4 className="text-sm font-bold text-gray-200 mt-6 mb-4 flex items-center gap-2"><span className="text-lg">👥</span> Cohort Calibration</h4>
-                    <div className="space-y-3">
-                        <div><label className="block text-xs text-gray-400">JEE Mains Cohort Size</label><input type="number" value={userProfile.cohortSizes?.['JEE Mains'] || 0} onChange={e => handleCohortSizeChange('JEE Mains', parseInt(e.target.value))} className="input-base mt-1 w-full"/></div>
-                        <div><label className="block text-xs text-gray-400">JEE Advanced Cohort Size</label><input type="number" value={userProfile.cohortSizes?.['JEE Advanced'] || 0} onChange={e => handleCohortSizeChange('JEE Advanced', parseInt(e.target.value))} className="input-base mt-1 w-full"/></div>
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Display Name</label>
+                        <Input 
+                            value={userProfile.name} 
+                            onChange={e => setUserProfile(prev => ({ ...prev, name: e.target.value }))} 
+                            placeholder="e.g. Future IITian"
+                            className="bg-slate-900 border-slate-700 focus:border-cyan-500 transition-colors"
+                        />
                     </div>
                 </div>
 
-                <div className="bg-slate-800/30 p-4 rounded-xl border border-slate-700">
-                    <h4 className="text-sm font-bold text-gray-200 mb-4 flex items-center gap-2"><span className="text-lg">⏱️</span> Pace Strategy (Target Time/Q)</h4>
-                    <p className="text-xs text-gray-400 mb-4 leading-relaxed">Set your ideal time per question. This calibrates the "Paper Strategy Simulator" to detect panic moments.</p>
-                    <div className="space-y-4">
-                        <StrategySlider label="Physics" value={userProfile.targetTimePerQuestion?.physics || 120} onChange={(v) => handleTargetTimeChange('physics', v)} />
-                        <StrategySlider label="Chemistry" value={userProfile.targetTimePerQuestion?.chemistry || 60} onChange={(v) => handleTargetTimeChange('chemistry', v)} />
-                        <StrategySlider label="Maths" value={userProfile.targetTimePerQuestion?.maths || 150} onChange={(v) => handleTargetTimeChange('maths', v)} />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Target Exam Date</label>
+                         <Input 
+                            type="date"
+                            value={userProfile.targetExamDate || ''} 
+                            onChange={e => setUserProfile(prev => ({ ...prev, targetExamDate: e.target.value }))} 
+                            className="bg-slate-900 border-slate-700 focus:border-cyan-500 transition-colors"
+                        />
+                    </div>
+                     <div>
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Syllabus Buffer (Days)</label>
+                         <Input 
+                            type="number"
+                            value={userProfile.syllabusCompletionBufferDays || 90} 
+                            onChange={e => setUserProfile(prev => ({ ...prev, syllabusCompletionBufferDays: parseInt(e.target.value) || 0 }))} 
+                            className="bg-slate-900 border-slate-700 focus:border-cyan-500 transition-colors"
+                        />
                     </div>
                 </div>
-            </div>
 
-             <div className="bg-slate-800/30 p-4 rounded-xl border border-slate-700">
-                <h4 className="text-sm font-bold text-gray-200 mb-4 flex items-center gap-2"><span className="text-lg">📅</span> Study Routine</h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div><label className="block text-xs text-gray-400">Morning Slot</label><input type="text" value={userProfile.studyTimes.morning} onChange={e => handleStudyTimeChange('morning', e.target.value)} className="input-base mt-1 w-full"/></div>
-                    <div><label className="block text-xs text-gray-400">Afternoon Slot</label><input type="text" value={userProfile.studyTimes.afternoon} onChange={e => handleStudyTimeChange('afternoon', e.target.value)} className="input-base mt-1 w-full"/></div>
-                    <div><label className="block text-xs text-gray-400">Evening Slot</label><input type="text" value={userProfile.studyTimes.evening} onChange={e => handleStudyTimeChange('evening', e.target.value)} className="input-base mt-1 w-full"/></div>
+                <div className="mt-6">
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 block">Primary Target</label>
+                    <div className="flex flex-wrap gap-2">
+                        {['JEE Mains', 'JEE Advanced', 'BITSAT', 'NEET'].map(exam => (
+                            <button
+                                key={exam}
+                                onClick={() => {
+                                    const current = userProfile.targetExams || [];
+                                    const exists = current.includes(exam as any);
+                                    const newExams = exists ? current.filter(e => e !== exam) : [...current, exam as any];
+                                    setUserProfile(prev => ({ ...prev, targetExams: newExams }));
+                                }}
+                                className={`px-4 py-2 text-xs font-bold rounded-lg border transition-all duration-200 ${
+                                    userProfile.targetExams?.includes(exam as any)
+                                        ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.2)]'
+                                        : 'bg-slate-900 text-slate-500 border-slate-700 hover:border-slate-500 hover:text-slate-300'
+                                }`}
+                            >
+                                {exam}
+                            </button>
+                        ))}
+                    </div>
                 </div>
             </div>
             
-            <div className="bg-slate-800/30 p-4 rounded-xl border border-slate-700">
-                 <h4 className="text-sm font-bold text-gray-200 mb-4 flex items-center gap-2"><span className="text-lg">🔭</span> Vision Board</h4>
-                 <form onSubmit={addLongTermGoal} className="flex gap-3 mb-4">
-                    <input type="text" value={newLongTermGoal} onChange={e => setNewLongTermGoal(e.target.value)} placeholder="Add a major milestone (e.g. 'Top 500 Rank')" className="input-base flex-grow"/>
-                    <button type="submit" className="btn btn-primary">Add</button>
+            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
+                 <h3 className="text-lg font-bold text-cyan-400 mb-6 flex items-center gap-2">
+                    <span className="text-xl">👥</span> Cohort Calibration
+                </h3>
+                <p className="text-xs text-slate-400 mb-4">Set the estimated number of students for percentile calculations.</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                     <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase block mb-1">JEE Mains Cohort Size</label>
+                        <Input 
+                            type="number"
+                            value={userProfile.cohortSizes?.['JEE Mains'] || 10000} 
+                            onChange={e => setUserProfile(prev => ({ ...prev, cohortSizes: { ...prev.cohortSizes, 'JEE Mains': parseInt(e.target.value) } }))}
+                            className="bg-slate-900 border-slate-700"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase block mb-1">JEE Advanced Cohort Size</label>
+                        <Input 
+                            type="number"
+                            value={userProfile.cohortSizes?.['JEE Advanced'] || 2500} 
+                            onChange={e => setUserProfile(prev => ({ ...prev, cohortSizes: { ...prev.cohortSizes, 'JEE Advanced': parseInt(e.target.value) } }))}
+                            className="bg-slate-900 border-slate-700"
+                        />
+                    </div>
+                </div>
+            </div>
+
+            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
+                 <h3 className="text-lg font-bold text-cyan-400 mb-6 flex items-center gap-2">
+                    <span className="text-xl">⏱️</span> Pace Strategy (Target Time/Q)
+                </h3>
+                <p className="text-xs text-slate-400 mb-4">Set your ideal time per question. This calibrates the "Paper Strategy Simulator" to detect panic moments.</p>
+                <div className="space-y-4">
+                    {['physics', 'chemistry', 'maths'].map(subject => (
+                        <div key={subject} className="flex items-center gap-4">
+                            <label className="w-24 text-xs font-bold text-slate-300 uppercase capitalize">{subject}</label>
+                            <input 
+                                type="range" 
+                                min="30" max="300" step="10"
+                                value={userProfile.targetTimePerQuestion?.[subject as 'physics'|'chemistry'|'maths'] || 120}
+                                onChange={(e) => setUserProfile(prev => ({
+                                    ...prev, 
+                                    targetTimePerQuestion: { ...prev.targetTimePerQuestion, [subject]: parseInt(e.target.value) }
+                                }))}
+                                className={`flex-grow h-2 rounded-lg appearance-none cursor-pointer bg-slate-700 accent-${subject === 'physics' ? 'cyan' : subject === 'chemistry' ? 'emerald' : 'red'}-500`}
+                            />
+                            <span className="w-16 text-right text-sm font-mono text-slate-200">
+                                {userProfile.targetTimePerQuestion?.[subject as 'physics'|'chemistry'|'maths']} s
+                            </span>
+                        </div>
+                    ))}
+                    <div className="flex justify-between text-[10px] text-slate-600 px-28">
+                        <span>Sprint (30s)</span>
+                        <span>Marathon (300s)</span>
+                    </div>
+                </div>
+            </div>
+
+            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
+                <h3 className="text-lg font-bold text-cyan-400 mb-6 flex items-center gap-2">
+                    <span className="text-xl">📅</span> Study Routine
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {['morning', 'afternoon', 'evening'].map((period) => (
+                        <div key={period} className="bg-slate-900 p-3 rounded-lg border border-slate-700 hover:border-slate-500 transition-colors">
+                            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">{period} Slot</label>
+                            <Input 
+                                value={userProfile.studyTimes[period as 'morning'|'afternoon'|'evening']} 
+                                onChange={e => updateTime(period as any, e.target.value)}
+                                className="text-sm border-none bg-transparent focus:ring-0 px-0"
+                            />
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
+                <h3 className="text-lg font-bold text-cyan-400 mb-6 flex items-center gap-2">
+                    <span className="text-xl">🔭</span> Vision Board
+                </h3>
+                <form onSubmit={handleGoalAdd} className="flex gap-2 mb-4">
+                    <Input 
+                        value={newGoal} 
+                        onChange={e => setNewGoal(e.target.value)} 
+                        placeholder="Add a major milestone (e.g. 'Top 500 Rank')"
+                        className="flex-grow bg-slate-900 border-slate-700 focus:border-cyan-500"
+                    />
+                    <Button type="submit" variant="primary">Add</Button>
                 </form>
                 <div className="space-y-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
                     {longTermGoals.map(goal => (
-                        <div key={goal.id} className="p-3 bg-slate-900/60 rounded-lg border border-slate-700 flex items-center gap-4 group transition-all hover:border-[rgb(var(--color-primary-rgb))]">
-                            <input type="checkbox" checked={goal.completed} onChange={() => toggleLongTermGoal(goal.id)} className="form-checkbox h-5 w-5 bg-slate-700 border-slate-600 text-[rgb(var(--color-primary-rgb))] rounded focus:ring-[rgb(var(--color-primary-rgb))] flex-shrink-0"/>
-                            <p className={`flex-grow transition-colors font-medium ${goal.completed ? 'line-through text-gray-500' : 'text-gray-200'}`}>{goal.text}</p>
-                            <button onClick={() => deleteLongTermGoal(goal.id)} className="text-gray-500 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100">×</button>
+                        <div key={goal.id} className="flex justify-between items-center p-3 bg-slate-900/50 rounded-lg border border-slate-700 group hover:border-slate-600 transition-all">
+                            <span className="text-sm text-slate-300">{goal.text}</span>
+                            <button onClick={() => handleGoalRemove(goal.id)} className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">×</button>
                         </div>
                     ))}
-                    {longTermGoals.length === 0 && <p className="text-center text-sm text-gray-500 py-4 italic">"A goal without a plan is just a wish."</p>}
+                    {longTermGoals.length === 0 && <p className="text-xs text-slate-600 italic text-center py-2">"A goal without a plan is just a wish."</p>}
                 </div>
             </div>
         </div>
     );
 };
 
+// --- 2. APPEARANCE SETTINGS ---
 const AppearanceSettings: React.FC<Pick<SettingsProps, 'theme' | 'setTheme' | 'appearancePreferences' | 'setAppearancePreferences'>> = ({ theme, setTheme, appearancePreferences, setAppearancePreferences }) => {
-    const themes: { id: Theme; name: string; class: string; color: string }[] = [
-        { id: 'cyan', name: 'Cyber Cyan', class: 'theme-cyan', color: '#22d3ee' },
-        { id: 'indigo', name: 'Deep Indigo', class: 'theme-indigo', color: '#818cf8' },
-        { id: 'green', name: 'Matrix Green', class: 'theme-green', color: '#34d399' },
-        { id: 'red', name: 'Crimson Alert', class: 'theme-red', color: '#f87171' },
+    const themes: { id: Theme; name: string; color: string; desc: string }[] = [
+        { id: 'cyan', name: 'Cyber Cyan', color: '#22d3ee', desc: 'High energy, focus-oriented.' },
+        { id: 'indigo', name: 'Deep Indigo', color: '#818cf8', desc: 'Calm, deep thinking.' },
+        { id: 'green', name: 'Matrix Green', color: '#34d399', desc: 'Growth, consistency.' },
+        { id: 'red', name: 'Focus Red', color: '#f87171', desc: 'Urgency, intensity.' },
     ];
+
     return (
         <div className="space-y-8 animate-fade-in">
-             <div>
-                <h3 className="text-xl font-bold text-[rgb(var(--color-primary-rgb))] mb-2 border-b border-[rgb(var(--color-primary-rgb))] pb-2 inline-block">Visual Experience</h3>
-                <p className="text-sm text-gray-400 mt-2">Customize the interface to reduce eye strain or boost focus.</p>
-            </div>
-            
-            <div className="bg-slate-800/30 p-5 rounded-xl border border-slate-700">
-                <h4 className="text-sm font-bold text-gray-200 mb-4">Color Theme</h4>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
+                <h3 className="text-lg font-bold text-[rgb(var(--color-primary-rgb))] mb-6 flex items-center gap-2">
+                    <span className="text-xl">🎨</span> Interface Theme
+                </h3>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     {themes.map(t => (
-                        <button 
-                            key={t.id} 
-                            onClick={() => setTheme(t.id)} 
-                            aria-pressed={theme === t.id} 
-                            className={`relative p-4 rounded-xl border-2 transition-all duration-300 overflow-hidden group ${theme === t.id ? 'border-[rgb(var(--color-primary-rgb))] ring-1 ring-[rgb(var(--color-primary-rgb))] bg-slate-800' : 'border-slate-700 bg-slate-900 hover:border-slate-600'}`}
+                        <button
+                            key={t.id}
+                            onClick={() => setTheme(t.id)}
+                            className={`relative p-4 rounded-xl border-2 flex flex-col items-center gap-3 transition-all duration-300 group overflow-hidden ${theme === t.id ? 'border-white bg-slate-800 shadow-[0_0_20px_rgba(255,255,255,0.1)]' : 'border-slate-700 bg-slate-900/50 hover:border-slate-500'}`}
                         >
-                            <div className={`absolute inset-0 bg-gradient-to-br from-${t.color}/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity`}></div>
-                            <div className="flex flex-col items-center gap-3 relative z-10">
-                                <div className="w-10 h-10 rounded-full shadow-lg flex items-center justify-center" style={{ backgroundColor: t.color }}>
-                                    {theme === t.id && <span className="text-slate-900 font-bold">✓</span>}
-                                </div>
-                                <span className="font-semibold text-sm text-gray-200">{t.name}</span>
+                            <div 
+                                className={`w-12 h-12 rounded-full shadow-lg transition-transform duration-300 group-hover:scale-110 ${theme === t.id ? 'scale-110' : ''}`}
+                                style={{ backgroundColor: t.color, boxShadow: `0 0 15px ${t.color}66` }}
+                            ></div>
+                            <div className="text-center z-10">
+                                <span className={`block font-bold text-sm ${theme === t.id ? 'text-white' : 'text-slate-400'}`}>{t.name}</span>
+                                <span className="text-[10px] text-slate-500">{t.desc}</span>
                             </div>
+                            {theme === t.id && (
+                                <div className="absolute top-2 right-2 text-xs bg-white text-black font-bold px-1.5 rounded">✓</div>
+                            )}
                         </button>
                     ))}
                 </div>
             </div>
 
-            <div className="bg-slate-800/30 p-5 rounded-xl border border-slate-700">
-                <h4 className="text-sm font-bold text-gray-200 mb-4">Accessibility & Motion</h4>
+            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
+                <h3 className="text-lg font-bold text-[rgb(var(--color-primary-rgb))] mb-6 flex items-center gap-2">
+                    <span className="text-xl">👁️</span> Visual Comfort
+                </h3>
                 <div className="space-y-6">
-                    <ToggleSwitch label="Disable Particle Background (Performance)" checked={appearancePreferences.disableParticles} onChange={checked => setAppearancePreferences(p => ({...p, disableParticles: checked}))} />
-                    <ToggleSwitch label="Reduce Motion (Accessibility)" checked={appearancePreferences.reduceMotion} onChange={checked => setAppearancePreferences(p => ({...p, reduceMotion: checked}))} />
-                    <ToggleSwitch label="High Contrast Mode" checked={appearancePreferences.highContrast} onChange={checked => setAppearancePreferences(p => ({...p, highContrast: checked}))} />
+                     <div className="flex items-center justify-between p-3 bg-slate-900/30 rounded-lg">
+                        <div>
+                            <p className="text-sm font-medium text-slate-200">Particle Effects</p>
+                            <p className="text-xs text-slate-500">Disable floating background particles for performance.</p>
+                        </div>
+                        <ToggleSwitch 
+                            label="" 
+                            checked={!appearancePreferences.disableParticles} 
+                            onChange={c => setAppearancePreferences(p => ({ ...p, disableParticles: !c }))} 
+                        />
+                    </div>
+                    <div className="flex items-center justify-between p-3 bg-slate-900/30 rounded-lg">
+                        <div>
+                            <p className="text-sm font-medium text-slate-200">Reduced Motion</p>
+                            <p className="text-xs text-slate-500">Minimize animations and transitions.</p>
+                        </div>
+                        <ToggleSwitch 
+                            label="" 
+                            checked={appearancePreferences.reduceMotion} 
+                            onChange={c => setAppearancePreferences(p => ({ ...p, reduceMotion: c }))} 
+                        />
+                    </div>
+                    <div className="flex items-center justify-between p-3 bg-slate-900/30 rounded-lg">
+                        <div>
+                            <p className="text-sm font-medium text-slate-200">High Contrast</p>
+                            <p className="text-xs text-slate-500">Increase contrast for better readability.</p>
+                        </div>
+                        <ToggleSwitch 
+                            label="" 
+                            checked={appearancePreferences.highContrast} 
+                            onChange={c => setAppearancePreferences(p => ({ ...p, highContrast: c }))} 
+                        />
+                    </div>
                 </div>
             </div>
         </div>
     );
 };
 
-const AiSettings: React.FC<Pick<SettingsProps, 'aiPreferences' | 'setAiPreferences' | 'notificationPreferences' | 'setNotificationPreferences'> & { apiKey: string }> = ({ aiPreferences, setAiPreferences, notificationPreferences, setNotificationPreferences, apiKey }) => {
-    const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
-    const [isLoadingModels, setIsLoadingModels] = useState(false);
+// --- 3. AI SETTINGS (ENHANCED) ---
+const TASK_USAGE_DESC: Record<LlmTaskCategory, string> = {
+    chat: "General Chat Assistant, Contextual Explanations",
+    analysis: "Deep Performance Analysis, Root Cause 5-Whys, Executive Briefing",
+    planning: "Daily Planner Generation, Study Plan Creation, Smart Sorting",
+    creative: "Motivational Quotes, Persona-based Coaching, Insights",
+    math: "Gatekeeper Quizzes, Numerical Problem Solving",
+    coding: "Data Formatting, Structural Parsing (Internal Logic)"
+};
 
-    useEffect(() => {
-        let isMounted = true;
-        const fetchModels = async () => {
-            if (!apiKey) return;
-            setIsLoadingModels(true);
-            try {
-                const models = await getAvailableModels(apiKey);
-                if (isMounted) setAvailableModels(models);
-            } catch (error) {
-                // Fallback handled inside getAvailableModels, but extra safety here
-                console.error("Failed to fetch models in settings", error);
-            } finally {
-                if (isMounted) setIsLoadingModels(false);
+const AdvancedModelConfig: React.FC<{ 
+    isOpen: boolean; 
+    onClose: () => void; 
+    preferences: AiAssistantPreferences; 
+    onUpdate: (prefs: AiAssistantPreferences) => void; 
+}> = ({ isOpen, onClose, preferences, onUpdate }) => {
+    
+    const taskCategories: { id: LlmTaskCategory; label: string; icon: string }[] = [
+        { id: 'chat', label: 'General Chat', icon: '💬' },
+        { id: 'analysis', label: 'Deep Analysis', icon: '🧠' },
+        { id: 'planning', label: 'Planning', icon: '📅' },
+        { id: 'creative', label: 'Creative', icon: '✨' },
+        { id: 'math', label: 'Math & STEM', icon: '📐' },
+        { id: 'coding', label: 'Technical Ops', icon: '💻' }
+    ];
+
+    const handleOverrideChange = (task: LlmTaskCategory, modelId: string) => {
+        onUpdate({
+            ...preferences,
+            modelOverrides: {
+                ...preferences.modelOverrides,
+                [task]: modelId
             }
-        };
-        fetchModels();
-        return () => { isMounted = false; };
-    }, [apiKey]);
+        });
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Advanced Neural Routing">
+            <div className="p-1 space-y-6">
+                <div className="bg-blue-900/20 border border-blue-800/50 p-4 rounded-lg flex gap-3 items-start">
+                    <span className="text-2xl">⚡</span>
+                    <div>
+                        <p className="text-sm text-blue-200 font-bold">Precision Control</p>
+                        <p className="text-xs text-blue-300/70 mt-1">
+                            Assign specialized AI models to specific cognitive tasks. If a selected model is unavailable (e.g., API key missing), the system automatically fails over to <strong>Gemini Flash</strong>.
+                        </p>
+                    </div>
+                </div>
+                
+                <div className="space-y-3">
+                    {taskCategories.map(task => {
+                        const currentModelId = preferences.modelOverrides?.[task.id] || TASK_DEFAULTS[task.id][0];
+                        const currentModelDef = MODEL_REGISTRY.find(m => m.id === currentModelId);
+
+                        // Fix repeated provider name in display
+                        const displayModelName = currentModelDef?.name 
+                            ? (currentModelDef.name.toLowerCase().includes(currentModelDef.provider) 
+                                ? currentModelDef.name 
+                                : `${currentModelDef.name} (${currentModelDef.provider})`)
+                            : currentModelId;
+
+                        return (
+                            <div key={task.id} className="bg-slate-900 p-4 rounded-xl border border-slate-700/50 hover:border-slate-600 transition-all flex flex-col md:flex-row gap-4 items-start md:items-center">
+                                <div className="flex-1">
+                                    <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                                        <span className="text-lg">{task.icon}</span> {task.label}
+                                    </h4>
+                                    <p className="text-[11px] text-slate-400 mt-1 pl-7">{TASK_USAGE_DESC[task.id]}</p>
+                                </div>
+                                
+                                <div className="w-full md:w-64 flex flex-col gap-2">
+                                    <div className="relative">
+                                        <select 
+                                            value={currentModelId} 
+                                            onChange={(e) => handleOverrideChange(task.id, e.target.value)}
+                                            className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none appearance-none font-medium"
+                                        >
+                                            {MODEL_REGISTRY.map(model => {
+                                                const label = model.name.toLowerCase().includes(model.provider) 
+                                                    ? model.name 
+                                                    : `${model.name} (${model.provider})`;
+                                                return <option key={model.id} value={model.id}>{label}</option>
+                                            })}
+                                        </select>
+                                        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none text-xs">▼</div>
+                                    </div>
+                                    
+                                    <div className="flex justify-between items-center px-1">
+                                        <div className="flex gap-2">
+                                            <span className={`text-[9px] px-1.5 py-0.5 rounded uppercase font-bold tracking-wider border ${
+                                                currentModelDef?.provider === 'google' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                                                currentModelDef?.provider === 'groq' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
+                                                'bg-purple-500/10 text-purple-400 border-purple-500/20'
+                                            }`}>
+                                                {currentModelDef?.provider}
+                                            </span>
+                                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
+                                                {currentModelDef?.contextWindow ? (currentModelDef.contextWindow / 1000) + 'k ctx' : 'N/A'}
+                                            </span>
+                                        </div>
+                                        <span className={`text-[9px] font-bold ${currentModelDef?.costCategory === 'free' ? 'text-green-500' : 'text-yellow-500'}`}>
+                                            {currentModelDef?.costCategory === 'free' ? 'FREE' : 'PAID'}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+                
+                <div className="flex justify-end pt-4 border-t border-slate-700/50">
+                    <Button onClick={onClose} variant="primary" className="px-8 shadow-lg shadow-cyan-500/20">Save Configuration</Button>
+                </div>
+            </div>
+        </Modal>
+    );
+};
+
+const AiSettings: React.FC<Pick<SettingsProps, 'aiPreferences' | 'setAiPreferences' | 'notificationPreferences' | 'setNotificationPreferences'>> = ({ aiPreferences, setAiPreferences, notificationPreferences, setNotificationPreferences }) => {
+    const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
 
     return (
         <div className="space-y-8 animate-fade-in">
-            <div>
-                <h3 className="text-xl font-bold text-[rgb(var(--color-primary-rgb))] mb-2 border-b border-[rgb(var(--color-primary-rgb))] pb-2 inline-block">AI Coach Configuration</h3>
-                <p className="text-sm text-gray-400 mt-2">Fine-tune your AI assistant's personality and proactive behaviors.</p>
-            </div>
-            
-            <div className="bg-slate-800/30 p-5 rounded-xl border border-slate-700">
-                <h4 className="text-sm font-bold text-gray-200 mb-4 flex items-center gap-2"><span className="text-lg">🧠</span> Cognitive Settings</h4>
+            <AdvancedModelConfig 
+                isOpen={isAdvancedOpen} 
+                onClose={() => setIsAdvancedOpen(false)} 
+                preferences={aiPreferences} 
+                onUpdate={setAiPreferences} 
+            />
+
+            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
+                <div className="flex justify-between items-center mb-6 border-b border-slate-700/50 pb-4">
+                    <h3 className="text-lg font-bold text-[rgb(var(--color-primary-rgb))] flex items-center gap-2">
+                        <span className="text-xl">🤖</span> Cognitive Settings
+                    </h3>
+                    <button 
+                        onClick={() => setIsAdvancedOpen(true)}
+                        className="text-xs bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors border border-slate-600 hover:border-slate-500 shadow-sm"
+                    >
+                        <span>⚙️</span> Advanced Routing
+                    </button>
+                </div>
                 
-                <div className="mb-6 p-4 bg-indigo-900/20 rounded-lg border border-indigo-500/30">
-                    <div className="flex items-start gap-3 mb-2">
-                        <span className="text-2xl">🤔</span>
+                <div className="mb-6 p-4 bg-indigo-900/20 rounded-xl border border-indigo-500/30">
+                    <div className="flex items-start gap-4">
+                        <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center text-xl flex-shrink-0 border border-indigo-500/30">🤔</div>
                         <div className="flex-grow">
-                            <h5 className="text-sm font-bold text-indigo-200">Socratic Coaching Mode</h5>
-                            <p className="text-xs text-indigo-300/80 mt-1">Instead of giving direct answers, the AI will ask guiding questions to help you discover the solution yourself.</p>
+                            <div className="flex justify-between items-center mb-1">
+                                <h5 className="text-sm font-bold text-indigo-200">Socratic Coaching Mode</h5>
+                                <ToggleSwitch checked={!!aiPreferences.socraticMode} onChange={checked => setAiPreferences(prev => ({ ...prev, socraticMode: checked }))} label=""/>
+                            </div>
+                            <p className="text-xs text-indigo-300/70 leading-relaxed">
+                                Instead of giving direct answers, the AI will ask guiding questions to help you discover the solution yourself. 
+                                Great for deep learning.
+                            </p>
                         </div>
-                        <ToggleSwitch 
-                            label="" 
-                            checked={!!aiPreferences.socraticMode} 
-                            onChange={checked => setAiPreferences(prev => ({ ...prev, socraticMode: checked }))} 
-                        />
                     </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                     <div>
-                        <div className="flex justify-between items-center mb-2">
-                            <label htmlFor="model-selection" className="text-xs font-medium text-gray-400 block">AI Model</label>
-                            {isLoadingModels && <span className="text-[10px] text-cyan-400 animate-pulse">Fetching available models...</span>}
-                        </div>
-                        <select 
-                            id="model-selection" 
-                            value={aiPreferences.model} 
-                            onChange={e => setAiPreferences(prev => ({ ...prev, model: e.target.value }))} 
-                            className="select-base w-full"
-                            disabled={isLoadingModels}
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">Response Verbosity</label>
+                        <Select 
+                            value={aiPreferences.responseLength} 
+                            onChange={e => setAiPreferences(prev => ({ ...prev, responseLength: e.target.value as any }))} 
+                            className="w-full bg-slate-900 border-slate-700 text-sm"
                         >
-                            {availableModels.length > 0 ? (
-                                availableModels.map(model => (
-                                    <option key={model.id} value={model.id}>
-                                        {model.displayName} - {model.description}
-                                    </option>
-                                ))
-                            ) : (
-                                // Fallback option if list empty or loading
-                                <option value={aiPreferences.model}>{aiPreferences.model} (Default)</option>
-                            )}
-                        </select>
-                        <p className="text-[10px] text-gray-500 mt-1">
-                            Dynamically fetched from your API key permissions.
-                        </p>
-                    </div>
-                    <div>
-                        <label htmlFor="response-length" className="text-xs font-medium text-gray-400 block mb-2">Response Verbosity</label>
-                        <select id="response-length" value={aiPreferences.responseLength} onChange={e => setAiPreferences(prev => ({ ...prev, responseLength: e.target.value as AiAssistantPreferences['responseLength'] }))} className="select-base w-full">
-                            <option value="short">Short & Concise (Bullet points)</option>
+                            <option value="short">Short & Concise</option>
                             <option value="medium">Balanced</option>
                             <option value="long">Detailed Explanations</option>
-                        </select>
+                        </Select>
                     </div>
                      <div>
-                        <label htmlFor="response-tone" className="text-xs font-medium text-gray-400 block mb-2">Coaching Persona</label>
-                        <select id="response-tone" value={aiPreferences.tone} onChange={e => setAiPreferences(prev => ({ ...prev, tone: e.target.value as AiAssistantPreferences['tone'] }))} className="select-base w-full">
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">Coaching Persona</label>
+                        <Select 
+                            value={aiPreferences.tone} 
+                            onChange={e => setAiPreferences(prev => ({ ...prev, tone: e.target.value as any }))} 
+                            className="w-full bg-slate-900 border-slate-700 text-sm"
+                        >
                             <option value="encouraging">Supportive Mentor (High Empathy)</option>
-                            <option value="neutral">Analytical Observer (Just Facts)</option>
-                            <option value="direct">Drill Sergeant (Strict & Direct)</option>
-                        </select>
+                            <option value="neutral">Analytical Observer (Objective)</option>
+                            <option value="direct">Drill Sergeant (Strict)</option>
+                        </Select>
                     </div>
                 </div>
                 
                 <div>
-                    <label htmlFor="custom-instructions" className="text-xs font-medium text-gray-400 block mb-2">System Prompt Override (Advanced)</label>
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">System Prompt Override (Advanced)</label>
                     <textarea 
-                        id="custom-instructions"
-                        value={aiPreferences.customInstructions || ''}
-                        onChange={e => setAiPreferences(prev => ({ ...prev, customInstructions: e.target.value }))}
-                        placeholder="e.g. 'Act as Richard Feynman. Explain concepts using analogies. Be witty.'"
-                        className="input-base w-full h-24 resize-none text-sm"
+                        value={aiPreferences.customInstructions || ''} 
+                        onChange={e => setAiPreferences(prev => ({ ...prev, customInstructions: e.target.value }))} 
+                        placeholder="e.g. 'Act as Richard Feynman. Explain concepts using analogies. Be witty.'" 
+                        className="w-full h-24 bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-white resize-none focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500 transition-all placeholder-slate-600"
                     />
-                    <p className="text-[10px] text-gray-500 mt-1">Provide specific instructions to shape the AI's personality and output style.</p>
+                    <p className="text-[10px] text-slate-500 mt-2">Provide specific instructions to shape the AI's personality and output style.</p>
                 </div>
             </div>
 
-            <div className="bg-slate-800/30 p-5 rounded-xl border border-slate-700">
-                <h4 className="text-sm font-bold text-gray-200 mb-4 flex items-center gap-2"><span className="text-lg">🔔</span> Proactive Insights</h4>
-                <div className="space-y-6">
-                    <ToggleSwitch label="Achievement Toasts" checked={notificationPreferences.achievements} onChange={checked => setNotificationPreferences(prev => ({...prev, achievements: checked}))}/>
-                    <div className="p-4 bg-slate-900/50 rounded-lg border border-slate-700/50">
-                        <div className="mb-4">
-                            <ToggleSwitch label="Enable Proactive Drop Detection" checked={notificationPreferences.proactiveInsights} onChange={checked => setNotificationPreferences(prev => ({...prev, proactiveInsights: checked}))}/>
+            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
+                <h3 className="text-lg font-bold text-[rgb(var(--color-primary-rgb))] mb-6 flex items-center gap-2">
+                    <span className="text-xl">🔔</span> Proactive Insights
+                </h3>
+                <div className="space-y-4">
+                     <div className="flex items-center justify-between p-3 bg-slate-900/30 rounded-lg">
+                        <div>
+                            <p className="text-sm font-medium text-slate-200">Achievement Toasts</p>
                         </div>
-                        <div className={`transition-opacity duration-300 ${notificationPreferences.proactiveInsights ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                            <label htmlFor="insight-sensitivity" className="text-xs font-medium text-gray-400 block mb-2">Sensitivity Threshold</label>
-                            <select id="insight-sensitivity" value={notificationPreferences.proactiveInsightSensitivity} onChange={e => setNotificationPreferences(prev => ({ ...prev, proactiveInsightSensitivity: e.target.value as NotificationPreferences['proactiveInsightSensitivity'] }))} className="select-base w-full">
-                                <option value="high">High (Notify on &gt;3% drop)</option>
-                                <option value="medium">Medium (Notify on &gt;5% drop)</option>
-                                <option value="low">Low (Notify on &gt;10% drop)</option>
-                            </select>
+                        <ToggleSwitch checked={notificationPreferences.achievements} onChange={c => setNotificationPreferences(p => ({...p, achievements: c}))} label=""/>
+                    </div>
+                    <div className="flex items-center justify-between p-3 bg-slate-900/30 rounded-lg">
+                        <div>
+                            <p className="text-sm font-medium text-slate-200">Enable Proactive Drop Detection</p>
                         </div>
+                        <ToggleSwitch checked={notificationPreferences.proactiveInsights} onChange={c => setNotificationPreferences(p => ({...p, proactiveInsights: c}))} label=""/>
+                    </div>
+                     <div>
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">Sensitivity Threshold</label>
+                        <Select 
+                            value={notificationPreferences.proactiveInsightSensitivity} 
+                            onChange={e => setNotificationPreferences(prev => ({ ...prev, proactiveInsightSensitivity: e.target.value as any }))} 
+                            className="w-full bg-slate-900 border-slate-700 text-sm"
+                            disabled={!notificationPreferences.proactiveInsights}
+                        >
+                            <option value="high">High (Notify on >3% drop)</option>
+                            <option value="medium">Medium (Notify on >5% drop)</option>
+                            <option value="low">Low (Notify on >10% drop)</option>
+                        </Select>
                     </div>
                 </div>
             </div>
@@ -429,7 +563,8 @@ const AiSettings: React.FC<Pick<SettingsProps, 'aiPreferences' | 'setAiPreferenc
     );
 };
 
-const ConnectivitySettings: React.FC<Pick<SettingsProps, 'onClearKey' | 'apiKey' | 'addToast'>> = ({ onClearKey, apiKey, addToast }) => {
+// --- 4. CONNECTIVITY SETTINGS (PRESERVED) ---
+const ConnectivitySettings: React.FC<Pick<SettingsProps, 'onClearKey' | 'apiKey' | 'addToast' | 'aiPreferences' | 'setAiPreferences'>> = ({ onClearKey, apiKey, addToast, aiPreferences, setAiPreferences }) => {
     const [isTesting, setIsTesting] = useState(false);
 
     const handleTestConnection = async () => {
@@ -437,443 +572,194 @@ const ConnectivitySettings: React.FC<Pick<SettingsProps, 'onClearKey' | 'apiKey'
         try {
             await getDailyQuote(apiKey);
             addToast({ title: 'Connection Successful', message: 'API connection verified.', icon: '✅' });
-        } catch (error) {
-            addToast({ title: 'Connection Failed', message: 'Could not connect. Check your key or billing.', icon: '❌' });
-        } finally {
-            setIsTesting(false);
-        }
+        } catch {
+            addToast({ title: 'Connection Failed', message: 'Could not connect.', icon: '❌' });
+        } finally { setIsTesting(false); }
     };
     
     return (
         <div className="space-y-8 animate-fade-in">
-            <div>
-                <h3 className="text-xl font-bold text-[rgb(var(--color-primary-rgb))] mb-2 border-b border-[rgb(var(--color-primary-rgb))] pb-2 inline-block">Connectivity</h3>
-                <p className="text-sm text-gray-400 mt-2">Manage your gateway to the Gemini API.</p>
-            </div>
+            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
+                 <h3 className="text-lg font-bold text-[rgb(var(--color-primary-rgb))] mb-2 flex items-center gap-2">
+                    <span className="text-xl">🔌</span> API Gateways
+                </h3>
+                <p className="text-xs text-slate-400 mb-6">Manage access keys for various AI providers. Keys are stored locally in your browser.</p>
             
-            <div className="bg-slate-800/30 p-6 rounded-xl border border-slate-700">
-                <div className="flex items-center gap-4 bg-slate-900/80 p-4 rounded-lg border border-slate-700/50 shadow-inner">
-                    <div className="flex-grow font-mono text-sm text-gray-400">
-                        {apiKey.substring(0, 4)}•••••••••••••••••••••••{apiKey.substring(apiKey.length - 4)}
+                <div className="space-y-6">
+                    {/* Google Gemini */}
+                    <div className="bg-slate-900/50 p-4 rounded-xl border border-blue-500/20 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 p-1 bg-blue-500/10 rounded-bl-lg text-[10px] text-blue-400 font-bold border-l border-b border-blue-500/20">PRIMARY</div>
+                        <label className="text-xs font-bold text-blue-400 uppercase mb-2 block tracking-wider">Google Gemini (Required)</label>
+                        <div className="flex items-center gap-4">
+                            <div className="flex-grow font-mono text-xs text-slate-400 bg-slate-950 p-3 rounded-lg border border-slate-800 truncate">
+                                {apiKey.substring(0, 8)}••••••••••••••••••••••••••••••{apiKey.substring(apiKey.length - 4)}
+                            </div>
+                            <div className="flex gap-2">
+                                <button onClick={handleTestConnection} disabled={isTesting} className="text-xs bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white px-4 py-2.5 rounded-lg transition-colors font-bold border border-blue-500/30">{isTesting ? '...' : 'Test'}</button>
+                                <button onClick={onClearKey} className="text-xs bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white px-4 py-2.5 rounded-lg transition-colors font-bold border border-red-500/30">Unlink</button>
+                            </div>
+                        </div>
                     </div>
-                    <div className="flex gap-2">
-                        <button onClick={handleTestConnection} disabled={isTesting} className="text-xs bg-cyan-600/20 hover:bg-cyan-600 hover:text-white text-cyan-400 font-bold py-2 px-4 rounded transition-colors border border-cyan-600/30">
-                            {isTesting ? 'Pinging...' : 'Test Ping'}
-                        </button>
-                        <button onClick={onClearKey} className="text-xs bg-red-600/20 hover:bg-red-600 hover:text-white text-red-400 font-bold py-2 px-4 rounded transition-colors border border-red-600/30">
-                            Unlink
-                        </button>
+
+                    {/* Groq */}
+                    <div>
+                        <label className="text-xs font-bold text-orange-400 uppercase mb-2 flex justify-between items-center tracking-wider">
+                            <span>Groq (Ultra-Fast Inference)</span>
+                            <a href="https://console.groq.com/keys" target="_blank" className="text-[10px] text-slate-500 hover:text-orange-400 underline flex items-center gap-1">Get Key <span className="text-[8px]">↗</span></a>
+                        </label>
+                        <Input 
+                            type="password" 
+                            value={aiPreferences.groqApiKey || ''} 
+                            onChange={e => setAiPreferences(prev => ({...prev, groqApiKey: e.target.value}))}
+                            placeholder="gsk_..."
+                            className="bg-slate-900 border-slate-700 focus:border-orange-500 focus:ring-orange-500/20"
+                        />
+                    </div>
+
+                    {/* OpenRouter */}
+                    <div>
+                        <label className="text-xs font-bold text-purple-400 uppercase mb-2 flex justify-between items-center tracking-wider">
+                            <span>OpenRouter (Model Aggregator)</span>
+                            <a href="https://openrouter.ai/keys" target="_blank" className="text-[10px] text-slate-500 hover:text-purple-400 underline flex items-center gap-1">Get Key <span className="text-[8px]">↗</span></a>
+                        </label>
+                        <Input 
+                            type="password" 
+                            value={aiPreferences.openRouterApiKey || ''} 
+                            onChange={e => setAiPreferences(prev => ({...prev, openRouterApiKey: e.target.value}))}
+                            placeholder="sk-or-..."
+                            className="bg-slate-900 border-slate-700 focus:border-purple-500 focus:ring-purple-500/20"
+                        />
                     </div>
                 </div>
-                <div className="mt-4 flex items-start gap-3 p-3 bg-blue-900/20 rounded-lg border border-blue-800/30 text-xs text-blue-200">
-                    <span className="text-lg">ℹ️</span>
-                    <p>
-                        Your API key is stored locally on your device via `localStorage`. It is never sent to any server other than Google's Gemini API endpoints.
-                        Ensure your Google Cloud Project has the Gemini API enabled.
-                    </p>
-                </div>
             </div>
         </div>
     );
 };
 
-const DataHealthWidget: React.FC<{ reports: TestReport[], logs: QuestionLog[] }> = ({ reports, logs }) => {
-    const [issues, setIssues] = useState<string[]>([]);
-
-    const runDiagnostics = () => {
-        const foundIssues: string[] = [];
-        
-        // Check 1: Orphaned Logs
-        const reportIds = new Set(reports.map(r => r.id));
-        const orphanedCount = logs.filter(l => !reportIds.has(l.testId)).length;
-        if (orphanedCount > 0) foundIssues.push(`Found ${orphanedCount} question logs linked to missing test reports.`);
-
-        // Check 2: Logical Marks
-        const invalidMarks = logs.filter(l => l.status === 'Wrong' && l.marksAwarded > 0).length;
-        if (invalidMarks > 0) foundIssues.push(`Found ${invalidMarks} logs marked 'Wrong' but having positive marks.`);
-
-        // Check 3: Missing Metadata
-        const missingTopic = logs.filter(l => !l.topic || l.topic === 'N/A').length;
-        if (missingTopic > 0) foundIssues.push(`Found ${missingTopic} logs with missing topic tags.`);
-
-        setIssues(foundIssues.length > 0 ? foundIssues : ['All systems operational. No data anomalies detected.']);
-    };
-
-    return (
-        <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700/50 mt-4">
-            <div className="flex justify-between items-center mb-3">
-                <h4 className="font-bold text-gray-300 flex items-center gap-2">🏥 Data Health Monitor</h4>
-                <button onClick={runDiagnostics} className="text-xs bg-slate-700 hover:bg-slate-600 text-white px-3 py-1 rounded transition-colors">Run Scan</button>
-            </div>
-            {issues.length > 0 ? (
-                <ul className="space-y-1">
-                    {issues.map((issue, i) => (
-                        <li key={i} className={`text-xs ${issue.includes('operational') ? 'text-green-400' : 'text-amber-400'} flex items-start gap-2`}>
-                            <span>{issue.includes('operational') ? '✓' : '⚠'}</span>
-                            {issue}
-                        </li>
-                    ))}
-                </ul>
-            ) : <p className="text-xs text-gray-500 italic">Click 'Run Scan' to check for data integrity issues.</p>}
-        </div>
-    );
-};
-
-const DataSettings: React.FC<SettingsProps> = (props) => {
-    const [modalState, setModalState] = useState<{ isOpen: boolean, onConfirm: () => void, title: string, message: React.ReactNode } | null>(null);
-
-    const openConfirmation = (action: 'full' | 'reports' | 'chat' | 'gamification') => {
-        const actions = {
-            full: { onConfirm: props.handleFullReset, title: "Confirm Factory Reset", message: <p>This is a <strong className="text-red-400">destructive action</strong>. All reports, logs, settings, and progress will be permanently erased. This cannot be undone.</p>},
-            reports: { onConfirm: props.handleReportsReset, title: "Clear Academic Data", message: "Deleting all test reports and question logs. Your profile settings will remain."},
-            chat: { onConfirm: props.handleChatReset, title: "Wipe Coach Memory", message: "Clearing conversation history. The AI will lose context of previous discussions."},
-            gamification: { onConfirm: props.handleGamificationReset, title: "Reset Career Progress", message: "Resetting Level, XP, and Achievements to zero."}
-        };
-        setModalState({ ...actions[action], isOpen: true });
-    };
-
-    return (
-        <div className="space-y-8 animate-fade-in">
-            <ConfirmationModal isOpen={!!modalState} onClose={() => setModalState(null)} {...modalState!} />
-             <div>
-                <h3 className="text-xl font-bold text-[rgb(var(--color-primary-rgb))] mb-2 border-b border-[rgb(var(--color-primary-rgb))] pb-2 inline-block">Data & Privacy</h3>
-                <p className="text-sm text-gray-400 mt-2">You own your data. Manage imports, exports, and sanitation.</p>
-            </div>
-            
-            <div className="bg-slate-800/30 p-5 rounded-xl border border-slate-700">
-                <h4 className="text-sm font-bold text-gray-200 mb-4">Sync & Backup</h4>
-                <DataSyncComponent {...props} setModalState={setModalState} />
-                
-                <DataHealthWidget reports={props.reports} logs={props.logs} />
-            </div>
-
-            <div className="bg-red-900/10 p-5 rounded-xl border border-red-900/30">
-                 <h4 className="text-sm font-bold text-red-400 mb-4 flex items-center gap-2"><span className="text-lg">☢️</span> Danger Zone</h4>
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                     <div className="flex flex-col gap-2 p-3 bg-red-900/20 rounded-lg border border-red-900/30">
-                         <span className="text-xs font-bold text-red-200">Academic Data</span>
-                         <p className="text-[10px] text-red-300/70">Reports & Logs only</p>
-                         <button onClick={() => openConfirmation('reports')} className="mt-auto btn btn-danger text-xs py-1">Purge Reports</button>
-                     </div>
-                     <div className="flex flex-col gap-2 p-3 bg-red-900/20 rounded-lg border border-red-900/30">
-                         <span className="text-xs font-bold text-red-200">AI Memory</span>
-                         <p className="text-[10px] text-red-300/70">Chat history</p>
-                         <button onClick={() => openConfirmation('chat')} className="mt-auto btn btn-danger text-xs py-1">Wipe Memory</button>
-                     </div>
-                     <div className="flex flex-col gap-2 p-3 bg-red-900/20 rounded-lg border border-red-900/30">
-                         <span className="text-xs font-bold text-red-200">Career Progress</span>
-                         <p className="text-[10px] text-red-300/70">XP, Levels, Badges</p>
-                         <button onClick={() => openConfirmation('gamification')} className="mt-auto btn btn-danger text-xs py-1">Reset Progress</button>
-                     </div>
-                     <div className="flex flex-col gap-2 p-3 bg-red-900/20 rounded-lg border border-red-900/30">
-                         <span className="text-xs font-bold text-red-200">Factory Reset</span>
-                         <p className="text-[10px] text-red-300/70">Everything</p>
-                         <button onClick={() => openConfirmation('full')} className="mt-auto btn btn-danger text-xs py-1 bg-red-700 hover:bg-red-800">NUKE DATA</button>
-                     </div>
-                 </div>
-            </div>
-        </div>
-    );
-};
-
-
-// DataSync functionality
-const DataSyncComponent: React.FC<SettingsProps & { setModalState: (state: any) => void }> = (props) => {
-    const [activeTab, setActiveTab] = useState<'local' | 'csv' | 'sheet'>('local');
-    return (
-         <div className="space-y-4">
-             <div className="flex border-b border-slate-700">
-                <button onClick={() => setActiveTab('local')} className={`py-2 px-4 font-semibold transition-colors text-xs rounded-t-md ${activeTab === 'local' ? 'bg-slate-700 text-[rgb(var(--color-primary-rgb))]' : 'text-gray-400 hover:bg-slate-700/50'}`}>Local JSON</button>
-                <button onClick={() => setActiveTab('csv')} className={`py-2 px-4 font-semibold transition-colors text-xs rounded-t-md ${activeTab === 'csv' ? 'bg-slate-700 text-[rgb(var(--color-primary-rgb))]' : 'text-gray-400 hover:bg-slate-700/50'}`}>CSV</button>
-                <button onClick={() => setActiveTab('sheet')} className={`py-2 px-4 font-semibold transition-colors text-xs rounded-t-md ${activeTab === 'sheet' ? 'bg-slate-700 text-[rgb(var(--color-primary-rgb))]' : 'text-gray-400 hover:bg-slate-700/50'}`}>Google Sheet</button>
-            </div>
-            
-            <div className="p-4 bg-slate-900/40 rounded-b-lg rounded-r-lg border border-slate-700/50">
-                {activeTab === 'local' && <LocalBackupTab {...props} />}
-                {activeTab === 'csv' && <CsvSyncTab {...props} />}
-                {activeTab === 'sheet' && <SheetSyncTab {...props} />}
-            </div>
-        </div>
-    )
-}
-
-const LocalBackupTab: React.FC<SettingsProps & { setModalState: (state: any) => void }> = ({ 
-    reports, logs, onSyncData, setModalState, 
-    userProfile, studyGoals, longTermGoals, gamificationState, aiPreferences, notificationPreferences, appearancePreferences, chatHistory
+// --- 5. DATA SETTINGS ---
+const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleReportsReset' | 'handleChatReset' | 'handleGamificationReset' | 'onSyncData' | 'reports' | 'logs' | 'userProfile' | 'aiPreferences' | 'notificationPreferences' | 'appearancePreferences' | 'gamificationState' | 'studyGoals' | 'longTermGoals' | 'chatHistory'>> = ({ 
+    handleFullReset, handleReportsReset, handleChatReset, handleGamificationReset, onSyncData,
+    reports, logs, userProfile, aiPreferences, notificationPreferences, appearancePreferences, gamificationState, studyGoals, longTermGoals, chatHistory
 }) => {
-    const [lastBackup, setLastBackup] = useState(() => localStorage.getItem('lastLocalBackupDate'));
-    const restoreInputRef = useRef<HTMLInputElement>(null);
-    const [error, setError] = useState('');
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const handleDownloadBackup = () => {
-        // Full application state backup
-        const dataToBackup = {
-            reports,
-            logs,
-            userProfile,
-            studyGoals,
-            longTermGoals,
-            gamificationState,
-            aiPreferences,
-            notificationPreferences,
-            appearancePreferences,
-            chatHistory,
-            // Versioning for future migrations
-            backupVersion: 2,
-            timestamp: new Date().toISOString()
+    const handleBackup = () => {
+        const data = {
+            version: 1,
+            date: new Date().toISOString(),
+            reports, logs, userProfile, aiPreferences, notificationPreferences, appearancePreferences, gamificationState, studyGoals, longTermGoals, chatHistory
         };
-        
-        const blob = new Blob([JSON.stringify(dataToBackup, null, 2)], { type: 'application/json' });
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `jee_dashboard_full_backup_${new Date().toISOString().split('T')[0]}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        const now = new Date().toISOString();
-        localStorage.setItem('lastLocalBackupDate', now);
-        setLastBackup(now);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `jee-dashboard-backup-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     };
 
-    const handleRestoreFromFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            try {
-                const result = event.target?.result;
-                if (typeof result !== 'string') {
-                    throw new Error("File content is not readable text.");
-                }
-                const restoredData = JSON.parse(result);
-                
-                // Basic validation: check if it looks like our data structure
-                // We check for at least one key property or array
-                if ((restoredData.reports && Array.isArray(restoredData.reports)) || restoredData.userProfile) {
-                    setModalState({
-                        isOpen: true,
-                        title: 'Confirm Full Restore',
-                        message: 'This will overwrite your current data (Reports, Logs, Syllabus, Profile, Settings) with the backup file. Are you sure?',
-                        onConfirm: () => onSyncData(restoredData)
-                    });
-                    setError('');
-                } else {
-                    throw new Error("Invalid backup file format. Missing critical data sections.");
-                }
-            } catch (err) {
-                setError(err instanceof Error ? err.message : "Failed to read or parse the backup file.");
-            } finally {
-                // Reset file input to allow re-uploading the same file
-                if (e.target) e.target.value = '';
-            }
-        };
-        reader.readAsText(file);
-    };
-
-    return (
-        <div className="relative">
-             <div className="absolute top-0 right-0 text-[10px] text-gray-500">Last Backup: {lastBackup ? new Date(lastBackup).toLocaleString() : 'Never'}</div>
-            <div className="flex flex-col gap-3">
-                <p className="text-xs text-gray-400">Complete backup of your entire account state (Reports, Logs, Syllabus, Profile, Settings) in a raw JSON file.</p>
-                {error && <div className="p-2 mb-2 bg-red-900/50 text-red-300 rounded-lg text-sm">{error}</div>}
-                <div className="flex gap-4">
-                    <button onClick={handleDownloadBackup} className="btn btn-secondary flex-1 text-xs">Download Full Backup</button>
-                    <button onClick={() => restoreInputRef.current?.click()} className="btn btn-secondary flex-1 text-xs">Restore from File</button>
-                    <input ref={restoreInputRef} type="file" accept=".json" className="hidden" onChange={handleRestoreFromFile}/>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const CsvSyncTab: React.FC<Pick<SettingsProps, 'reports' | 'logs' | 'onSyncData'>> = ({ reports, logs, onSyncData }) => {
-    const [reportsFile, setReportsFile] = useState<File | null>(null);
-    const [logsFile, setLogsFile] = useState<File | null>(null);
-    const [error, setError] = useState('');
-    const [successMessage, setSuccessMessage] = useState('');
-
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, fileType: 'reports' | 'logs') => {
+    const handleRestore = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
-            if (fileType === 'reports') setReportsFile(file);
-            else setLogsFile(file);
-        }
-    };
-
-    const handleImport = () => {
-        if (!reportsFile) {
-            setError('A reports CSV file is required to import data.');
-            return;
-        }
-        setError('');
-        setSuccessMessage('');
-
-        const readerReports = new FileReader();
-        readerReports.onload = (e) => {
-            try {
-                const reportsCsv = e.target?.result as string;
-                const newReports = parseReportsFromCsv(reportsCsv);
-
-                if (logsFile) {
-                    const readerLogs = new FileReader();
-                    readerLogs.onload = (eLogs) => {
-                        try {
-                            const logsCsv = eLogs.target?.result as string;
-                            const newLogs = parseLogsFromCsv(logsCsv, newReports);
-                            onSyncData({ reports: newReports, logs: newLogs });
-                            setSuccessMessage(`Successfully imported ${newReports.length} reports and ${newLogs.length} logs.`);
-                        } catch (err) {
-                            setError(err instanceof Error ? `Error parsing logs: ${err.message}` : "Failed to parse logs CSV.");
-                        }
-                    };
-                    readerLogs.readAsText(logsFile);
-                } else {
-                    onSyncData({ reports: newReports, logs: [] });
-                    setSuccessMessage(`Successfully imported ${newReports.length} reports. No logs file provided.`);
-                }
-            } catch (err) {
-                setError(err instanceof Error ? `Error parsing reports: ${err.message}` : "Failed to parse reports CSV.");
-            }
-        };
-        readerReports.readAsText(reportsFile);
-    };
-
-     return (
-        <div className="space-y-4">
-            {error && <div className="p-2 bg-red-900/50 text-red-300 rounded-lg text-xs">{error}</div>}
-            {successMessage && <div className="p-2 bg-green-900/50 text-green-300 rounded-lg text-xs">{successMessage}</div>}
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="bg-slate-900/30 p-3 rounded border border-slate-700">
-                    <h5 className="text-xs font-bold text-gray-300 mb-2">Import</h5>
-                    <div className="space-y-2">
-                        <div><label className="block text-[10px] text-gray-500 mb-1">Reports CSV (Required)</label><input type="file" accept=".csv" onChange={(e) => handleFileChange(e, 'reports')} className="text-xs w-full text-slate-400"/></div>
-                        <div><label className="block text-[10px] text-gray-500 mb-1">Logs CSV (Optional)</label><input type="file" accept=".csv" onChange={(e) => handleFileChange(e, 'logs')} className="text-xs w-full text-slate-400"/></div>
-                        <button onClick={handleImport} disabled={!reportsFile} className="btn btn-secondary w-full text-xs mt-2">Import Files</button>
-                    </div>
-                </div>
-                <div className="bg-slate-900/30 p-3 rounded border border-slate-700">
-                    <h5 className="text-xs font-bold text-gray-300 mb-2">Export</h5>
-                    <div className="space-y-2">
-                        <button onClick={() => exportReportsToCsv(reports)} className="btn btn-secondary w-full text-xs">Download Reports CSV</button>
-                        <button onClick={() => exportLogsToCsv(logs, reports)} className="btn btn-secondary w-full text-xs">Download Logs CSV</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const SheetSyncTab: React.FC<Pick<SettingsProps, 'reports' | 'logs' | 'onSyncData'>> = ({ reports, logs, onSyncData }) => {
-    const [sheetId, setSheetId] = useState(() => localStorage.getItem('googleSheetId_v1') || '');
-    const [reportsGid, setReportsGid] = useState(() => localStorage.getItem('googleSheetReportsGid_v1') || '');
-    const [logsGid, setLogsGid] = useState(() => localStorage.getItem('googleSheetLogsGid_v1') || '');
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState('');
-    const [successMessage, setSuccessMessage] = useState('');
-
-    useEffect(() => { localStorage.setItem('googleSheetId_v1', sheetId); }, [sheetId]);
-    useEffect(() => { localStorage.setItem('googleSheetReportsGid_v1', reportsGid); }, [reportsGid]);
-    useEffect(() => { localStorage.setItem('googleSheetLogsGid_v1', logsGid); }, [logsGid]);
-
-    const performPull = async () => {
-        setIsLoading(true);
-        setError('');
-        setSuccessMessage('');
-
-        const fetchSheet = async (gid: string) => {
-            const url = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
-            const response = await fetch(url);
-            if (!response.ok) {
-                throw new Error(`Failed to fetch sheet with GID ${gid}. Status: ${response.statusText}`);
-            }
-            return response.text();
-        };
-
-        try {
-            const reportsCsv = await fetchSheet(reportsGid);
-            const newReports = parseReportsFromCsv(reportsCsv);
-
-            let newLogs: QuestionLog[] = [];
-            if (logsGid) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
                 try {
-                    const logsCsv = await fetchSheet(logsGid);
-                    newLogs = parseLogsFromCsv(logsCsv, newReports);
-                } catch (logError) {
-                    console.warn("Could not fetch or parse logs sheet, proceeding with reports only.", logError);
+                    const data = JSON.parse(event.target?.result as string);
+                    onSyncData(data);
+                } catch (err) {
+                    alert('Failed to parse backup file.');
                 }
-            }
-
-            onSyncData({ reports: newReports, logs: newLogs });
-            setSuccessMessage(`Successfully pulled ${newReports.length} reports and ${newLogs.length} logs.`);
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'An unknown error occurred during sync.');
-        } finally {
-            setIsLoading(false);
+            };
+            reader.readAsText(file);
         }
     };
-    
+
     return (
-        <div className="space-y-4">
-            {error && <div className="p-2 bg-red-900/50 text-red-300 rounded-lg text-xs">{error}</div>}
-            {successMessage && <div className="p-2 bg-green-900/50 text-green-300 rounded-lg text-xs">{successMessage}</div>}
+        <div className="space-y-8 animate-fade-in">
+            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
+                 <h3 className="text-lg font-bold text-[rgb(var(--color-primary-rgb))] mb-2 flex items-center gap-2">
+                    <span className="text-xl">💾</span> Data & Privacy
+                </h3>
+                 <p className="text-xs text-slate-400 mb-6">You own your data. Manage imports, exports, and sanitation.</p>
+
+                <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700 mb-8">
+                    <h4 className="text-sm font-bold text-white mb-4">Sync & Backup</h4>
+                    <div className="flex gap-4">
+                        <Button onClick={handleBackup} variant="secondary" className="flex-1 flex items-center justify-center gap-2 py-3 border-slate-600 hover:border-cyan-500">
+                            <span>⬇️</span> Download Full Backup
+                        </Button>
+                        <Button onClick={() => fileInputRef.current?.click()} variant="secondary" className="flex-1 flex items-center justify-center gap-2 py-3 border-slate-600 hover:border-cyan-500">
+                            <span>⬆️</span> Restore from File
+                        </Button>
+                        <input type="file" ref={fileInputRef} onChange={handleRestore} accept=".json" className="hidden" />
+                    </div>
+                </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-                <div><label className="block text-[10px] font-medium text-gray-400 uppercase tracking-wider">Sheet ID</label><input type="text" value={sheetId} onChange={e => setSheetId(e.target.value)} className="input-base mt-1 text-xs w-full bg-slate-900" placeholder="abc123xyz..."/></div>
-                <div><label className="block text-[10px] font-medium text-gray-400 uppercase tracking-wider">Reports GID</label><input type="text" value={reportsGid} onChange={e => setReportsGid(e.target.value)} className="input-base mt-1 text-xs w-full bg-slate-900" placeholder="0"/></div>
-                <div><label className="block text-[10px] font-medium text-gray-400 uppercase tracking-wider">Logs GID</label><input type="text" value={logsGid} onChange={e => setLogsGid(e.target.value)} className="input-base mt-1 text-xs w-full bg-slate-900" placeholder="123456789"/></div>
+                <div className="bg-red-900/10 p-6 rounded-xl border border-red-900/30">
+                    <h4 className="text-sm font-bold text-red-400 mb-4 flex items-center gap-2"><span className="text-lg">☢️</span> Danger Zone</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="bg-red-950/30 p-3 rounded border border-red-900/30">
+                            <p className="text-xs text-red-200 font-bold mb-1">Academic Data</p>
+                            <p className="text-[10px] text-red-300/70 mb-3">Reports & Logs only</p>
+                            <Button variant="danger" size="sm" onClick={() => { if(confirm('Delete all academic reports?')) handleReportsReset() }} className="w-full">Purge Reports</Button>
+                        </div>
+                         <div className="bg-red-950/30 p-3 rounded border border-red-900/30">
+                            <p className="text-xs text-red-200 font-bold mb-1">AI Memory</p>
+                            <p className="text-[10px] text-red-300/70 mb-3">Chat history</p>
+                            <Button variant="danger" size="sm" onClick={() => { if(confirm('Clear chat history?')) handleChatReset() }} className="w-full">Wipe Memory</Button>
+                        </div>
+                         <div className="bg-red-950/30 p-3 rounded border border-red-900/30">
+                            <p className="text-xs text-red-200 font-bold mb-1">Career Progress</p>
+                            <p className="text-[10px] text-red-300/70 mb-3">XP, Levels, Badges</p>
+                            <Button variant="danger" size="sm" onClick={() => { if(confirm('Reset all achievements and XP?')) handleGamificationReset() }} className="w-full">Reset Progress</Button>
+                        </div>
+                        <div className="bg-red-950/30 p-3 rounded border border-red-900/30">
+                            <p className="text-xs text-red-200 font-bold mb-1">Factory Reset</p>
+                            <p className="text-[10px] text-red-300/70 mb-3">Everything</p>
+                            <Button variant="danger" size="sm" onClick={() => { if(confirm('ARE YOU SURE? This will wipe ALL data and cannot be undone.')) handleFullReset() }} className="w-full font-black tracking-widest">NUKE DATA</Button>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <button onClick={performPull} disabled={isLoading || !sheetId || !reportsGid} className="btn btn-secondary w-full text-xs">{isLoading ? 'Pulling Data...' : 'Pull from Google Sheet'}</button>
-            
-            <p className="text-[10px] text-gray-500 mt-2">
-                <strong>Note:</strong> Sheet must be public ("Anyone with link can view"). The ID is the long string in the URL. GID is the tab ID (usually 0 for first tab).
-            </p>
         </div>
     );
 };
 
-
-// Main Component
 export const Settings: React.FC<SettingsProps> = (props) => {
     const [activeCategory, setActiveCategory] = useState<SettingsCategory>('profile');
 
-    const categories: { id: SettingsCategory, label: string, icon: React.ReactNode }[] = [
-        { id: 'profile', label: 'Profile & Strategy', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg> },
-        { id: 'appearance', label: 'Appearance', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 0h-4m4 0l-5-5" /></svg> },
-        { id: 'ai', label: 'AI Coach', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg> },
-        { id: 'connectivity', label: 'Connectivity', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071a10 10 0 0114.142 0M1.394 8.332a15 15 0 0121.212 0" /></svg> },
-        { id: 'data', label: 'Data & Privacy', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg> },
+    const categories: { id: SettingsCategory, label: string, icon: string }[] = [
+        { id: 'profile', label: 'Profile & Strategy', icon: '👤' },
+        { id: 'appearance', label: 'Appearance', icon: '🎨' },
+        { id: 'ai', label: 'AI Coach', icon: '🤖' },
+        { id: 'connectivity', label: 'Connectivity', icon: '🔌' },
+        { id: 'data', label: 'Data & Privacy', icon: '💾' },
     ];
 
     return (
-        <div className="space-y-8 animate-fade-in">
-            <h1 className="text-3xl font-bold text-[rgb(var(--color-primary-accent-rgb))]">Control Center</h1>
+        <div className="space-y-8 animate-fade-in pb-20">
             <div className="flex flex-col lg:flex-row gap-8">
                 <nav className="lg:w-64 flex-shrink-0">
-                    <ul className="space-y-2 bg-slate-800/30 p-2 rounded-xl border border-slate-700/50 sticky top-6">
+                    <h2 className="text-2xl font-bold text-[rgb(var(--color-primary-accent-rgb))] mb-6 pl-2">Control Center</h2>
+                    <ul className="space-y-2">
                         {categories.map(cat => (
                             <li key={cat.id}>
                                 <button
                                     onClick={() => setActiveCategory(cat.id)}
-                                    className={`w-full flex items-center gap-3 p-3 rounded-lg text-left transition-all duration-200 ${activeCategory === cat.id ? 'bg-[rgb(var(--color-primary-rgb))] text-white shadow-lg' : 'text-gray-400 hover:bg-slate-700/50 hover:text-gray-200'}`}
+                                    className={`w-full flex items-center gap-3 p-3 rounded-xl text-left transition-all duration-300 group ${activeCategory === cat.id ? 'bg-[rgb(var(--color-primary-rgb))] text-white shadow-lg shadow-[rgba(var(--color-primary-rgb),0.2)]' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
                                 >
-                                    {cat.icon}
-                                    <span className="font-medium text-sm">{cat.label}</span>
+                                    <span className={`text-lg p-1.5 rounded-lg transition-colors ${activeCategory === cat.id ? 'bg-white/20' : 'bg-slate-800 group-hover:bg-slate-700'}`}>{cat.icon}</span>
+                                    <span className="font-semibold text-sm">{cat.label}</span>
                                 </button>
                             </li>
                         ))}
                     </ul>
                 </nav>
-                <main className="flex-grow bg-slate-800/50 p-6 rounded-2xl shadow-2xl border border-slate-700 min-h-[600px] relative overflow-hidden">
-                    {/* Background accent */}
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-[rgb(var(--color-primary-rgb))] opacity-5 blur-[100px] pointer-events-none"></div>
-                    
-                    {activeCategory === 'profile' && <ProfileSettings {...props} />}
-                    {activeCategory === 'appearance' && <AppearanceSettings {...props} />}
-                    {activeCategory === 'ai' && <AiSettings {...props} apiKey={props.apiKey} />}
+                <main className="flex-grow bg-slate-900/50 p-1 md:p-6 rounded-3xl min-h-[600px]">
+                    {activeCategory === 'profile' && <ProfileSettings userProfile={props.userProfile} setUserProfile={props.setUserProfile} longTermGoals={props.longTermGoals} setLongTermGoals={props.setLongTermGoals} />}
+                    {activeCategory === 'appearance' && <AppearanceSettings theme={props.theme} setTheme={props.setTheme} appearancePreferences={props.appearancePreferences} setAppearancePreferences={props.setAppearancePreferences} />}
+                    {activeCategory === 'ai' && <AiSettings {...props} />}
                     {activeCategory === 'connectivity' && <ConnectivitySettings {...props} />}
                     {activeCategory === 'data' && <DataSettings {...props} />}
                 </main>

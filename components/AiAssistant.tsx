@@ -5,6 +5,8 @@ import type { TestReport, QuestionLog, AiFilter, ChatMessage, StudyGoal, AiAssis
 import { generateStudyPlan, explainTopic, retrieveRelevantContext, GENUI_TOOLS, decodeAudioData, encodeAudio, decodeAudio, fileToGenerativePart } from '../services/geminiService';
 import { QuestionStatus, ErrorReason } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, LineChart, Line } from 'recharts';
+import { MODEL_REGISTRY } from '../services/llm/models';
+import { generateTextOpenAI } from '../services/llm/providers';
 
 // --- Types and Constants ---
 
@@ -22,11 +24,8 @@ interface AiAssistantProps {
   onUpdatePreferences?: React.Dispatch<React.SetStateAction<AiAssistantPreferences>>;
 }
 
-const MODELS = [
-    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', icon: '⚡', desc: 'Main Model (Vision & Speed)' },
-    { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite', icon: '🚀', desc: 'Lightweight & Fast' },
-    { id: 'gemma-3-27b-it', name: 'Gemma 3 27B', icon: '🤖', desc: 'Text Specialist (Experimental)' },
-];
+const PRIMARY_MODELS = MODEL_REGISTRY.filter(m => m.provider === 'google');
+const SECONDARY_MODELS = MODEL_REGISTRY.filter(m => m.provider !== 'google');
 
 // --- GenUI Components ---
 
@@ -150,8 +149,9 @@ const GenUIMindMap: React.FC<{ data: any }> = ({ data }) => {
 // --- Helper Components & Functions ---
 
 const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
+    // If content is HTML (like the attribution footer), render it directly inside the loop logic or wrapper
     const renderLine = (line: string) => {
-        const parts = line.split(/(\*\*.*?\*\*|\*.*?\*|`.*?`)/g).filter(Boolean);
+        const parts = line.split(/(\*\*.*?\*\*|\*.*?\*|`.*?`|<.*?>)/g).filter(Boolean);
         return parts.map((part, i) => {
             if (part.startsWith('**') && part.endsWith('**')) {
                 return <strong key={i} className="text-cyan-100 font-bold tracking-wide">{part.slice(2, -2)}</strong>;
@@ -161,6 +161,13 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
             }
             if (part.startsWith('`') && part.endsWith('`')) {
                 return <code key={i} className="bg-slate-700 px-1 py-0.5 rounded text-xs font-mono text-cyan-300">{part.slice(1, -1)}</code>;
+            }
+            // Basic HTML tag handling for the attribution footer
+            if (part.startsWith('<') && part.endsWith('>')) {
+               // We handle full HTML block separately below if lines start with it, 
+               // but inline tags might be tricky.
+               // For now, let's just return the part if it looks like a tag we injected.
+               return <span key={i} dangerouslySetInnerHTML={{__html: part}} />
             }
             return part;
         });
@@ -172,6 +179,16 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
 
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
+
+        // Handle injected HTML footer
+        if (line.trim().startsWith('<div')) {
+             if (listItems.length > 0) {
+                elements.push(<ul key={`ul-${i}`} className="list-disc pl-5 my-3 space-y-2">{listItems}</ul>);
+                listItems = [];
+            }
+            elements.push(<div key={i} dangerouslySetInnerHTML={{ __html: line }} />);
+            continue;
+        }
 
         if (line.startsWith('### ')) {
             if (listItems.length > 0) {
@@ -460,10 +477,15 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
     const [attachedImage, setAttachedImage] = useState<File | null>(null);
     const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
     
+    // Secondary Model State
+    const [isSecondarySelectorOpen, setIsSecondarySelectorOpen] = useState(false);
+    const [secondaryModelId, setSecondaryModelId] = useState<string>('none');
+    
     const chatContainerRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const modelSelectorRef = useRef<HTMLDivElement>(null);
+    const secondarySelectorRef = useRef<HTMLDivElement>(null);
     const ai = useMemo(() => new GoogleGenAI({ apiKey }), [apiKey]);
 
     // Voice State (Gemini Live)
@@ -494,6 +516,9 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
         const handleClickOutside = (event: MouseEvent) => {
             if (modelSelectorRef.current && !modelSelectorRef.current.contains(event.target as Node)) {
                 setIsModelSelectorOpen(false);
+            }
+            if (secondarySelectorRef.current && !secondarySelectorRef.current.contains(event.target as Node)) {
+                setIsSecondarySelectorOpen(false);
             }
         };
         document.addEventListener('mousedown', handleClickOutside);
@@ -539,7 +564,13 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
         setIsModelSelectorOpen(false);
     };
 
-    const currentModel = MODELS.find(m => m.id === preferences.model) || MODELS[0];
+    const handleSecondaryModelChange = (modelId: string) => {
+        setSecondaryModelId(modelId);
+        setIsSecondarySelectorOpen(false);
+    };
+
+    const currentModel = PRIMARY_MODELS.find(m => m.id === preferences.model) || PRIMARY_MODELS[0];
+    const currentSecondary = SECONDARY_MODELS.find(m => m.id === secondaryModelId);
 
     const handleSendMessage = useCallback(async (e?: React.FormEvent) => {
         if(e) e.preventDefault();
@@ -562,118 +593,188 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
         // RAG Retrieval
         const ragContext = await retrieveRelevantContext(currentInput, questionLogs, apiKey);
         const systemInstruction = getSystemInstruction(reports, questionLogs, preferences, ragContext);
+        
+        let secondarySuccess = false;
 
-        try {
-            // Prepare contents: Text + Optional Image
-            const parts: any[] = [{ text: currentInput || "Analyze this." }];
-            if (currentImage) {
-                const imagePart = await fileToGenerativePart(currentImage);
-                parts.unshift(imagePart); // Image comes first usually
-            }
-
-            const isGemma = preferences.model.toLowerCase().includes('gemma');
-            let reqConfig: any = {};
-            let reqContents = [{ role: 'user', parts: parts }];
-
-            if (isGemma) {
-                // Gemma Logic: Text only, no system instruction in config, no tools
-                // Filter out non-text parts (images)
-                const textParts = parts.filter(p => p.text);
-                const imageParts = parts.filter(p => !p.text);
+        // --- SECONDARY MODEL ATTEMPT ---
+        if (secondaryModelId !== 'none' && currentSecondary && !currentImage) {
+            try {
+                // Determine API key
+                let secondaryKey = '';
+                if (currentSecondary.provider === 'groq') secondaryKey = preferences.groqApiKey || '';
+                else if (currentSecondary.provider === 'openrouter') secondaryKey = preferences.openRouterApiKey || '';
                 
-                if (imageParts.length > 0) {
-                     setChatHistory(prev => [...prev, { role: 'model', content: "⚠️ Note: Gemma models are text-only and cannot analyze images. I've ignored the attached image." }]);
-                }
+                // If no key for paid model, we fall through. For free openrouter, sometimes no key needed but usually best to have.
+                // assuming free models might work or we check key.
+                // The provider logic handles key auth, here we just try if we have one or if provider is lenient.
                 
-                // Sanitize system prompt to remove tool references
-                const sanitizedSystemPrompt = systemInstruction
-                    .replace(/Use `renderChart`.*planning\./g, '')
-                    .replace(/Use `createActionPlan`.*planning\./g, '')
-                    .replace(/Use `renderDiagram`.*asks\./g, '')
-                    .replace(/Use `createMindMap`.*requested\./g, '')
-                    .replace(/\*\*Tool Usage:\*\*[\s\S]*?(?=\*\*)/g, ''); // Remove Tool Usage section
-
-                // Prepend system instruction to the first text part
-                if (textParts.length > 0) {
-                    textParts[0].text = `SYSTEM INSTRUCTION:\n${sanitizedSystemPrompt}\n\nUSER QUERY:\n${textParts[0].text}`;
-                }
+                // Map Chat History for OpenAI format (user/assistant)
+                const historyForSecondary = chatHistory.map(m => ({
+                    role: m.role === 'model' ? 'assistant' : 'user',
+                    content: typeof m.content === 'string' ? m.content : '[Non-text content]'
+                })).slice(-10); // Context Window Limit
                 
-                reqContents = [{ role: 'user', parts: textParts }];
-                // No tools, no systemInstruction in config
-                // Relax safety settings for Gemma
-                reqConfig = {
-                    safetySettings: [
-                        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-                        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-                        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-                        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-                    ]
-                };
-            } else {
-                // Gemini Logic: Full capabilities
-                reqConfig = {
+                const responseText = await generateTextOpenAI(
+                    currentSecondary.provider as any,
+                    secondaryKey,
+                    currentSecondary.id,
+                    historyForSecondary.concat([{ role: 'user', content: currentInput }]), // Add current message
                     systemInstruction,
-                    tools: [{ functionDeclarations: GENUI_TOOLS.map(t => ({ name: t.name, description: t.description, parameters: t.parameters })) }],
-                };
-                reqContents = [{ role: 'user', parts: parts }];
+                    false // JSON mode
+                );
+
+                // Add attribution to the response for secondary model success
+                const contentWithAttribution = `${responseText}\n\n<div class="text-[10px] text-purple-400 mt-2 pt-1 border-t border-slate-700/50 flex items-center gap-1"><span>⚡</span> Answered by <strong>${currentSecondary.name}</strong></div>`;
+
+                setChatHistory(prev => [...prev, { role: 'model', content: contentWithAttribution }]);
+                secondarySuccess = true;
+
+            } catch (err) {
+                console.warn(`Secondary model ${secondaryModelId} failed. Falling back to primary.`, err);
+                // Optionally add a small toast/log to UI here
             }
-
-            const response = await ai.models.generateContentStream({
-                model: preferences.model || 'gemini-2.5-flash', 
-                contents: reqContents,
-                config: reqConfig
-            });
-
-            let streamedText = '';
-
-            for await (const chunk of response) {
-                // Check for Function Calls (GenUI)
-                const toolCall = chunk.functionCalls?.[0];
-                if (toolCall) {
-                    // GenUI Trigger
-                    let genType: GenUIToolType = 'none';
-                    if (toolCall.name === 'renderChart') genType = 'chart';
-                    else if (toolCall.name === 'createActionPlan') genType = 'checklist';
-                    else if (toolCall.name === 'renderDiagram') genType = 'chart'; // Reusing type string but logic handled in render
-                    else if (toolCall.name === 'createMindMap') genType = 'chart'; // Reusing type string
-
-                    const genData: GenUIComponentData = {
-                        type: genType, // We misuse type slightly here for internal mapping, corrected below in renderer logic
-                        data: toolCall.args,
-                        id: toolCall.id || Date.now().toString()
-                    };
-                    
-                    // Fix manual type overrides for new tools
-                    if (toolCall.name === 'renderDiagram') {
-                        setChatHistory(prev => [...prev, { role: 'model', content: { type: 'genUI', component: { ...genData, type: 'diagram' as any } } }]);
-                    } else if (toolCall.name === 'createMindMap') {
-                        setChatHistory(prev => [...prev, { role: 'model', content: { type: 'genUI', component: { ...genData, type: 'mindmap' as any } } }]);
-                    } else if (genData.type !== 'none') {
-                        setChatHistory(prev => [...prev, { role: 'model', content: { type: 'genUI', component: genData } }]);
-                    }
-                    continue; 
+        }
+        
+        // --- PRIMARY MODEL (GOOGLE) FALLBACK/DEFAULT ---
+        if (!secondarySuccess) {
+            try {
+                // Prepare contents: Text + Optional Image
+                const parts: any[] = [{ text: currentInput || "Analyze this." }];
+                if (currentImage) {
+                    const imagePart = await fileToGenerativePart(currentImage);
+                    parts.unshift(imagePart); // Image comes first usually
                 }
 
-                // Standard Text
-                if (chunk.text) {
-                    streamedText += chunk.text;
-                    setChatHistory(prev => {
+                const isGemma = preferences.model.toLowerCase().includes('gemma');
+                let reqConfig: any = {};
+                let reqContents = [{ role: 'user', parts: parts }];
+
+                if (isGemma) {
+                    // Gemma Logic: Text only, no system instruction in config, no tools
+                    const textParts = parts.filter(p => p.text);
+                    const imageParts = parts.filter(p => !p.text);
+                    
+                    if (imageParts.length > 0) {
+                         setChatHistory(prev => [...prev, { role: 'model', content: "⚠️ Note: Gemma models are text-only and cannot analyze images. I've ignored the attached image." }]);
+                    }
+                    
+                    // Sanitize system prompt to remove tool references
+                    const sanitizedSystemPrompt = systemInstruction
+                        .replace(/Use `renderChart`.*planning\./g, '')
+                        .replace(/Use `createActionPlan`.*planning\./g, '')
+                        .replace(/Use `renderDiagram`.*asks\./g, '')
+                        .replace(/Use `createMindMap`.*requested\./g, '')
+                        .replace(/\*\*Tool Usage:\*\*[\s\S]*?(?=\*\*)/g, ''); // Remove Tool Usage section
+
+                    // Prepend system instruction to the first text part
+                    if (textParts.length > 0) {
+                        textParts[0].text = `SYSTEM INSTRUCTION:\n${sanitizedSystemPrompt}\n\nUSER QUERY:\n${textParts[0].text}`;
+                    }
+                    
+                    reqContents = [{ role: 'user', parts: textParts }];
+                    // No tools, no systemInstruction in config
+                    // Relax safety settings for Gemma
+                    reqConfig = {
+                        safetySettings: [
+                            { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                            { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+                            { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                            { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                        ]
+                    };
+                } else {
+                    // Gemini Logic: Full capabilities
+                    reqConfig = {
+                        systemInstruction,
+                        tools: [{ functionDeclarations: GENUI_TOOLS.map(t => ({ name: t.name, description: t.description, parameters: t.parameters })) }],
+                    };
+                    reqContents = [{ role: 'user', parts: parts }];
+                }
+
+                const response = await ai.models.generateContentStream({
+                    model: preferences.model || 'gemini-2.5-flash', 
+                    contents: reqContents,
+                    config: reqConfig
+                });
+
+                let streamedText = '';
+                let hasFallbackMsg = false;
+
+                for await (const chunk of response) {
+                    // Check for Function Calls (GenUI)
+                    const toolCall = chunk.functionCalls?.[0];
+                    if (toolCall) {
+                        // GenUI Trigger
+                        let genType: GenUIToolType = 'none';
+                        if (toolCall.name === 'renderChart') genType = 'chart';
+                        else if (toolCall.name === 'createActionPlan') genType = 'checklist';
+                        else if (toolCall.name === 'renderDiagram') genType = 'chart'; // Reusing type string but logic handled in render
+                        else if (toolCall.name === 'createMindMap') genType = 'chart'; // Reusing type string
+
+                        const genData: GenUIComponentData = {
+                            type: genType, // We misuse type slightly here for internal mapping, corrected below in renderer logic
+                            data: toolCall.args,
+                            id: toolCall.id || Date.now().toString()
+                        };
+                        
+                        // Fix manual type overrides for new tools
+                        if (toolCall.name === 'renderDiagram') {
+                            setChatHistory(prev => [...prev, { role: 'model', content: { type: 'genUI', component: { ...genData, type: 'diagram' as any } } }]);
+                        } else if (toolCall.name === 'createMindMap') {
+                            setChatHistory(prev => [...prev, { role: 'model', content: { type: 'genUI', component: { ...genData, type: 'mindmap' as any } } }]);
+                        } else if (genData.type !== 'none') {
+                            setChatHistory(prev => [...prev, { role: 'model', content: { type: 'genUI', component: genData } }]);
+                        }
+                        continue; 
+                    }
+
+                    // Standard Text
+                    if (chunk.text) {
+                        streamedText += chunk.text;
+                        
+                        // If it was a fallback from secondary, we want to append that note at the end of the stream
+                        // But for streaming UX, we just update content. We append the note at the very end if needed?
+                        // Actually, we can just append it to the streamed text if we detect the end, but the loop is chunk-based.
+                        // Better to rely on React state updates. We'll append the fallback footer dynamically in the render if needed, or append to string.
+                        
+                        // NOTE: Attaching the footer to every chunk update is inefficient/flickering.
+                        // We will append it once at the end or just bake it into the text state update logic.
+                        // However, simpler is just letting the stream finish.
+                        
+                        setChatHistory(prev => {
+                            const last = prev[prev.length - 1];
+                            // If user selected a secondary model but we are here (primary fallback), append note
+                            let displayContent = streamedText;
+                            
+                            if (last?.role === 'model' && typeof last.content === 'string') {
+                                return [...prev.slice(0, -1), { role: 'model', content: displayContent }];
+                            }
+                            return [...prev, { role: 'model', content: displayContent }];
+                        });
+                    }
+                }
+                
+                // After stream finishes, if we fell back from secondary, append the note to the final message
+                if (secondaryModelId !== 'none' && !secondarySuccess) {
+                     setChatHistory(prev => {
                         const last = prev[prev.length - 1];
                         if (last?.role === 'model' && typeof last.content === 'string') {
-                            return [...prev.slice(0, -1), { role: 'model', content: streamedText }];
+                            const fallbackFooter = `\n\n<div class="text-[10px] text-amber-500/80 mt-2 pt-1 border-t border-slate-700/50 flex items-center gap-1"><span>⚠️</span> Fallback to <strong>${currentModel.name}</strong> (${currentSecondary?.name} unavailable)</div>`;
+                            return [...prev.slice(0, -1), { role: 'model', content: last.content + fallbackFooter }];
                         }
-                        return [...prev, { role: 'model', content: streamedText }];
+                        return prev;
                     });
                 }
-            }
-        } catch (err) {
-            console.error("Chat generation error:", err);
-            setChatHistory(prev => [...prev, { role: 'model', content: "Error generating response. Please check your API key, billing status, or network connection." }]);
-        } finally {
-            setIsStreamingResponse(false);
-        }
 
-    }, [userInput, attachedImage, isStreamingResponse, ai, questionLogs, reports, preferences, apiKey]);
+            } catch (err) {
+                console.error("Chat generation error:", err);
+                setChatHistory(prev => [...prev, { role: 'model', content: "Error generating response. Please check your API key, billing status, or network connection." }]);
+            }
+        }
+        
+        setIsStreamingResponse(false);
+
+    }, [userInput, attachedImage, isStreamingResponse, ai, questionLogs, reports, preferences, apiKey, secondaryModelId]);
 
     // --- Gemini Live Implementation ---
     const startLiveSession = async () => {
@@ -784,35 +885,86 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
         <div className="flex flex-col h-[calc(100vh-120px)] bg-slate-800/50 rounded-lg shadow-lg border border-slate-700 overflow-hidden relative">
             {/* Header */}
             <div className="flex justify-between items-center p-3 border-b border-slate-700 bg-slate-900/90 backdrop-blur-md z-30">
-                {/* Model Selector (ChatGPT Style) */}
-                <div className="relative" ref={modelSelectorRef}>
-                    <button 
-                        onClick={() => setIsModelSelectorOpen(!isModelSelectorOpen)}
-                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors text-sm font-medium text-gray-200"
-                    >
-                        <span className="text-cyan-400 text-lg">{currentModel.icon}</span>
-                        <span>{currentModel.name}</span>
-                        <span className="text-gray-500 text-xs ml-1">▼</span>
-                    </button>
+                <div className="flex items-center gap-3">
+                    {/* Primary Model Selector (Google) */}
+                    <div className="relative" ref={modelSelectorRef}>
+                        <button 
+                            onClick={() => setIsModelSelectorOpen(!isModelSelectorOpen)}
+                            className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors text-sm font-medium text-gray-200"
+                        >
+                            <span className="text-cyan-400 text-lg">{currentModel.icon || '⚡'}</span>
+                            <span>{currentModel.name}</span>
+                            <span className="text-gray-500 text-xs ml-1">▼</span>
+                        </button>
 
-                    {isModelSelectorOpen && (
-                        <div className="absolute top-full left-0 mt-2 w-64 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 animate-scale-in overflow-hidden">
-                            {MODELS.map(model => (
+                        {isModelSelectorOpen && (
+                            <div className="absolute top-full left-0 mt-2 w-64 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 animate-scale-in overflow-hidden">
+                                <div className="px-3 py-2 text-xs font-bold text-gray-500 uppercase bg-slate-900/50">Primary (Google)</div>
+                                {PRIMARY_MODELS.map(model => (
+                                    <button
+                                        key={model.id}
+                                        onClick={() => handleModelChange(model.id)}
+                                        className={`w-full text-left p-3 flex items-start gap-3 hover:bg-slate-700/50 transition-colors ${preferences.model === model.id ? 'bg-slate-700/30' : ''}`}
+                                    >
+                                        <span className="text-xl mt-0.5">{model.name.includes('Gemma') ? '🤖' : '⚡'}</span>
+                                        <div>
+                                            <p className={`text-sm font-bold ${preferences.model === model.id ? 'text-cyan-400' : 'text-gray-200'}`}>{model.name}</p>
+                                            <p className="text-xs text-gray-500">{model.description}</p>
+                                        </div>
+                                        {preferences.model === model.id && <span className="ml-auto text-cyan-400 font-bold">✓</span>}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Divider */}
+                    <div className="h-6 w-px bg-slate-700"></div>
+
+                    {/* Secondary Model Selector (Groq/OpenRouter) */}
+                    <div className="relative" ref={secondarySelectorRef}>
+                        <button 
+                            onClick={() => setIsSecondarySelectorOpen(!isSecondarySelectorOpen)}
+                            className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors text-sm font-medium text-gray-200"
+                        >
+                            <span className={`text-lg ${secondaryModelId !== 'none' ? 'text-purple-400' : 'text-gray-500'}`}>
+                                {secondaryModelId !== 'none' ? '🧠' : '○'}
+                            </span>
+                            <span>{currentSecondary ? currentSecondary.name : 'No Selection'}</span>
+                            <span className="text-gray-500 text-xs ml-1">▼</span>
+                        </button>
+
+                        {isSecondarySelectorOpen && (
+                            <div className="absolute top-full left-0 mt-2 w-72 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 animate-scale-in overflow-hidden max-h-[400px] overflow-y-auto custom-scrollbar">
+                                <div className="px-3 py-2 text-xs font-bold text-gray-500 uppercase bg-slate-900/50">Secondary (Fallback: On)</div>
                                 <button
-                                    key={model.id}
-                                    onClick={() => handleModelChange(model.id)}
-                                    className={`w-full text-left p-3 flex items-start gap-3 hover:bg-slate-700/50 transition-colors ${preferences.model === model.id ? 'bg-slate-700/30' : ''}`}
+                                    onClick={() => handleSecondaryModelChange('none')}
+                                    className={`w-full text-left p-3 flex items-center gap-3 hover:bg-slate-700/50 transition-colors ${secondaryModelId === 'none' ? 'bg-slate-700/30' : ''}`}
                                 >
-                                    <span className="text-xl mt-0.5">{model.icon}</span>
-                                    <div>
-                                        <p className={`text-sm font-bold ${preferences.model === model.id ? 'text-cyan-400' : 'text-gray-200'}`}>{model.name}</p>
-                                        <p className="text-xs text-gray-500">{model.desc}</p>
-                                    </div>
-                                    {preferences.model === model.id && <span className="ml-auto text-cyan-400 font-bold">✓</span>}
+                                    <span className="text-xl">○</span>
+                                    <p className="text-sm font-bold text-gray-200">No Selection</p>
+                                    {secondaryModelId === 'none' && <span className="ml-auto text-cyan-400 font-bold">✓</span>}
                                 </button>
-                            ))}
-                        </div>
-                    )}
+                                {SECONDARY_MODELS.map(model => (
+                                    <button
+                                        key={model.id}
+                                        onClick={() => handleSecondaryModelChange(model.id)}
+                                        className={`w-full text-left p-3 flex items-start gap-3 hover:bg-slate-700/50 transition-colors ${secondaryModelId === model.id ? 'bg-slate-700/30' : ''}`}
+                                    >
+                                        <span className="text-xl mt-0.5">{model.provider === 'groq' ? '🚀' : '🔮'}</span>
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <p className={`text-sm font-bold ${secondaryModelId === model.id ? 'text-purple-400' : 'text-gray-200'}`}>{model.name}</p>
+                                                <span className="text-[9px] px-1 rounded bg-slate-900 text-gray-500 border border-slate-700 uppercase">{model.provider}</span>
+                                            </div>
+                                            <p className="text-xs text-gray-500">{model.description}</p>
+                                        </div>
+                                        {secondaryModelId === model.id && <span className="ml-auto text-purple-400 font-bold">✓</span>}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 {/* Tabs */}
@@ -828,7 +980,7 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
                         {chatHistory.length === 0 && (
                             <div className="flex flex-col items-center justify-center h-full text-gray-500 opacity-50">
                                 <div className="w-16 h-16 bg-slate-800 rounded-2xl flex items-center justify-center mb-4 text-4xl grayscale">
-                                    {currentModel.icon}
+                                    {currentModel.name.includes('Gemma') ? '🤖' : '⚡'}
                                 </div>
                                 <p className="text-lg font-medium mb-2">How can I help you ace JEE?</p>
                             </div>
@@ -842,7 +994,7 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
                                 }`}>
                                     {msg.role === 'model' && (
                                         <div className="flex items-center gap-2 mb-1 text-xs font-bold text-cyan-400">
-                                            <span>{currentModel.icon}</span> AI Coach
+                                            <span>{currentModel.name.includes('Gemma') ? '🤖' : '⚡'}</span> AI Coach
                                         </div>
                                     )}
                                     {typeof msg.content === 'string' ? (
@@ -926,7 +1078,7 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
                                         value={userInput}
                                         onChange={handleUserInput}
                                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e); } }}
-                                        placeholder={`Message ${currentModel.name}...`}
+                                        placeholder={`Message ${secondaryModelId !== 'none' ? currentSecondary?.name : currentModel.name}...`}
                                         className="w-full bg-transparent text-gray-100 px-3 py-3.5 max-h-48 focus:outline-none resize-none text-sm placeholder-gray-500"
                                         rows={1}
                                         disabled={isStreamingResponse}

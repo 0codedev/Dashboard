@@ -17,6 +17,7 @@ import { WeakestTopicsChart } from './visualizations/WeakestTopicsChart';
 import { ExecutiveBriefing } from './visualizations/ExecutiveBriefing';
 import { getMarkingScheme } from '../utils/metrics';
 import { Button } from './common/Button';
+import { MarkdownRenderer } from './common/MarkdownRenderer';
 
 interface RootCauseProps {
   logs: QuestionLog[];
@@ -168,6 +169,9 @@ const ScoreContributionWidget: React.FC<{ reports: TestReport[] }> = ({ reports 
     );
 };
 
+// ... [Keep other chart widgets unchanged] ...
+
+// Re-using the same widget definitions as before but omitting for brevity in this response unless they need updates
 const SpeedVsAccuracyWidget: React.FC<{ logs: QuestionLog[] }> = ({ logs }) => {
     const data = useMemo(() => {
         const topicStats = new Map<string, { correct: number, attempts: number, time: number }>();
@@ -395,7 +399,6 @@ const ErrorReasonsBySubjectWidget: React.FC<{ data: any[] }> = ({ data }) => {
     );
 };
 
-// Custom Node for Sankey with Hover Logic
 const InteractiveSankeyNode = (props: any) => {
     const { x, y, width, height, payload, containerWidth, setActiveNode } = props;
     const isLeft = x < containerWidth / 2;
@@ -419,7 +422,6 @@ const InteractiveSankeyNode = (props: any) => {
     );
 };
 
-// Custom Link for Sankey with Focus Logic
 const InteractiveSankeyLink = (props: any) => {
     const { sourceX, sourceY, targetX, targetY, linkWidth, activeNode, payload } = props;
     const isActive = activeNode === payload.source.name || activeNode === payload.target.name;
@@ -471,7 +473,6 @@ const StatusBadge: React.FC<{ status: QuestionStatus }> = ({ status }) => {
     return <span className={`px-2 py-1 text-xs font-semibold rounded-full ${color}`}>{text}</span>;
 };
 
-// --- NEW WIDGET: Panic Analysis ---
 const PanicAnalysisWidget: React.FC<{ events: PanicEvent[] }> = ({ events }) => {
     if (events.length === 0) return <div className="flex items-center justify-center h-full text-gray-500 text-sm italic">No panic cascades detected yet. Good composure!</div>;
 
@@ -495,7 +496,6 @@ const PanicAnalysisWidget: React.FC<{ events: PanicEvent[] }> = ({ events }) => 
     );
 };
 
-// --- NEW WIDGET: Guessing Efficiency (Redesigned) ---
 const GuessingWidget: React.FC<{ stats: GuessStats }> = ({ stats }) => {
     // Intuition Data for Gauge
     const intuitionData = [
@@ -575,15 +575,13 @@ const GuessingWidget: React.FC<{ stats: GuessStats }> = ({ stats }) => {
     );
 };
 
-// --- NEW WIDGET: Score Simulator ---
 const ScoreSimulatorWidget: React.FC<{ initialScore: number, errorProfile: { name: string, value: number }[], logs: QuestionLog[], totalTests: number }> = ({ initialScore, errorProfile, logs, totalTests }) => {
     const [reduction, setReduction] = useState<Record<string, number>>({ 'Silly Mistake': 0, 'Conceptual Gap': 0, 'Time Pressure': 0 });
     const [examType, setExamType] = useState<'Mains' | 'Advanced'>('Mains');
     
-    // Dynamic Advanced Marks Calculation
     const avgAdvancedMarks = useMemo(() => {
         const correctLogs = logs.filter(l => l.marksAwarded > 0);
-        if (correctLogs.length === 0) return 3.5; // Fallback
+        if (correctLogs.length === 0) return 3.5; 
         
         const totalPositive = correctLogs.reduce((sum, l) => sum + l.marksAwarded, 0);
         return totalPositive / correctLogs.length;
@@ -662,7 +660,6 @@ const ScoreSimulatorWidget: React.FC<{ initialScore: number, errorProfile: { nam
     );
 };
 
-// --- NEW WIDGET: Dependency Alerts ---
 const DependencyAlertsWidget: React.FC<{ alerts: DependencyAlert[] }> = ({ alerts }) => {
     if (alerts.length === 0) return <div className="flex items-center justify-center h-full text-gray-500 text-sm italic">No structural dependencies found.</div>;
 
@@ -719,20 +716,53 @@ const AIChiefAnalyst: React.FC<{
   }, [stringifiedData]);
 
   return (
-    <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700">
-      <div className="flex items-center gap-4">
-        <div className="w-10 h-10 bg-indigo-500/20 rounded-lg flex items-center justify-center text-indigo-300 text-xl border border-indigo-500/30 flex-shrink-0">💡</div>
-        <div><h3 className="text-xl font-bold text-[rgb(var(--color-primary))]">AI Chief Analyst Summary</h3></div>
+    <div className="bg-slate-900/50 p-6 rounded-xl border border-slate-700 shadow-lg">
+      <div className="flex items-center gap-4 mb-4 border-b border-slate-700 pb-4">
+        <div className="w-12 h-12 bg-indigo-500/20 rounded-xl flex items-center justify-center text-indigo-300 text-2xl border border-indigo-500/30 flex-shrink-0 shadow-[0_0_15px_rgba(99,102,241,0.2)]">💡</div>
+        <div>
+            <h3 className="text-xl font-bold text-white tracking-tight">AI Chief Analyst Report</h3>
+            <p className="text-xs text-slate-400">Automated synthesis of your performance data.</p>
+        </div>
       </div>
-      <div className="mt-3 pl-14">
-        {isLoading && <p className="text-sm text-gray-400 animate-pulse">Synthesizing data to find the root cause...</p>}
-        {error && <p className="text-sm text-red-400">{error}</p>}
-        {summary && (<div><p className="text-[rgb(var(--color-primary-accent-rgb))] leading-relaxed">{summary}</p></div>)}
+      
+      <div className="min-h-[100px]">
+        {isLoading ? (
+            <div className="flex flex-col items-center justify-center py-8 gap-3 animate-pulse">
+                <div className="w-8 h-8 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin"></div>
+                <p className="text-sm text-indigo-300 font-medium">Synthesizing insights from your data...</p>
+            </div>
+        ) : error ? (
+            <div className="p-4 bg-red-900/20 border border-red-800 rounded-lg text-red-300 text-sm">
+                <strong className="block mb-1">Analysis Failed</strong>
+                {error}
+            </div>
+        ) : summary ? (
+            <div className="bg-slate-900/30 rounded-lg border border-slate-700/50 p-5">
+                <MarkdownRenderer content={summary} />
+            </div>
+        ) : (
+            <div className="text-center py-8 text-slate-500 bg-slate-900/30 rounded-lg border border-slate-800 border-dashed">
+                <p>Ready to analyze your weak topics and error patterns.</p>
+            </div>
+        )}
         
         {!isLoading && (
-             <div className="mt-4 flex flex-wrap gap-2">
-                <button onClick={() => generateSummary(false)} disabled={isLoading} className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-1 px-3 rounded-full transition-colors disabled:opacity-50 flex items-center gap-1.5">{summary ? 'Re-run Analysis' : 'Run Analysis'}</button>
-                 <button onClick={() => generateSummary(true)} disabled={isLoading} className="text-xs bg-indigo-600/50 hover:bg-indigo-600 text-white font-semibold py-1 px-3 rounded-full transition-colors disabled:opacity-50 flex items-center gap-1.5" title="Generate summary with a fresh perspective"><svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h5M20 20v-5h-5M4 4l5 5M20 20l-5-5" /></svg>{summary ? 'Improvise' : 'Run & Improvise'}</button>
+             <div className="mt-6 flex flex-wrap gap-3 justify-end">
+                <button 
+                    onClick={() => generateSummary(false)} 
+                    disabled={isLoading} 
+                    className="text-sm bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-5 rounded-lg transition-all shadow-lg shadow-indigo-500/20 flex items-center gap-2"
+                >
+                    <span>📊</span> {summary ? 'Re-run Analysis' : 'Run Full Analysis'}
+                </button>
+                 <button 
+                    onClick={() => generateSummary(true)} 
+                    disabled={isLoading} 
+                    className="text-sm bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2 px-5 rounded-lg transition-all border border-slate-600 flex items-center gap-2" 
+                    title="Generate summary with a fresh, counter-intuitive perspective"
+                >
+                    <span>🎲</span> {summary ? 'Improvise' : 'Run & Improvise'}
+                </button>
             </div>
         )}
       </div>
