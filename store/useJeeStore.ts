@@ -1,143 +1,118 @@
 
 import { create } from 'zustand';
 import { 
-    UserProfile, 
-    TestReport, 
-    QuestionLog, 
-    StudyGoal, 
-    LongTermGoal, 
-    GamificationState, 
-    GlobalFilter,
-    SyllabusStatus,
-    ChapterProgress
+    FlashcardSession,
+    Flashcard
 } from '../types';
 
+// SM-2 Algorithm Implementation
+const calculateNextReview = (card: Flashcard, quality: number) => {
+    // Quality: 0-5 (0=Fail, 3=Hard, 4=Good, 5=Easy)
+    // We map UI ratings (Fail/Hard/Good/Easy) to Quality numbers in the component
+    
+    let interval = card.interval;
+    let easeFactor = card.easeFactor;
+    let reviews = card.reviews;
+
+    if (quality < 3) {
+        reviews = 0;
+        interval = 1; // Reset to 1 day
+        easeFactor = Math.max(1.3, easeFactor - 0.2); // Penalty
+    } else {
+        reviews += 1;
+        if (interval === 0) interval = 1;
+        else if (interval === 1) interval = 3;
+        else interval = Math.round(interval * easeFactor);
+
+        easeFactor = easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
+        if (easeFactor < 1.3) easeFactor = 1.3;
+    }
+    
+    const nextReviewDate = new Date();
+    nextReviewDate.setDate(nextReviewDate.getDate() + interval);
+
+    return {
+        ...card,
+        interval,
+        easeFactor,
+        reviews,
+        nextReview: nextReviewDate.toISOString()
+    };
+};
+
 interface JeeState {
-    userProfile: UserProfile;
-    testReports: TestReport[];
-    questionLogs: QuestionLog[];
-    studyGoals: StudyGoal[];
-    longTermGoals: LongTermGoal[];
-    gamificationState: GamificationState;
-    globalFilter: GlobalFilter;
+    // Session State only. Persistent data lives in IndexedDB/LocalStorage via useJeeData
+    flashcardSession: FlashcardSession;
+    isFlashcardModalOpen: boolean;
 }
 
 interface JeeActions {
-    // Setters (Bulk)
-    setUserProfile: (profile: UserProfile) => void;
-    setTestReports: (reports: TestReport[]) => void;
-    setQuestionLogs: (logs: QuestionLog[]) => void;
-    setStudyGoals: (goals: StudyGoal[]) => void;
-    setLongTermGoals: (goals: LongTermGoal[]) => void;
-    setGamificationState: (state: GamificationState) => void;
-    setGlobalFilter: (filter: GlobalFilter) => void;
-
-    // Atomic Updates
-    updateUserProfile: (updates: Partial<UserProfile>) => void;
-    updateSyllabusStatus: (chapter: string, progress: Partial<ChapterProgress>) => void;
+    // Flashcard Actions
+    startFlashcardSession: (cards: Flashcard[]) => void;
+    rateCurrentCard: (quality: number) => void; // 1 (Again), 3 (Hard), 4 (Good), 5 (Easy)
+    closeFlashcardSession: () => void;
     
-    addTestReport: (report: TestReport) => void;
-    removeTestReport: (id: string) => void;
-    
-    addQuestionLogs: (logs: QuestionLog[]) => void;
-    
-    addStudyGoal: (goal: StudyGoal) => void;
-    toggleStudyGoal: (id: string) => void;
-    removeStudyGoal: (id: string) => void;
-
-    addLongTermGoal: (goal: LongTermGoal) => void;
-    toggleLongTermGoal: (id: string) => void;
-    removeLongTermGoal: (id: string) => void;
+    // Utilities to sync back to storage
+    getSessionResults: () => Flashcard[]; 
 }
 
-const initialGamificationState: GamificationState = {
-    level: 1,
-    xp: 0,
-    unlockedAchievements: {} as GamificationState['unlockedAchievements'],
-    completedTasks: 0,
-    streakData: { count: 0, date: '' },
-    events: {},
+const initialFlashcardSession: FlashcardSession = {
+    currentCardIndex: 0,
+    streak: 0,
+    masteredCards: 0,
+    deck: [],
+    startTime: 0
 };
 
-const initialUserProfile: UserProfile = {
-    name: '',
-    targetExams: [],
-    studyTimes: { morning: "7 AM - 10 AM", afternoon: "2 PM - 5 PM", evening: "8 PM - 11 PM" },
-    syllabus: {},
-    cohortSizes: { 'JEE Mains': 10000, 'JEE Advanced': 2500 },
-    targetTimePerQuestion: { physics: 120, chemistry: 60, maths: 150 }
-};
-
-export const useJeeStore = create<JeeState & JeeActions>((set) => ({
+export const useJeeStore = create<JeeState & JeeActions>((set, get) => ({
     // Initial State
-    userProfile: initialUserProfile,
-    testReports: [],
-    questionLogs: [],
-    studyGoals: [],
-    longTermGoals: [],
-    gamificationState: initialGamificationState,
-    globalFilter: { type: 'all', subType: 'all', startDate: '', endDate: '' },
+    flashcardSession: initialFlashcardSession,
+    isFlashcardModalOpen: false,
 
     // Actions
-    setUserProfile: (userProfile) => set({ userProfile }),
-    setTestReports: (testReports) => set({ testReports }),
-    setQuestionLogs: (questionLogs) => set({ questionLogs }),
-    setStudyGoals: (studyGoals) => set({ studyGoals }),
-    setLongTermGoals: (longTermGoals) => set({ longTermGoals }),
-    setGamificationState: (gamificationState) => set({ gamificationState }),
-    setGlobalFilter: (globalFilter) => set({ globalFilter }),
+    startFlashcardSession: (cards) => set({
+        flashcardSession: {
+            currentCardIndex: 0,
+            streak: 0,
+            masteredCards: 0,
+            deck: cards,
+            startTime: Date.now()
+        },
+        isFlashcardModalOpen: true
+    }),
 
-    updateUserProfile: (updates) => set((state) => ({
-        userProfile: { ...state.userProfile, ...updates }
-    })),
+    rateCurrentCard: (quality) => set((state) => {
+        const session = state.flashcardSession;
+        const currentCard = session.deck[session.currentCardIndex];
+        
+        if (!currentCard) return state;
 
-    updateSyllabusStatus: (chapter, progress) => set((state) => ({
-        userProfile: {
-            ...state.userProfile,
-            syllabus: {
-                ...state.userProfile.syllabus,
-                [chapter]: {
-                    ...(state.userProfile.syllabus[chapter] || { status: SyllabusStatus.NotStarted, strength: null, revisionCount: 0 }),
-                    ...progress
-                }
+        // Apply SM-2 Logic
+        const updatedCard = calculateNextReview(currentCard, quality);
+        
+        // Update Deck
+        const newDeck = [...session.deck];
+        newDeck[session.currentCardIndex] = updatedCard;
+
+        const isCorrect = quality >= 3;
+
+        return {
+            flashcardSession: {
+                ...session,
+                deck: newDeck,
+                currentCardIndex: session.currentCardIndex + 1,
+                streak: isCorrect ? session.streak + 1 : 0,
+                masteredCards: isCorrect ? session.masteredCards + 1 : session.masteredCards
             }
-        }
-    })),
+        };
+    }),
 
-    addTestReport: (report) => set((state) => ({
-        testReports: [...state.testReports, report]
-    })),
+    closeFlashcardSession: () => set({ 
+        isFlashcardModalOpen: false,
+        // We do NOT clear session immediately, allowing the caller to read the final state for persistence
+    }),
 
-    removeTestReport: (id) => set((state) => ({
-        testReports: state.testReports.filter(r => r.id !== id),
-        questionLogs: state.questionLogs.filter(l => l.testId !== id) // Cascade delete logs
-    })),
-
-    addQuestionLogs: (logs) => set((state) => ({
-        questionLogs: [...state.questionLogs, ...logs]
-    })),
-
-    addStudyGoal: (goal) => set((state) => ({
-        studyGoals: [...state.studyGoals, goal]
-    })),
-
-    toggleStudyGoal: (id) => set((state) => ({
-        studyGoals: state.studyGoals.map(g => g.id === id ? { ...g, completed: !g.completed } : g)
-    })),
-
-    removeStudyGoal: (id) => set((state) => ({
-        studyGoals: state.studyGoals.filter(g => g.id !== id)
-    })),
-
-    addLongTermGoal: (goal) => set((state) => ({
-        longTermGoals: [...state.longTermGoals, goal]
-    })),
-
-    toggleLongTermGoal: (id) => set((state) => ({
-        longTermGoals: state.longTermGoals.map(g => g.id === id ? { ...g, completed: !g.completed } : g)
-    })),
-
-    removeLongTermGoal: (id) => set((state) => ({
-        longTermGoals: state.longTermGoals.filter(g => g.id !== id)
-    })),
+    getSessionResults: () => {
+        return get().flashcardSession.deck;
+    }
 }));

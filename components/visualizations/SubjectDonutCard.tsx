@@ -1,5 +1,5 @@
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { SUBJECT_CONFIG } from '../../constants';
 import { UserProfile, QuestionLog, SyllabusStatus, QuestionStatus } from '../../types';
@@ -12,14 +12,28 @@ interface SubjectDonutCardProps {
 }
 
 export const SubjectDonutCard: React.FC<SubjectDonutCardProps> = React.memo(({ subject, chapters, userProfile, questionLogs }) => {
-    
-    const { data, totalChapters, completion } = useMemo(() => {
-        const innerRingData: {name: string, value: number, color: string}[] = [];
-        const outerRingData: {name: string, value: number, color: string}[] = [];
+    // State to manually track which slice is hovered, bypassing potential Recharts payload conflicts
+    const [hoveredData, setHoveredData] = useState<any | null>(null);
 
-        const innerRingCounts = { strength: 0, weakness: 0, completed: 0, inProgress: 0, notStarted: 0 };
-        const outerRingCounts = { highAcc: 0, midAcc: 0, lowAcc: 0, noData: 0 };
+    const { data, totalChapters, completion } = useMemo(() => {
+        // Data structures for Recharts
+        const innerRingData: {name: string, value: number, color: string, type: string}[] = [];
+        const outerRingData: {name: string, value: number, color: string, type: string}[] = [];
+
+        // Temporary storage for categorization
+        const categories = {
+            strength: [] as string[],
+            weakness: [] as string[],
+            completed: [] as string[],
+            inProgress: [] as string[],
+            notStarted: [] as string[],
+            highAcc: [] as string[],
+            midAcc: [] as string[],
+            lowAcc: [] as string[],
+            noData: [] as string[]
+        };
         
+        // 1. Calculate Accuracy Per Chapter
         const chapterAccuracies = new Map<string, number>();
         const chapterLogs = new Map<string, QuestionLog[]>();
 
@@ -38,33 +52,39 @@ export const SubjectDonutCard: React.FC<SubjectDonutCardProps> = React.memo(({ s
             }
         });
 
+        // 2. Distribute Chapters into Buckets
         chapters.forEach(chapter => {
+            // Inner Ring: Syllabus Status
             const progress = userProfile.syllabus[chapter];
-            if (progress?.strength === 'strength') innerRingCounts.strength++;
-            else if (progress?.strength === 'weakness') innerRingCounts.weakness++;
-            else if (progress?.status === SyllabusStatus.Completed || progress?.status === SyllabusStatus.Revising) innerRingCounts.completed++;
-            else if (progress?.status === SyllabusStatus.InProgress) innerRingCounts.inProgress++;
-            else innerRingCounts.notStarted++;
+            if (progress?.strength === 'strength') categories.strength.push(chapter);
+            else if (progress?.strength === 'weakness') categories.weakness.push(chapter);
+            else if (progress?.status === SyllabusStatus.Completed || progress?.status === SyllabusStatus.Revising) categories.completed.push(chapter);
+            else if (progress?.status === SyllabusStatus.InProgress) categories.inProgress.push(chapter);
+            else categories.notStarted.push(chapter);
 
+            // Outer Ring: Performance Accuracy
             const accuracy = chapterAccuracies.get(chapter);
-            if (accuracy === undefined) outerRingCounts.noData++;
-            else if (accuracy >= 80) outerRingCounts.highAcc++;
-            else if (accuracy >= 50) outerRingCounts.midAcc++;
-            else outerRingCounts.lowAcc++;
+            if (accuracy === undefined) categories.noData.push(chapter);
+            else if (accuracy >= 80) categories.highAcc.push(chapter);
+            else if (accuracy >= 50) categories.midAcc.push(chapter);
+            else categories.lowAcc.push(chapter);
         });
         
-        if (innerRingCounts.strength > 0) innerRingData.push({ name: 'Strength', value: innerRingCounts.strength, color: '#22c55e' });
-        if (innerRingCounts.weakness > 0) innerRingData.push({ name: 'Weakness', value: innerRingCounts.weakness, color: '#ef4444' });
-        if (innerRingCounts.completed > 0) innerRingData.push({ name: 'Done', value: innerRingCounts.completed, color: '#3b82f6' });
-        if (innerRingCounts.inProgress > 0) innerRingData.push({ name: 'In Progress', value: innerRingCounts.inProgress, color: '#eab308' });
-        if (innerRingCounts.notStarted > 0) innerRingData.push({ name: 'Not Started', value: innerRingCounts.notStarted, color: '#334155' });
+        // 3. Build Recharts Data Objects with explicit TYPE
+        // Inner Ring Data
+        if (categories.strength.length > 0) innerRingData.push({ name: 'Strength', value: categories.strength.length, color: '#22c55e', type: 'Status' });
+        if (categories.weakness.length > 0) innerRingData.push({ name: 'Weakness', value: categories.weakness.length, color: '#ef4444', type: 'Status' });
+        if (categories.completed.length > 0) innerRingData.push({ name: 'Done', value: categories.completed.length, color: '#3b82f6', type: 'Status' });
+        if (categories.inProgress.length > 0) innerRingData.push({ name: 'In Progress', value: categories.inProgress.length, color: '#eab308', type: 'Status' });
+        if (categories.notStarted.length > 0) innerRingData.push({ name: 'Not Started', value: categories.notStarted.length, color: '#334155', type: 'Status' });
         
-        if (outerRingCounts.highAcc > 0) outerRingData.push({ name: 'High Acc (>80%)', value: outerRingCounts.highAcc, color: '#10b981' });
-        if (outerRingCounts.midAcc > 0) outerRingData.push({ name: 'Med Acc (50-80%)', value: outerRingCounts.midAcc, color: '#f59e0b' });
-        if (outerRingCounts.lowAcc > 0) outerRingData.push({ name: 'Low Acc (<50%)', value: outerRingCounts.lowAcc, color: '#f43f5e' });
-        if (outerRingCounts.noData > 0) outerRingData.push({ name: 'No Data', value: outerRingCounts.noData, color: '#1e293b' });
+        // Outer Ring Data
+        if (categories.highAcc.length > 0) outerRingData.push({ name: 'High Acc (>80%)', value: categories.highAcc.length, color: '#10b981', type: 'Performance' });
+        if (categories.midAcc.length > 0) outerRingData.push({ name: 'Med Acc (50-80%)', value: categories.midAcc.length, color: '#f59e0b', type: 'Performance' });
+        if (categories.lowAcc.length > 0) outerRingData.push({ name: 'Low Acc (<50%)', value: categories.lowAcc.length, color: '#f43f5e', type: 'Performance' });
+        if (categories.noData.length > 0) outerRingData.push({ name: 'No Data', value: categories.noData.length, color: '#1e293b', type: 'Performance' });
 
-        const weightedCompletion = ( (innerRingCounts.strength + innerRingCounts.weakness + innerRingCounts.completed) + (innerRingCounts.inProgress * 0.5) ) / chapters.length * 100;
+        const weightedCompletion = ( (categories.strength.length + categories.weakness.length + categories.completed.length) + (categories.inProgress.length * 0.5) ) / chapters.length * 100;
 
         return {
             data: { inner: innerRingData, outer: outerRingData },
@@ -73,25 +93,31 @@ export const SubjectDonutCard: React.FC<SubjectDonutCardProps> = React.memo(({ s
         };
     }, [subject, chapters, userProfile, questionLogs]);
     
+    // Custom Tooltip that strictly uses local state 'hoveredData' if available, 
+    // falling back to payload only if state is null.
+    // JITTER FIX: Removed onMouseLeave state clearing. CustomTooltip now relies on 'active' to hide.
     const CustomTooltip = ({ active, payload }: any) => {
-        if (active && payload && payload.length) {
-            const dataPoint = payload[0].payload;
-            const dataName = payload[0].name;
-            const dataValue = payload[0].value;
-            
-            const isInner = data.inner.some((d: any) => d.name === dataName);
-            const ringData = isInner ? data.inner : data.outer;
-            const totalRingValue = ringData.reduce((sum: number, entry: any) => sum + entry.value, 0);
-            const percent = totalRingValue > 0 ? (dataValue / totalRingValue) * 100 : 0;
+        if (!active) return null;
+
+        const dataPoint = hoveredData || (payload && payload.length ? payload[0].payload : null);
+
+        if (dataPoint) {
+            // Calculate percentage relative to the total chapters in this subject
+            const percent = totalChapters > 0 ? (dataPoint.value / totalChapters) * 100 : 0;
 
             return (
-                <div className="glass-panel p-2 rounded-lg shadow-xl text-xs z-50">
+                <div className="glass-panel p-2 rounded-lg shadow-xl text-xs z-50 pointer-events-none border border-slate-600/50 bg-slate-900/90 backdrop-blur-md transition-opacity duration-200">
                     <p className="font-bold text-white mb-1 flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: dataPoint.color }}></span>
-                        {dataName}
+                        <span className="w-2 h-2 rounded-full shadow-sm" style={{ backgroundColor: dataPoint.color, boxShadow: `0 0 5px ${dataPoint.color}` }}></span>
+                        {dataPoint.name}
                     </p>
-                    <p className="text-gray-300">Chapters: <span className="text-white font-mono font-bold">{dataValue}</span></p>
-                    <p className="text-gray-400 text-[10px]">({percent.toFixed(0)}% of total)</p>
+                    <div className="flex justify-between gap-4 text-gray-300">
+                        <span>Chapters:</span>
+                        <span className="text-white font-mono font-bold">{dataPoint.value}</span>
+                    </div>
+                    <p className="text-gray-400 text-[10px] mt-1 pt-1 border-t border-slate-700/50">
+                        {percent.toFixed(0)}% of total chapters
+                    </p>
                 </div>
             );
         }
@@ -106,29 +132,46 @@ export const SubjectDonutCard: React.FC<SubjectDonutCardProps> = React.memo(({ s
                 <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                         <Tooltip 
-                            wrapperStyle={{ zIndex: 1000 }}
+                            wrapperStyle={{ zIndex: 1000, pointerEvents: 'none' }}
                             content={<CustomTooltip />}
+                            cursor={false}
+                            isAnimationActive={false} // Prevent tooltip jumping
                         />
-                        {/* Fix: Cast Pie to any to suppress TS errors about missing props in Recharts definition files */}
+                        
+                        {/* Inner Ring: Status (Back Layer) */}
                         {(Pie as any) && <Pie 
                             data={data.inner} 
                             dataKey="value" 
+                            nameKey="name"
                             cx="50%" cy="50%" 
                             outerRadius="65%" 
                             innerRadius="45%" 
                             stroke="none"
+                            isAnimationActive={false}
+                            onMouseEnter={(data: any) => setHoveredData(data)}
+                            // Jitter Fix: Don't clear state on leave. Recharts 'active' prop handles visibility.
                         >
-                            {data.inner.map((entry, index) => <Cell key={`inner-${index}`} fill={entry.color} />)}
+                            {data.inner.map((entry, index) => (
+                                <Cell key={`inner-${index}`} fill={entry.color} stroke="#1e293b" strokeWidth={2} />
+                            ))}
                         </Pie>}
+                        
+                        {/* Outer Ring: Performance (Front Layer - Captures Mouse First) */}
                         {(Pie as any) && <Pie 
                             data={data.outer} 
                             dataKey="value" 
+                            nameKey="name"
                             cx="50%" cy="50%" 
                             innerRadius="70%" 
                             outerRadius="95%" 
                             stroke="none"
+                            isAnimationActive={false}
+                            onMouseEnter={(data: any) => setHoveredData(data)}
+                            // Jitter Fix: Don't clear state on leave.
                         >
-                            {data.outer.map((entry, index) => <Cell key={`outer-${index}`} fill={entry.color} />)}
+                            {data.outer.map((entry, index) => (
+                                <Cell key={`outer-${index}`} fill={entry.color} stroke="#1e293b" strokeWidth={2} />
+                            ))}
                         </Pie>}
                     </PieChart>
                 </ResponsiveContainer>

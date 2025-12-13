@@ -239,6 +239,15 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
         };
         onSyllabusChange(chapter.name, { subTopicStatus: newSubTopicStatus });
     };
+
+    const handlePracticeToggle = (key: keyof Exclude<ChapterProgress['practice'], undefined>, checked: boolean) => {
+        onSyllabusChange(chapter.name, {
+            practice: {
+                ...(progress.practice || {}),
+                [key]: checked
+            }
+        });
+    };
     
     const ringGlowStyle: React.CSSProperties = {};
     if (progress.strength === 'strength') {
@@ -249,10 +258,11 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
 
     return (
         <div ref={cardRef} className={`relative rounded-lg p-px ${forceExpanded ? 'h-full' : ''}`} style={ringGlowStyle}>
-            <div className={`relative rounded-lg border transition-all duration-300 ${statusColors[progress.status]} ${forceExpanded ? 'bg-slate-900 h-full border-0' : ''}`}>
+            {/* REMOVED overflow-hidden here when forceExpanded is true to allow scrolling inside Modal */}
+            <div className={`relative rounded-lg border transition-all duration-300 ${forceExpanded ? '' : 'overflow-hidden'} ${statusColors[progress.status]} ${forceExpanded ? 'bg-slate-900 h-full border-0' : ''}`}>
                 {isHighYield && !forceExpanded && (
-                    <div className="absolute top-0 right-0 pointer-events-none z-10 rounded-tr-lg overflow-hidden">
-                        <div className="bg-amber-500 text-white text-[9px] font-bold px-6 py-0.5 rotate-45 translate-x-4 -translate-y-0.5 shadow-sm text-center">
+                    <div className="absolute top-0 right-0 pointer-events-none z-10 w-16 h-16 overflow-hidden">
+                        <div className="bg-amber-500 text-white text-[9px] font-bold py-1 w-[120px] text-center rotate-45 absolute top-[8px] -right-[36px] shadow-sm">
                             HY
                         </div>
                     </div>
@@ -349,6 +359,29 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
                                     <label className="flex items-center gap-2 text-sm p-1 rounded hover:bg-slate-700/50 cursor-pointer">
                                         <input type="checkbox" checked={!!progress.notesCompleted} onChange={e => onSyllabusChange(chapter.name, { notesCompleted: e.target.checked })} className="form-checkbox h-4 w-4 bg-slate-600 text-cyan-500 rounded"/>
                                         <span className={progress.notesCompleted ? 'text-gray-500 line-through' : 'text-gray-300'}>Notes Prepared</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            {/* PROBLEM PRACTICE CHECKLIST */}
+                            <div>
+                                <h4 className="text-sm font-semibold text-gray-300 mb-2">Problem Practice</h4>
+                                <div className="bg-slate-900/30 p-2 rounded-md border border-slate-700/50 grid grid-cols-2 gap-2">
+                                    <label className="flex items-center gap-2 text-xs p-1 rounded hover:bg-slate-700/50 cursor-pointer">
+                                        <input type="checkbox" checked={!!progress.practice?.mains} onChange={e => handlePracticeToggle('mains', e.target.checked)} className="form-checkbox h-3 w-3 bg-slate-600 text-cyan-500 rounded"/>
+                                        <span className={progress.practice?.mains ? 'text-gray-500 line-through' : 'text-gray-300'}>Mains Problems</span>
+                                    </label>
+                                    <label className="flex items-center gap-2 text-xs p-1 rounded hover:bg-slate-700/50 cursor-pointer">
+                                        <input type="checkbox" checked={!!progress.practice?.advanced} onChange={e => handlePracticeToggle('advanced', e.target.checked)} className="form-checkbox h-3 w-3 bg-slate-600 text-cyan-500 rounded"/>
+                                        <span className={progress.practice?.advanced ? 'text-gray-500 line-through' : 'text-gray-300'}>Adv Problems</span>
+                                    </label>
+                                    <label className="flex items-center gap-2 text-xs p-1 rounded hover:bg-slate-700/50 cursor-pointer">
+                                        <input type="checkbox" checked={!!progress.practice?.module} onChange={e => handlePracticeToggle('module', e.target.checked)} className="form-checkbox h-3 w-3 bg-slate-600 text-cyan-500 rounded"/>
+                                        <span className={progress.practice?.module ? 'text-gray-500 line-through' : 'text-gray-300'}>Coaching Module</span>
+                                    </label>
+                                    <label className="flex items-center gap-2 text-xs p-1 rounded hover:bg-slate-700/50 cursor-pointer">
+                                        <input type="checkbox" checked={!!progress.practice?.books} onChange={e => handlePracticeToggle('books', e.target.checked)} className="form-checkbox h-3 w-3 bg-slate-600 text-cyan-500 rounded"/>
+                                        <span className={progress.practice?.books ? 'text-gray-500 line-through' : 'text-gray-300'}>Other Books</span>
                                     </label>
                                 </div>
                             </div>

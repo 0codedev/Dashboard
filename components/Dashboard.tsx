@@ -1,11 +1,11 @@
 
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
-import type { TestReport, QuestionLog, RootCauseFilter, LongTermGoal } from '../types';
+import type { TestReport, QuestionLog, RootCauseFilter, LongTermGoal, QuizQuestion, UserProfile, ExamStrategy } from '../types';
 import {
   LineChart, Line, BarChart, Bar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   Radar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area, PieChart, Pie, Cell
 } from 'recharts';
-import { generateContextualInsight, getAIAnalysis, generateDashboardInsight, generateChartAnalysis } from '../services/geminiService';
+import { generateContextualInsight, getAIAnalysis, generateDashboardInsight, generateChartAnalysis, generateOracleDrill } from '../services/geminiService';
 import { SUBJECT_CONFIG } from '../constants';
 import Modal from './common/Modal';
 import CustomTooltip from './common/CustomTooltip';
@@ -21,9 +21,14 @@ import {
     SubjectRadarWidget,
     CalendarHeatmapWidget,
     RankSimulatorWidget,
-    GoalProgressWidget
+    GoalProgressWidget,
+    OracleWidget, 
+    CalibrationWidget 
 } from './DashboardWidgets';
+import { CompetitorLeaderboard } from './competitors/CompetitorLeaderboard';
 import { Button } from './common/Button';
+import { OracleChamber } from './OracleChamber';
+import { MarkdownRenderer } from './common/MarkdownRenderer';
 
 interface DashboardProps {
   reports: TestReport[];
@@ -33,10 +38,12 @@ interface DashboardProps {
   setRootCauseFilter: (filter: RootCauseFilter) => void;
   onStartFocusSession: (topic: string) => void;
   longTermGoals: LongTermGoal[];
-  modelName?: string; // Added: Use user's preferred model for deep analysis
+  modelName?: string;
+  userProfile: UserProfile;
+  onUpdateProfile: React.Dispatch<React.SetStateAction<UserProfile>>;
 }
 
-type WidgetId = 'heatmap' | 'performanceTrend' | 'subjectComparison' | 'subjectStrengthsRadar' | 'percentilePredictor' | 'aiAnalysis' | 'strategicROI' | 'paperStrategy' | 'rankPredictor' | 'volatility' | 'rankSimulator' | 'goalProgress';
+type WidgetId = 'heatmap' | 'performanceTrend' | 'subjectComparison' | 'subjectStrengthsRadar' | 'percentilePredictor' | 'aiAnalysis' | 'strategicROI' | 'paperStrategy' | 'rankPredictor' | 'volatility' | 'rankSimulator' | 'goalProgress' | 'oracle' | 'calibration' | 'competitors';
 
 interface WidgetLayout {
     id: WidgetId;
@@ -45,6 +52,9 @@ interface WidgetLayout {
 }
 
 const DEFAULT_DASHBOARD_LAYOUT: WidgetLayout[] = [
+    { id: 'oracle', visible: true, size: 'normal' },
+    { id: 'calibration', visible: true, size: 'normal' },
+    { id: 'competitors', visible: true, size: 'normal' },
     { id: 'heatmap', visible: true, size: 'wide' },
     { id: 'volatility', visible: true, size: 'normal' },
     { id: 'performanceTrend', visible: true, size: 'normal' },
@@ -66,7 +76,6 @@ const InsightBanner: React.FC<{ reports: TestReport[], apiKey: string }> = ({ re
 
     useEffect(() => {
         const fetchInsight = async () => {
-            // Check cache first (simple session cache for demo)
             const cached = sessionStorage.getItem('dashboardDailyInsight');
             const cachedDate = sessionStorage.getItem('dashboardDailyInsightDate');
             const today = new Date().toDateString();
@@ -79,7 +88,6 @@ const InsightBanner: React.FC<{ reports: TestReport[], apiKey: string }> = ({ re
             if (reports.length === 0) return;
 
             setLoading(true);
-            // Always use Flash for quick insights
             const text = await generateDashboardInsight(reports, apiKey);
             setInsight(text);
             sessionStorage.setItem('dashboardDailyInsight', text);
@@ -146,50 +154,6 @@ const ReadinessGauge: React.FC<{ score: number }> = ({ score }) => {
             </div>
         </div>
     );
-};
-
-const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
-    const renderLine = (line: string) => {
-        const cleanLine = line.replace(/^#+\s/, '');
-        const parts = cleanLine.split(/(\*\*.*?\*\*|\*.*?\*)/g).filter(Boolean);
-        return parts.map((part, i) => {
-            if (part.startsWith('**') && part.endsWith('**')) return <strong key={i} className="text-white font-semibold">{part.slice(2, -2)}</strong>;
-            if (part.startsWith('*') && part.endsWith('*')) return <em key={i} className="italic text-gray-200">{part.slice(1, -1)}</em>;
-            return part;
-        });
-    };
-
-    const lines = content.split('\n');
-    const elements: React.ReactNode[] = [];
-    let listItems: React.ReactNode[] = [];
-
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (line.startsWith('### ') || line.startsWith('#### ')) {
-            if (listItems.length > 0) { elements.push(<ul key={`ul-${i}`} className="list-disc pl-5 my-2 space-y-1">{listItems}</ul>); listItems = []; }
-            elements.push(<h3 key={i} className="text-lg font-bold mt-4 mb-2 text-cyan-300 border-b border-slate-700/50 pb-1">{renderLine(line)}</h3>);
-            continue;
-        }
-        if (line.startsWith('## ')) {
-             if (listItems.length > 0) { elements.push(<ul key={`ul-${i}`} className="list-disc pl-5 my-2 space-y-1">{listItems}</ul>); listItems = []; }
-            elements.push(<h2 key={i} className="text-xl font-bold mt-6 mb-3 text-white border-b border-slate-600 pb-2">{renderLine(line)}</h2>);
-            continue;
-        }
-        if (line.match(/^\s*[-*]\s/)) { 
-            listItems.push(<li key={i} className="text-gray-300">{renderLine(line.replace(/^\s*[-*]\s/, ''))}</li>);
-            continue;
-        }
-        if (listItems.length > 0) { elements.push(<ul key={`ul-${i}`} className="list-disc pl-5 my-2 space-y-1">{listItems}</ul>); listItems = []; }
-        if (line.trim() === '') {
-            const lastElement = elements[elements.length - 1];
-            if (!(elements.length > 0 && React.isValidElement(lastElement) && lastElement.type === 'div')) elements.push(<div key={i} className="h-2"></div>);
-        } else {
-            elements.push(<p key={i} className="my-1 leading-relaxed text-gray-300">{renderLine(line)}</p>);
-        }
-    }
-    if (listItems.length > 0) elements.push(<ul key="ul-end" className="list-disc pl-5 my-2 space-y-1">{listItems}</ul>);
-
-    return <div className="prose prose-invert text-gray-300 max-w-full text-sm">{elements}</div>;
 };
 
 const useCountUp = (endValue: number, duration: number = 1500) => {
@@ -445,7 +409,7 @@ const KPIModal: React.FC<{ title: string, metricKey: string, reports: TestReport
     );
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, setView, setRootCauseFilter, onStartFocusSession, longTermGoals, modelName }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, setView, setRootCauseFilter, onStartFocusSession, longTermGoals, modelName, userProfile, onUpdateProfile }) => {
     const [isCustomizing, setIsCustomizing] = useState(false);
     const [enableAiInsights, setEnableAiInsights] = useState(false);
     const [contextualInsight, setContextualInsight] = useState<{ widgetId: WidgetId | null; text: string; isLoading: boolean }>({ widgetId: null, text: '', isLoading: false });
@@ -454,6 +418,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
     const [infoModalContent, setInfoModalContent] = useState<{title: string, content: React.ReactNode} | null>(null);
     const [activeKpiModal, setActiveKpiModal] = useState<{ title: string, metricKey: string } | null>(null);
     
+    // Oracle State
+    const [isOracleOpen, setIsOracleOpen] = useState(false);
+    const [oracleQuestions, setOracleQuestions] = useState<QuizQuestion[]>([]);
+    const [isOracleLoading, setIsOracleLoading] = useState(false);
+
     // State for chart summaries
     const [chartSummaries, setChartSummaries] = useState<{ performance?: string, subject?: string }>({});
 
@@ -578,15 +547,90 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
         }
     }, [apiKey, reports, logs, modelName]);
 
+    // --- ORACLE HANDLER ---
+    const handleConsultOracle = useCallback(async () => {
+        setIsOracleLoading(true);
+        // Identify weak topics manually here or reuse analytics hook logic
+        // For simplicity, we calculate on the fly
+        const errorCounts: Record<string, {count: number, reasons: Record<string, number>}> = {};
+        logs.forEach(l => {
+            // Include partially correct as 'wrong' for drill purposes
+            if ((l.status === 'Wrong' || l.status === 'Partially Correct') && l.topic && l.topic !== 'N/A') {
+                if (!errorCounts[l.topic]) errorCounts[l.topic] = { count: 0, reasons: {} };
+                errorCounts[l.topic].count++;
+                if (l.reasonForError) {
+                    errorCounts[l.topic].reasons[l.reasonForError] = (errorCounts[l.topic].reasons[l.reasonForError] || 0) + 1;
+                }
+            }
+        });
+
+        // Convert to array and sort
+        const sortedErrors = Object.entries(errorCounts)
+            .map(([topic, data]) => {
+                const topReason = Object.entries(data.reasons).sort((a,b) => b[1] - a[1])[0];
+                return { topic, count: data.count, reason: topReason ? topReason[0] : 'General Error' };
+            })
+            .sort((a, b) => b.count - a.count);
+
+        if (sortedErrors.length === 0) {
+            alert("The Oracle needs more error data to generate a prophecy.");
+            setIsOracleLoading(false);
+            return;
+        }
+
+        try {
+            const questions = await generateOracleDrill(sortedErrors, apiKey, modelName);
+            setOracleQuestions(questions);
+            setIsOracleOpen(true);
+        } catch (e) {
+            console.error("Oracle Failed", e);
+            alert("The Oracle is currently silent (API Error). Try again.");
+        } finally {
+            setIsOracleLoading(false);
+        }
+    }, [logs, apiKey, modelName]);
+
+    // --- SAVE STRATEGY HANDLER ---
+    const handleSaveStrategy = (strategy: ExamStrategy) => {
+        onUpdateProfile(prev => ({
+            ...prev,
+            examStrategy: strategy
+        }));
+        // Note: The parent App.tsx useEffect will handle persisting `userProfile` to localStorage/DB
+    };
+
     const WIDGETS: Record<WidgetId, { title: string; component: React.ReactNode; getDataForInsight: () => string; info: React.ReactNode; }> = {
+        oracle: { 
+            title: "The Oracle", 
+            component: isOracleLoading ? (
+                <div className="flex flex-col items-center justify-center h-full text-indigo-300 animate-pulse">
+                    <span className="text-4xl mb-2">🔮</span>
+                    <p className="text-sm font-bold">Consulting the threads of fate...</p>
+                </div>
+            ) : <OracleWidget onConsult={handleConsultOracle} />, 
+            getDataForInsight: () => "The Oracle predicts your future failure points based on past error logs.", 
+            info: "The Oracle generates a custom micro-test based on your most frequent error patterns." 
+        },
+        calibration: {
+            title: "Dunning-Kruger Detector",
+            component: <CalibrationWidget logs={logs} />,
+            getDataForInsight: () => "Analyze the calibration matrix to identify blind spots where confidence exceeds competence.",
+            info: "Maps your confidence vs. actual competence. 'Blind Spots' (High Confidence, Low Score) are dangerous. 'Imposters' (Low Confidence, High Score) need validation."
+        },
+        competitors: {
+            title: "Shadow Competitors",
+            component: reports.length > 0 ? <CompetitorLeaderboard report={reports[reports.length-1]} allReports={reports} /> : <div className="flex items-center justify-center h-full text-gray-500">No test data available.</div>,
+            getDataForInsight: () => "Analyze performance against simulated AI personas.",
+            info: "Compares your latest test score against AI-simulated personas: 'Accuracy Bot' (high accuracy, slow), 'Speedster' (fast, error-prone), and 'AIR 100' (benchmark)."
+        },
         heatmap: { title: "Test Activity Heatmap", component: <CalendarHeatmapWidget reports={processedReports} />, getDataForInsight: () => `Analyze activity from ${reports.length} tests over the past year.`, info: "This heatmap shows your test-taking frequency and average score over the past year. Darker shades of cyan indicate higher scores on those days." },
         performanceTrend: { title: "Performance Trend (Total Score)", component: <PerformanceTrendWidget data={processedReports} aiSummary={chartSummaries.performance} />, getDataForInsight: () => `Analyze the score trend: ${processedReports.map(r => r.total.marks).join(', ')}.`, info: "This chart tracks your total score across all tests, showing your overall performance trend over time." },
         subjectComparison: { title: "Subject Marks Comparison", component: <SubjectComparisonWidget data={processedReports} aiSummary={chartSummaries.subject} />, getDataForInsight: () => `Analyze subject contributions for the latest test.`, info: "This stacked bar chart shows the contribution of each subject to your total score in every test, helping you see subject-wise performance at a glance." },
-        subjectStrengthsRadar: { title: "Latest Test Strengths", component: <SubjectRadarWidget data={kpiData.radarData} />, getDataForInsight: () => `Latest radar plot data: ${JSON.stringify(kpiData.radarData)}.`, info: "The radar chart visualizes your performance in each subject for the most recent test. A larger area indicates stronger performance in that subject." },
+        subjectStrengthsRadar: { title: "Average of Subjects", component: <SubjectRadarWidget data={kpiData.radarData} />, getDataForInsight: () => `Radar plot data: ${JSON.stringify(kpiData.radarData)}.`, info: "Shows the average marks scored in each subject over the last 3 tests." },
         percentilePredictor: { title: "Percentile Predictor", component: kpiData.percentileData ? <PercentilePredictorWidget percentileData={kpiData.percentileData} /> : <div className="flex items-center justify-center h-full text-gray-500">Not enough data.</div>, getDataForInsight: () => `Analyze predicted percentile: ${kpiData.percentileData?.predictedPercentile}`, info: "Shows your trend in percentiles and predicts your future percentile based on current trajectory." },
         rankPredictor: { title: "Bayesian Rank Predictor", component: kpiData.rankPrediction ? <RankPredictorWidget rankPrediction={kpiData.rankPrediction} goalProbability={kpiData.goalProbability} /> : <div className="flex items-center justify-center h-full text-gray-500">Not enough data.</div>, getDataForInsight: () => `Analyze rank prediction range: ${kpiData.rankPrediction?.bestCase} - ${kpiData.rankPrediction?.worstCase}`, info: "Uses a probabilistic model (Monte Carlo simulation) to estimate your likely rank range in the final exam based on your consistency and volatility." },
         strategicROI: { title: "Strategic ROI Engine", component: <StrategicROIWidget data={kpiData.strategicROI} onPointClick={(topic) => onStartFocusSession(topic)}/>, getDataForInsight: () => "Analyze strategic ROI bubble chart.", info: "Classifies topics into 'Quick Wins' (High Impact, Low Effort), 'Big Bets' (High Impact, High Effort), etc. Focus on Quick Wins first." },
-        paperStrategy: { title: "Paper Strategy Simulator", component: <PaperStrategyWidget historicalAccuracy={historicalAccuracy} />, getDataForInsight: () => "Analyze paper strategy simulation.", info: "Simulate different time allocation strategies to see how they might affect your score, factoring in 'panic' induced accuracy drops." },
+        paperStrategy: { title: "Paper Strategy Simulator", component: <PaperStrategyWidget historicalAccuracy={historicalAccuracy} userTargetTimes={userProfile.targetTimePerQuestion} savedStrategy={userProfile.examStrategy} onSave={handleSaveStrategy} />, getDataForInsight: () => "Analyze paper strategy simulation.", info: "Simulate different time allocation strategies to see how they might affect your score, factoring in 'panic' induced accuracy drops." },
         volatility: { title: "Stability Gauge", component: kpiData.volatilityMetrics ? <VolatilityWidget volatilityMetrics={kpiData.volatilityMetrics} /> : <div className="flex items-center justify-center h-full text-gray-500">Not enough data.</div>, getDataForInsight: () => `Analyze volatility sharpe ratio: ${kpiData.volatilityMetrics?.sharpeRatio}`, info: "Measures the stability of your performance. Higher Sharpe Ratio means more consistent high scores." },
         rankSimulator: { title: "What-If Rank Simulator", component: <RankSimulatorWidget rankModel={kpiData.rankModel} currentAvg={kpiData.avgScores} />, getDataForInsight: () => "Analyze rank simulation potential.", info: "Interactive tool to simulate how improving subject scores impacts your predicted rank." },
         goalProgress: { title: "Goal Tracker", component: <GoalProgressWidget goals={longTermGoals} />, getDataForInsight: () => `Analyze goal progress. Completed: ${longTermGoals.filter(g=>g.completed).length}.`, info: "Tracks your progress towards defined long-term milestones." },
@@ -730,6 +774,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
              <Modal isOpen={!!enlargedWidget} onClose={() => setEnlargedWidget(null)} title={enlargedWidget ? WIDGETS[enlargedWidget].title : ''}>
                 {enlargedWidget ? WIDGETS[enlargedWidget].component : null}
             </Modal>
+            
+            {/* ORACLE CHAMBER MODAL (Full Screen Override) */}
+            {isOracleOpen && (
+                <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col animate-fade-in">
+                    <OracleChamber 
+                        questions={oracleQuestions} 
+                        onClose={() => setIsOracleOpen(false)} 
+                        onComplete={(score) => {
+                            console.log("Drill Score:", score);
+                        }} 
+                    />
+                </div>
+            )}
+
             <Modal isOpen={!!infoModalContent} onClose={() => setInfoModalContent(null)} title={infoModalContent?.title || ''} isInfo={true}>
                 <div className="text-sm text-gray-300 space-y-2">{infoModalContent?.content}</div>
             </Modal>

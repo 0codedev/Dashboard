@@ -148,6 +148,7 @@ export interface QuestionLog {
   answered?: string;
   finalKey?: string;
   timeSpent?: number;
+  confidence?: number; // 0-100% for Dunning-Kruger Analysis
 }
 
 // --- Advanced Analysis Types ---
@@ -179,6 +180,37 @@ export interface DependencyAlert {
     rootCauseTopic: string;
     errorCount: number;
 }
+
+// --- Feature D: Competitors ---
+export interface CompetitorData {
+    name: string;
+    type: 'benchmark' | 'bot' | 'cohort';
+    score: number;
+    accuracy: number;
+    timeTaken: number; // minutes
+}
+
+// --- Feature E: Flashcards ---
+export interface Flashcard {
+    id: string;
+    topic: string;
+    front: string; // The Question/Context + Error
+    back: string;  // The Solution/Rule of Thumb
+    nextReview: string; // ISO Date
+    interval: number; // Days
+    easeFactor: number;
+    reviews: number;
+    difficulty?: 'Easy' | 'Medium' | 'Hard';
+}
+
+export interface FlashcardSession {
+    currentCardIndex: number;
+    streak: number;
+    masteredCards: number;
+    deck: Flashcard[];
+    startTime: number;
+}
+
 
 // --- AI Assistant & Filter Types ---
 
@@ -277,6 +309,12 @@ export interface ChapterProgress {
     notesCompleted?: boolean;
     completionDate?: string; 
     flashcard?: string; // Stores the AI-generated explanation for Quick Review
+    practice?: {
+        mains?: boolean;
+        advanced?: boolean;
+        module?: boolean;
+        books?: boolean;
+    };
 }
 
 export interface QuizQuestion {
@@ -284,6 +322,14 @@ export interface QuizQuestion {
   options: { [key: string]: string };
   answer: string; 
   explanation: string;
+}
+
+export interface ExamStrategy {
+    timeAlloc: { physics: number; chemistry: number; maths: number };
+    attemptTarget: { physics: number; chemistry: number; maths: number };
+    confidence: { physics: number; chemistry: number; maths: number };
+    examType: 'mains' | 'advanced';
+    subjectOrder: ('physics' | 'chemistry' | 'maths')[];
 }
 
 export interface UserProfile {
@@ -305,7 +351,8 @@ export interface UserProfile {
       maths: number;
   };
   targetExamDate?: string; 
-  syllabusCompletionBufferDays?: number; 
+  syllabusCompletionBufferDays?: number;
+  examStrategy?: ExamStrategy;
 }
 
 
@@ -355,4 +402,4 @@ export interface Toast {
   icon: string;
 }
 
-export type View = 'daily-planner' | 'dashboard' | 'detailed-reports' | 'deep-analysis' | 'root-cause' | 'data-entry' | 'ai-assistant' | 'question-log-editor' | 'settings' | 'achievements' | 'syllabus';
+export type View = 'daily-planner' | 'dashboard' | 'detailed-reports' | 'deep-analysis' | 'root-cause' | 'data-entry' | 'ai-assistant' | 'question-log-editor' | 'settings' | 'achievements' | 'syllabus' | 'competitors' | 'flashcards';

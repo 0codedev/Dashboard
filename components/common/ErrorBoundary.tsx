@@ -1,4 +1,3 @@
-
 import React, { Component, type ReactNode, type ErrorInfo } from 'react';
 import { Button } from './Button';
 
@@ -18,10 +17,6 @@ export class ErrorBoundary extends Component<Props, State> {
     error: null,
   };
 
-  constructor(props: Props) {
-    super(props);
-  }
-
   static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error };
   }
@@ -30,7 +25,7 @@ export class ErrorBoundary extends Component<Props, State> {
     console.error('Uncaught error in component:', error, errorInfo);
   }
 
-  handleReset = () => {
+  private handleReset = () => {
     this.setState({ hasError: false, error: null });
   };
 
@@ -44,7 +39,7 @@ export class ErrorBoundary extends Component<Props, State> {
         <div className="flex flex-col items-center justify-center h-full p-4 text-center space-y-2 bg-red-900/10 rounded-lg border border-red-900/30">
           <span className="text-3xl">⚠️</span>
           <h3 className="text-sm font-bold text-red-300">Widget Error</h3>
-          <p className="text-xs text-red-400 max-w-[200px] truncate">{this.state.error?.message}</p>
+          <p className="text-xs text-red-400 max-w-[200px] truncate">{this.state.error?.message || 'Unknown error'}</p>
           <Button 
             variant="secondary" 
             size="sm" 

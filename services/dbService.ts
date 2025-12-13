@@ -1,8 +1,9 @@
+
 import type { TestReport, QuestionLog, StudyGoal, ChatMessage, GamificationState, DailyTask, LongTermGoal } from '../types';
 
 const DB_NAME = 'JeePerformanceDB';
-const DB_VERSION = 4; // Bump version for schema change
-const STORES = ['testReports', 'questionLogs', 'studyGoals', 'chatHistory', 'gamificationState', 'dailyTasks', 'appState', 'longTermGoals'] as const;
+const DB_VERSION = 5; // Bump version for vector store
+const STORES = ['testReports', 'questionLogs', 'studyGoals', 'chatHistory', 'gamificationState', 'dailyTasks', 'appState', 'longTermGoals', 'vectorIndex'] as const;
 type StoreName = typeof STORES[number];
 
 class DBService {
@@ -64,6 +65,11 @@ class DBService {
                 db.createObjectStore('longTermGoals', { keyPath: 'id' });
             }
         }
+        if (event.oldVersion < 5) {
+            if (!db.objectStoreNames.contains('vectorIndex')) {
+                db.createObjectStore('vectorIndex', { keyPath: 'id' });
+            }
+        }
       };
     });
   }
@@ -89,6 +95,18 @@ class DBService {
 
       request.onerror = () => reject(`Error getting all items from ${storeName}`);
       request.onsuccess = () => resolve(request.result as T[]);
+    });
+  }
+
+  public async getAllKeys(storeName: StoreName): Promise<IDBValidKey[]> {
+    return new Promise(async (resolve, reject) => {
+        const db = await this.initDB();
+        const transaction = db.transaction(storeName, 'readonly');
+        const store = transaction.objectStore(storeName);
+        const request = store.getAllKeys();
+
+        request.onerror = () => reject(`Error getting keys from ${storeName}`);
+        request.onsuccess = () => resolve(request.result);
     });
   }
   

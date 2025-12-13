@@ -7,6 +7,7 @@ import { QuestionStatus, ErrorReason } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, LineChart, Line } from 'recharts';
 import { MODEL_REGISTRY } from '../services/llm/models';
 import { generateTextOpenAI } from '../services/llm/providers';
+import { MarkdownRenderer } from './common/MarkdownRenderer';
 
 // --- Types and Constants ---
 
@@ -143,99 +144,6 @@ const GenUIMindMap: React.FC<{ data: any }> = ({ data }) => {
         <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 my-2 overflow-x-auto shadow-inner min-h-[200px] flex justify-center items-start">
             <MindMapNode node={root} />
         </div>
-    );
-};
-
-// --- Helper Components & Functions ---
-
-const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
-    // If content is HTML (like the attribution footer), render it directly inside the loop logic or wrapper
-    const renderLine = (line: string) => {
-        const parts = line.split(/(\*\*.*?\*\*|\*.*?\*|`.*?`|<.*?>)/g).filter(Boolean);
-        return parts.map((part, i) => {
-            if (part.startsWith('**') && part.endsWith('**')) {
-                return <strong key={i} className="text-cyan-100 font-bold tracking-wide">{part.slice(2, -2)}</strong>;
-            }
-            if (part.startsWith('*') && part.endsWith('*')) {
-                return <em key={i} className="italic text-gray-300">{part.slice(1, -1)}</em>;
-            }
-            if (part.startsWith('`') && part.endsWith('`')) {
-                return <code key={i} className="bg-slate-700 px-1 py-0.5 rounded text-xs font-mono text-cyan-300">{part.slice(1, -1)}</code>;
-            }
-            // Basic HTML tag handling for the attribution footer
-            if (part.startsWith('<') && part.endsWith('>')) {
-               // We handle full HTML block separately below if lines start with it, 
-               // but inline tags might be tricky.
-               // For now, let's just return the part if it looks like a tag we injected.
-               return <span key={i} dangerouslySetInnerHTML={{__html: part}} />
-            }
-            return part;
-        });
-    };
-
-    const lines = content.split('\n');
-    const elements: React.ReactNode[] = [];
-    let listItems: React.ReactNode[] = [];
-
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-
-        // Handle injected HTML footer
-        if (line.trim().startsWith('<div')) {
-             if (listItems.length > 0) {
-                elements.push(<ul key={`ul-${i}`} className="list-disc pl-5 my-3 space-y-2">{listItems}</ul>);
-                listItems = [];
-            }
-            elements.push(<div key={i} dangerouslySetInnerHTML={{ __html: line }} />);
-            continue;
-        }
-
-        if (line.startsWith('### ')) {
-            if (listItems.length > 0) {
-                elements.push(<ul key={`ul-${i}`} className="list-disc pl-5 my-3 space-y-2">{listItems}</ul>);
-                listItems = [];
-            }
-            elements.push(<h3 key={i} className="text-lg font-bold mt-6 mb-3 text-cyan-300 border-b border-slate-700/50 pb-2">{renderLine(line.substring(4))}</h3>);
-            continue;
-        }
-        
-        if (line.match(/^\s*[-*]\s/)) { 
-            listItems.push(<li key={i} className="text-gray-300 leading-relaxed pl-2">{renderLine(line.replace(/^\s*[-*]\s/, ''))}</li>);
-            continue;
-        }
-        
-        // Blockquotes for insights
-        if (line.startsWith('> ')) {
-             if (listItems.length > 0) {
-                elements.push(<ul key={`ul-${i}`} className="list-disc pl-5 my-3 space-y-2">{listItems}</ul>);
-                listItems = [];
-            }
-            elements.push(
-                <div key={i} className="border-l-4 border-cyan-500 pl-4 py-1 my-4 bg-cyan-900/10 italic text-cyan-100">
-                    {renderLine(line.substring(2))}
-                </div>
-            );
-            continue;
-        }
-
-        if (listItems.length > 0) {
-            elements.push(<ul key={`ul-${i}`} className="list-disc pl-5 my-3 space-y-2">{listItems}</ul>);
-            listItems = [];
-        }
-
-        if (line.trim() === '') {
-             elements.push(<div key={i} className="h-3"></div>);
-        } else {
-            elements.push(<p key={i} className="my-2 leading-7 text-gray-200">{renderLine(line)}</p>);
-        }
-    }
-    
-    if (listItems.length > 0) {
-        elements.push(<ul key="ul-end" className="list-disc pl-5 my-3 space-y-2">{listItems}</ul>);
-    }
-
-    return (
-        <div className="prose prose-invert text-gray-200 max-w-full text-sm font-sans">{elements}</div>
     );
 };
 
@@ -604,10 +512,6 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
                 if (currentSecondary.provider === 'groq') secondaryKey = preferences.groqApiKey || '';
                 else if (currentSecondary.provider === 'openrouter') secondaryKey = preferences.openRouterApiKey || '';
                 
-                // If no key for paid model, we fall through. For free openrouter, sometimes no key needed but usually best to have.
-                // assuming free models might work or we check key.
-                // The provider logic handles key auth, here we just try if we have one or if provider is lenient.
-                
                 // Map Chat History for OpenAI format (user/assistant)
                 const historyForSecondary = chatHistory.map(m => ({
                     role: m.role === 'model' ? 'assistant' : 'user',
@@ -631,7 +535,6 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
 
             } catch (err) {
                 console.warn(`Secondary model ${secondaryModelId} failed. Falling back to primary.`, err);
-                // Optionally add a small toast/log to UI here
             }
         }
         
@@ -732,18 +635,8 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
                     if (chunk.text) {
                         streamedText += chunk.text;
                         
-                        // If it was a fallback from secondary, we want to append that note at the end of the stream
-                        // But for streaming UX, we just update content. We append the note at the very end if needed?
-                        // Actually, we can just append it to the streamed text if we detect the end, but the loop is chunk-based.
-                        // Better to rely on React state updates. We'll append the fallback footer dynamically in the render if needed, or append to string.
-                        
-                        // NOTE: Attaching the footer to every chunk update is inefficient/flickering.
-                        // We will append it once at the end or just bake it into the text state update logic.
-                        // However, simpler is just letting the stream finish.
-                        
                         setChatHistory(prev => {
                             const last = prev[prev.length - 1];
-                            // If user selected a secondary model but we are here (primary fallback), append note
                             let displayContent = streamedText;
                             
                             if (last?.role === 'model' && typeof last.content === 'string') {

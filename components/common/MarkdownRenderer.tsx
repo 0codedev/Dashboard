@@ -4,16 +4,24 @@ import React from 'react';
 interface MarkdownRendererProps {
     content: string;
     className?: string;
+    baseTextSize?: string;
+    baseTextColor?: string;
 }
 
-export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className = '' }) => {
+export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ 
+    content, 
+    className = '',
+    baseTextSize = 'text-sm md:text-base',
+    baseTextColor = 'text-slate-300'
+}) => {
     if (!content) return null;
 
     const renderInline = (text: string) => {
+        // Updated regex to be slightly more robust for bold/italic/code
         const parts = text.split(/(\*\*.*?\*\*|\*.*?\*|`.*?`)/g).filter(Boolean);
         return parts.map((part, index) => {
             if (part.startsWith('**') && part.endsWith('**')) {
-                return <strong key={index} className="text-cyan-200 font-bold tracking-wide">{part.slice(2, -2)}</strong>;
+                return <strong key={index} className="text-white font-bold tracking-wide">{part.slice(2, -2)}</strong>;
             }
             if (part.startsWith('*') && part.endsWith('*')) {
                 return <em key={index} className="text-indigo-200 italic font-medium">{part.slice(1, -1)}</em>;
@@ -33,6 +41,17 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
     lines.forEach((line, i) => {
         const trimmed = line.trim();
         
+        // Handle Injected HTML (e.g. Footer)
+        if (trimmed.startsWith('<div')) {
+             if (inList && listStack.length > 0) {
+                elements.push(<ul key={`ul-${i}`} className="space-y-2 my-4 pl-2">{listStack}</ul>);
+                listStack = [];
+                inList = false;
+            }
+            elements.push(<div key={i} dangerouslySetInnerHTML={{ __html: line }} />);
+            return;
+        }
+
         // Handle Lists
         if (trimmed.startsWith('- ') || trimmed.startsWith('* ') || /^\d+\.\s/.test(trimmed)) {
             const isOrdered = /^\d+\.\s/.test(trimmed);
@@ -43,7 +62,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                     {!isOrdered && (
                         <span className="absolute left-[-1.2rem] top-[0.6rem] w-1.5 h-1.5 bg-cyan-500 rounded-full shadow-[0_0_8px_rgba(6,182,212,0.5)]"></span>
                     )}
-                    <span className="text-slate-300 leading-relaxed block">{renderInline(content)}</span>
+                    <span className={`${baseTextColor} leading-relaxed block`}>{renderInline(content)}</span>
                 </li>
             );
             inList = true;
@@ -89,16 +108,16 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
         // Paragraphs
         else if (trimmed.length > 0) {
             // Check if it's a key-value pair line (e.g., "Label: Value") for special formatting
-            if (/^(\*\*.*?\*\*|[^:]+):/.test(trimmed) && trimmed.length < 100) {
+            if (/^(\*\*.*?\*\*|[^:]+):/.test(trimmed) && trimmed.length < 100 && !trimmed.includes('\n')) {
                  const [key, ...rest] = trimmed.split(':');
                  elements.push(
-                    <p key={i} className="text-slate-300 leading-7 my-1 text-sm md:text-base">
+                    <p key={i} className={`${baseTextColor} ${baseTextSize} leading-relaxed my-1`}>
                         <span className="text-cyan-100 font-semibold">{renderInline(key)}:</span>
-                        <span className="text-slate-400 ml-1">{renderInline(rest.join(':'))}</span>
+                        <span className="ml-1 opacity-90">{renderInline(rest.join(':'))}</span>
                     </p>
                  );
             } else {
-                elements.push(<p key={i} className="text-slate-300 leading-7 my-2 text-sm md:text-base font-normal tracking-wide">{renderInline(trimmed)}</p>);
+                elements.push(<p key={i} className={`${baseTextColor} ${baseTextSize} leading-relaxed my-2 font-normal tracking-wide`}>{renderInline(trimmed)}</p>);
             }
         } else {
             // Empty line spacing

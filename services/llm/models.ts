@@ -15,78 +15,76 @@ export interface AIModel {
 }
 
 export const MODEL_REGISTRY: AIModel[] = [
-    // --- GOOGLE (Native - The Ultimate Safety Net) ---
-    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'google', description: 'Best all-rounder. Multimodal & reliable.', contextWindow: 1000000, isFree: true, supportsVision: true, supportsJson: true, costCategory: 'free', icon: '⚡' },
-    { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', provider: 'google', description: 'Extremely fast. Good for simple tasks.', contextWindow: 1000000, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '🐇' },
-    
-    // --- GROQ (Speed Layer - Instant Inference) ---
-    { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B (Groq)', provider: 'groq', description: 'High intelligence, instant speed.', contextWindow: 32768, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '🏎️' },
-    { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B (Groq)', provider: 'groq', description: 'Blazing fast. Best for UI tooltips.', contextWindow: 128000, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '⚡' },
-    { id: 'gemma2-9b-it', name: 'Gemma 2 9B (Groq)', provider: 'groq', description: 'Balanced Google model on LPU.', contextWindow: 8192, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '💎' },
+    // --- TIER 1: GOOGLE NATIVE (Primary - High Reliability) ---
+    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'google', description: 'Standard reasoning & multimodal.', contextWindow: 1000000, isFree: true, supportsVision: true, supportsJson: true, costCategory: 'free', icon: '⚡' },
+    { id: 'gemini-2.0-flash-lite-preview-02-05', name: 'Gemini 2.0 Flash Lite', provider: 'google', description: 'Fast, lightweight, low latency.', contextWindow: 1000000, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '🐇' },
+    { id: 'gemma-2-27b-it', name: 'Gemma 2 27B (High Limit)', provider: 'google', description: 'High API limits (15k/day). Great for chat.', contextWindow: 8192, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '💎' },
 
-    // --- OPENROUTER (SOTA Reasoning & Specialized) ---
+    // --- TIER 2: GROQ (Ultra-Fast Inference) ---
+    { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B (Groq)', provider: 'groq', description: 'GPT-4 class intelligence. Extremely fast.', contextWindow: 32768, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '🏎️' },
+    { id: 'deepseek-r1-distill-llama-70b', name: 'DeepSeek R1 Distill (Groq)', provider: 'groq', description: 'Strong reasoning model distilled from R1.', contextWindow: 128000, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '🧠' },
+    { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B (Groq)', provider: 'groq', description: 'Instant response. Best for UI interaction.', contextWindow: 128000, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '⚡' },
+    { id: 'gemma2-9b-it', name: 'Gemma 2 9B (Groq)', provider: 'groq', description: 'Balanced Google open model on Groq.', contextWindow: 8192, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '🧬' },
+
+    // --- TIER 3: OPENROUTER (Reliable Free Tier) ---
+    { id: 'google/gemini-2.0-flash-lite-preview-02-05:free', name: 'Gemini 2.0 Flash Lite (OR)', provider: 'openrouter', description: 'Free tier fallback via OpenRouter.', contextWindow: 1000000, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '✨' },
+    { id: 'mistralai/mistral-nemo:free', name: 'Mistral Nemo', provider: 'openrouter', description: 'Great for creative writing and persona.', contextWindow: 128000, isFree: true, supportsVision: false, supportsJson: false, costCategory: 'free', icon: '🎭' },
+    { id: 'microsoft/phi-3-mini-128k-instruct:free', name: 'Phi-3 Mini', provider: 'openrouter', description: 'High logic density for small size.', contextWindow: 128000, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '🔬' },
     
-    // 1. DeepSeek R1 (The 671B Monster)
-    { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek R1 (Full)', provider: 'openrouter', description: 'SOTA Reasoning. 671B Params.', contextWindow: 64000, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '🧠' },
-    
-    // 2. DeepSeek R1 Distill (Reliable Backup)
-    { id: 'deepseek/deepseek-r1-distill-llama-70b:free', name: 'DeepSeek R1 Distill', provider: 'openrouter', description: 'Reasoning specialist. Very smart.', contextWindow: 64000, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '🧪' },
-    
-    // 3. Qwen 2.5 72B (The Math Wizard)
-    { id: 'qwen/qwen-2.5-72b-instruct:free', name: 'Qwen 2.5 72B', provider: 'openrouter', description: 'SOTA Math & Logic. Better than 32B.', contextWindow: 32000, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '📐' },
-    
-    // 4. Llama 3.3 70B (The Generalist)
-    { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B (OR)', provider: 'openrouter', description: 'Great open model fallback.', contextWindow: 64000, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '🦙' },
-    
-    // 5. Gemini 2.0 Flash Lite (New Preview)
-    { id: 'google/gemini-2.0-flash-lite-preview-02-05:free', name: 'Gemini 2.0 Flash Lite (Preview)', provider: 'openrouter', description: 'New generation. Very fast.', contextWindow: 1000000, isFree: true, supportsVision: true, supportsJson: true, costCategory: 'free', icon: '✨' },
-    
-    // 6. Mistral Nemo (Creative)
-    { id: 'mistralai/mistral-nemo:free', name: 'Mistral Nemo', provider: 'openrouter', description: 'Creative and efficient.', contextWindow: 128000, isFree: true, supportsVision: false, supportsJson: false, costCategory: 'free', icon: '🎭' },
+    // --- TIER 4: EXPERIMENTAL / HIGH LOAD (Taste of the Future) ---
+    // These models may have queues, lower rate limits, or lower uptime, but offer unique capabilities.
+    { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek R1 (Free)', provider: 'openrouter', description: 'Top-tier reasoning. Often busy/rate-limited.', contextWindow: 64000, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '🐳' },
+    { id: 'nousresearch/hermes-3-llama-3.1-405b:free', name: 'Hermes 3 405B (Free)', provider: 'openrouter', description: 'Massive model. Very low availability.', contextWindow: 8000, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '🌌' },
+    { id: 'nvidia/llama-3.1-nemotron-70b-instruct:free', name: 'Nemotron 70B (Free)', provider: 'openrouter', description: 'NVIDIA optimized. Strong alignment.', contextWindow: 128000, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '🟢' },
+    { id: 'qwen/qwen-2.5-coder-32b-instruct:free', name: 'Qwen 2.5 Coder 32B', provider: 'openrouter', description: 'Excellent for structured output/JSON.', contextWindow: 32000, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '💻' },
+    { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B (OR)', provider: 'openrouter', description: 'OpenRouter fallback for Llama 3.3.', contextWindow: 64000, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '🦙' },
 ];
 
-// Fallback Chains: [Primary SOTA, Reliable Backup, Fast Backup, Safety Net]
+// Optimized Fallback Chains
 export const TASK_DEFAULTS: Record<LlmTaskCategory, string[]> = {
-    // Deep Analysis: R1 (Full) -> R1 (Distill) -> Llama 3.3 -> Gemini Flash
+    // Deep Analysis: Try Llama 3.3 (Groq), then DeepSeek R1 (Groq), then Flash
     analysis: [
-        'deepseek/deepseek-r1:free', 
-        'deepseek/deepseek-r1-distill-llama-70b:free', 
         'llama-3.3-70b-versatile', 
-        'gemini-2.5-flash'
+        'deepseek-r1-distill-llama-70b',
+        'gemini-2.5-flash',
+        'deepseek/deepseek-r1:free' // Experimental fallback
     ], 
     
-    // Math/STEM: Qwen 72B (SOTA) -> DeepSeek Distill -> Gemini Flash
+    // Math/STEM: Gemini Native (Best formatting), then DeepSeek Distill
     math: [
-        'qwen/qwen-2.5-72b-instruct:free', 
-        'deepseek/deepseek-r1-distill-llama-70b:free', 
-        'gemini-2.5-flash'
+        'gemini-2.5-flash', 
+        'deepseek-r1-distill-llama-70b',
+        'llama-3.3-70b-versatile',
+        'nvidia/llama-3.1-nemotron-70b-instruct:free'
     ], 
     
-    // Planning: Qwen 72B (Constraint Holding) -> Llama 3.3 -> Gemini Flash
+    // Planning: Llama 3.3 is excellent at following structured constraints.
     planning: [
-        'qwen/qwen-2.5-72b-instruct:free', 
         'llama-3.3-70b-versatile', 
-        'gemini-2.5-flash'
+        'gemini-2.5-flash',
+        'qwen/qwen-2.5-coder-32b-instruct:free'
     ], 
     
-    // Creative/Persona: Llama 3.3 (Nuance) -> Gemini 2.0 Lite -> Mistral Nemo
+    // Creative/Persona: Gemma 2 and Flash Lite are great here.
     creative: [
-        'meta-llama/llama-3.3-70b-instruct:free', 
-        'google/gemini-2.0-flash-lite-preview-02-05:free', 
-        'mistralai/mistral-nemo:free'
+        'gemma-2-27b-it',
+        'gemini-2.0-flash-lite-preview-02-05',
+        'mistralai/mistral-nemo:free',
+        'nousresearch/hermes-3-llama-3.1-405b:free' // Try the big model for creative
     ], 
     
-    // General Chat: Groq Llama 3.3 (Speed) -> Gemini 2.0 Lite -> Gemini Flash
+    // General Chat: Speed is key.
     chat: [
-        'llama-3.3-70b-versatile', 
-        'google/gemini-2.0-flash-lite-preview-02-05:free', 
-        'gemini-2.5-flash'
+        'gemini-2.0-flash-lite-preview-02-05',
+        'llama-3.1-8b-instant', 
+        'gemma-2-27b-it'
     ], 
     
-    // Coding/JSON: Qwen 72B -> Gemini Flash (Reliable JSON)
+    // Coding/JSON: Needs strict instruction following.
     coding: [
-        'qwen/qwen-2.5-72b-instruct:free', 
-        'gemini-2.5-flash'
+        'gemini-2.5-flash', // Native JSON mode is strongest here
+        'llama-3.3-70b-versatile',
+        'qwen/qwen-2.5-coder-32b-instruct:free'
     ], 
 };
 

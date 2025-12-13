@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import type { QuestionLog, TestReport, AiFilter } from '../types';
 import { QuestionType, QuestionStatus, ErrorReason } from '../types';
@@ -36,6 +37,35 @@ const MarksBar: React.FC<{ marks: number; type: string; log: QuestionLog }> = ({
     return (
         <div className={`w-full h-2 bg-slate-600 rounded-full flex overflow-hidden ${justification}`}>
             <div className={`${colorClass} h-full rounded-full`} style={{ width: `${width}%` }}></div>
+        </div>
+    );
+};
+
+const ConfidenceSlider: React.FC<{ value: number; onChange: (val: number) => void }> = ({ value, onChange }) => {
+    // Color scale from Red (0) to Green (100)
+    const getColor = (v: number) => {
+        if (v < 50) return 'accent-red-500';
+        if (v < 80) return 'accent-yellow-500';
+        return 'accent-green-500';
+    };
+
+    return (
+        <div className="flex flex-col items-center w-full group relative">
+             <div className="flex items-center w-full gap-2">
+                <input 
+                    type="range" 
+                    min="0" max="100" step="10" 
+                    value={value || 0} 
+                    onChange={e => onChange(parseInt(e.target.value))}
+                    className={`w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer ${getColor(value || 0)}`}
+                    title={`Confidence: ${value}%`}
+                />
+                <span className="text-[10px] w-6 text-right font-mono text-gray-400">{value}%</span>
+            </div>
+            {/* Tooltip on hover */}
+            <div className="absolute bottom-full mb-1 hidden group-hover:block bg-slate-900 text-[9px] px-1 py-0.5 rounded text-gray-300 border border-slate-700 whitespace-nowrap z-50">
+                Confidence Level
+            </div>
         </div>
     );
 };
@@ -112,9 +142,10 @@ interface AdvancedHeaderProps {
     onFilter: (field: string, values: Set<string>) => void;
     uniqueValues: string[];
     activeFilters: Set<string>;
+    width?: string;
 }
 
-const AdvancedHeader: React.FC<AdvancedHeaderProps> = ({ title, field, currentSort, onSort, onFilter, uniqueValues, activeFilters }) => {
+const AdvancedHeader: React.FC<AdvancedHeaderProps> = ({ title, field, currentSort, onSort, onFilter, uniqueValues, activeFilters, width }) => {
     const [isFilterOpen, setIsFilterOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [tempSelected, setTempSelected] = useState<Set<string>>(new Set(activeFilters));
@@ -158,7 +189,7 @@ const AdvancedHeader: React.FC<AdvancedHeaderProps> = ({ title, field, currentSo
     };
 
     return (
-        <th className="p-3 font-semibold text-gray-300 uppercase tracking-wider relative group select-none text-center">
+        <th className={`p-3 font-semibold text-gray-300 uppercase tracking-wider relative group select-none text-center ${width}`}>
             <div className="flex items-center justify-center gap-2">
                 <span 
                     className={`cursor-pointer hover:text-white flex items-center gap-1 transition-colors ${isSorted ? 'text-cyan-400' : ''}`}
@@ -241,7 +272,7 @@ const AdvancedHeader: React.FC<AdvancedHeaderProps> = ({ title, field, currentSo
 };
 
 // --- Intelligent Quick Stats Sidebar (Floating Panel) ---
-
+// (Unchanged from original)
 const QuickStatsSidebar: React.FC<{ selectedLogs: Set<string>; logs: QuestionLog[]; onClose: () => void }> = ({ selectedLogs, logs, onClose }) => {
     const stats = useMemo(() => {
         if (selectedLogs.size === 0) return null;
@@ -352,6 +383,7 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
     const [bulkQuestionType, setBulkQuestionType] = useState('');
     const [bulkSubject, setBulkSubject] = useState<'physics' | 'chemistry' | 'maths' | ''>('');
     const [bulkTestId, setBulkTestId] = useState<string>('');
+    const [bulkConfidence, setBulkConfidence] = useState<number>(0);
 
     const [history, setHistory] = useState<QuestionLog[][]>([]);
     const [future, setFuture] = useState<QuestionLog[][]>([]);
@@ -598,6 +630,7 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
                     if (bulkStatus) updatedLog.status = bulkStatus;
                     if (bulkSubject) updatedLog.subject = bulkSubject;
                     if (bulkTestId) updatedLog.testId = bulkTestId;
+                    if (bulkConfidence > 0) updatedLog.confidence = bulkConfidence;
                     
                     if (bulkQuestionType) {
                         updatedLog.questionType = bulkQuestionType;
@@ -629,7 +662,7 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
 
     const handleBulkCancel = () => {
         setSelectedLogs(new Set());
-        setBulkTopic(''); setBulkErrorReason(''); setBulkStatus(''); setBulkQuestionType(''); setBulkSubject(''); setBulkTestId('');
+        setBulkTopic(''); setBulkErrorReason(''); setBulkStatus(''); setBulkQuestionType(''); setBulkSubject(''); setBulkTestId(''); setBulkConfidence(0);
     };
 
     const isRowValid = (log: QuestionLog) => {
@@ -638,7 +671,7 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
         return true;
     };
 
-    const headers: { title: string; key: SortKey }[] = [
+    const headers: { title: string; key: SortKey; width?: string }[] = [
         { title: 'Date', key: 'date' },
         { title: 'Test Name', key: 'testName' },
         { title: 'Subject', key: 'subject' },
@@ -646,6 +679,7 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
         { title: 'Question Type', key: 'questionType' },
         { title: 'Status', key: 'status' },
         { title: 'Marks Awarded', key: 'marksAwarded' },
+        { title: 'Confidence', key: 'confidence' as SortKey, width: 'w-24' },
         { title: 'Topic / Chapter', key: 'topic' },
         { title: 'Reason for Error', key: 'reasonForError' },
     ];
@@ -736,6 +770,7 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
                                     onFilter={handleColumnFilter}
                                     uniqueValues={getUniqueValues(header.key)}
                                     activeFilters={columnFilters[header.key] || new Set()}
+                                    width={header.width}
                                />
                            ))}
                            <th className="p-3 font-semibold text-gray-300 text-center w-14" title="Positive Marks">+ve</th>
@@ -775,6 +810,12 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
                                             </div>
                                             <div className="flex-grow max-w-[80px]"><MarksBar marks={log.marksAwarded} type={log.questionType} log={log} /></div>
                                         </div>
+                                    </td>
+                                    <td className="p-1 min-w-[100px]">
+                                        <ConfidenceSlider 
+                                            value={log.confidence || 0}
+                                            onChange={(val) => handleUpdate(log.questionNumber, log.testId, 'confidence', val)}
+                                        />
                                     </td>
                                     <td className="p-1 min-w-[180px]">
                                         <input type="text" value={log.topic} onChange={e => handleUpdate(log.questionNumber, log.testId, 'topic', e.target.value)} list="topic-suggestions" className="w-full bg-transparent p-1 border border-transparent focus:border-cyan-500 focus:bg-slate-700 rounded-md focus:outline-none text-center" />
@@ -835,6 +876,12 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
 
                             <select value={bulkStatus} onChange={e => setBulkStatus(e.target.value as QuestionStatus)} className="bg-slate-700/50 border border-slate-600 rounded p-2 text-sm w-28 text-white"><option value="">Set Status</option>{Object.values(QuestionStatus).map(s => <option key={s} value={s}>{s}</option>)}</select>
                             
+                            <div className="flex items-center gap-2 px-2 bg-slate-700/50 rounded border border-slate-600" title="Set Bulk Confidence">
+                                <span className="text-xs text-gray-400">Conf:</span>
+                                <input type="range" min="0" max="100" step="10" value={bulkConfidence} onChange={e => setBulkConfidence(parseInt(e.target.value))} className="w-16 h-1 bg-slate-500 rounded-lg appearance-none cursor-pointer accent-cyan-500" />
+                                <span className="text-xs w-6">{bulkConfidence}%</span>
+                            </div>
+
                             <DataListInput 
                                 value={bulkQuestionType} 
                                 onChange={setBulkQuestionType} 

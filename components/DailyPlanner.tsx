@@ -19,8 +19,58 @@ interface DailyPlannerProps {
   userProfile: UserProfile;
   prefilledTask: Partial<DailyTask> | null;
   setPrefilledTask: (task: Partial<DailyTask> | null) => void;
+  // NEW: Receive tasks from central store
+  dailyTasks: DailyTask[];
+  setDailyTasks: React.Dispatch<React.SetStateAction<DailyTask[]>>;
   modelName?: string;
 }
+
+// --- NEW COMPONENT: Bio Check Modal ---
+const BioCheckModal: React.FC<{ 
+    onSave: (data: { sleep: number; stress: number; energy: number }) => void;
+    onClose: () => void 
+}> = ({ onSave, onClose }) => {
+    const [sleep, setSleep] = useState(7);
+    const [stress, setStress] = useState(5);
+    const [energy, setEnergy] = useState(7);
+
+    return (
+        <Modal isOpen={true} onClose={onClose} title="Morning Bio-Check 🌿">
+            <div className="space-y-6 p-2">
+                <p className="text-gray-300 text-sm">Synchronize your cognitive load with your biological state. Be honest!</p>
+                
+                <div>
+                    <div className="flex justify-between mb-2">
+                        <label className="text-sm font-bold text-blue-300">Sleep (Hours)</label>
+                        <span className="text-sm text-white font-mono">{sleep}h</span>
+                    </div>
+                    <input type="range" min="3" max="12" step="0.5" value={sleep} onChange={e => setSleep(parseFloat(e.target.value))} className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+                </div>
+
+                <div>
+                    <div className="flex justify-between mb-2">
+                        <label className="text-sm font-bold text-red-300">Stress Level (1-10)</label>
+                        <span className="text-sm text-white font-mono">{stress}</span>
+                    </div>
+                    <input type="range" min="1" max="10" step="1" value={stress} onChange={e => setStress(parseInt(e.target.value))} className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-red-500" />
+                </div>
+
+                <div>
+                    <div className="flex justify-between mb-2">
+                        <label className="text-sm font-bold text-yellow-300">Energy Level (1-10)</label>
+                        <span className="text-sm text-white font-mono">{energy}</span>
+                    </div>
+                    <input type="range" min="1" max="10" step="1" value={energy} onChange={e => setEnergy(parseInt(e.target.value))} className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-yellow-500" />
+                </div>
+
+                <div className="flex justify-end gap-3 pt-4">
+                    <button onClick={onClose} className="text-gray-400 hover:text-white px-4 py-2 text-sm">Skip</button>
+                    <button onClick={() => onSave({ sleep, stress, energy })} className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-6 rounded-lg shadow-lg">Sync & Plan</button>
+                </div>
+            </div>
+        </Modal>
+    );
+};
 
 // --- Advanced Audio Engine for Focus Sounds & Binaural Beats ---
 class AudioEngine {
@@ -365,18 +415,13 @@ const TimeBlockSchedule: React.FC<{ tasks: DailyTask[]; onDropTask: (taskId: str
     );
 };
 
-export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, apiKey, logs, proactiveInsight, onAcceptPlan, onDismissInsight, addXp, userProfile, prefilledTask, setPrefilledTask, modelName }) => {
+export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, apiKey, logs, proactiveInsight, onAcceptPlan, onDismissInsight, addXp, userProfile, prefilledTask, setPrefilledTask, dailyTasks, setDailyTasks, modelName }) => {
     const [quote, setQuote] = useState<{ text: string; date: string } | null>(null);
     const [currentTime, setCurrentTime] = useState(new Date());
     const [activeTab, setActiveTab] = useState<'tasks' | 'weekly'>('tasks');
     
-    const [dailyTasks, setDailyTasks] = useState<DailyTask[]>(() => {
-        const saved = localStorage.getItem('dailyTasks_v1');
-        const savedDate = localStorage.getItem('dailyTasksDate_v1');
-        const today = new Date().toISOString().split('T')[0];
-        if (saved && savedDate === today) return JSON.parse(saved);
-        return [];
-    });
+    // Removed local state definition. Now using props: dailyTasks, setDailyTasks.
+
     const [suggestedTasks, setSuggestedTasks] = useState<{task: string, time: number}[] | null>(null);
     const [isSuggestingTasks, setIsSuggestingTasks] = useState(false);
     const [smartTasks, setSmartTasks] = useState<{ task: string; time: number; topic: string; }[] | null>(null);
@@ -384,6 +429,10 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
     const [showSchedule, setShowSchedule] = useState(false);
     const [accomplishmentModal, setAccomplishmentModal] = useState<{ task: DailyTask } | null>(null);
     const [isSorting, setIsSorting] = useState(false);
+
+    // Bio Check State
+    const [showBioCheck, setShowBioCheck] = useState(false);
+    const [bioStats, setBioStats] = useState<{sleep: number, stress: number, energy: number} | null>(null);
 
     const [isHyperFocusMode, setIsHyperFocusMode] = useState(false);
     const [ambientSound, setAmbientSound] = useState<'off' | 'brown' | 'pink' | 'white' | 'alpha' | 'theta'>('off');
@@ -416,6 +465,35 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
 
     const [streakData, setStreakData] = useState({ count: 0, date: '', animationKey: 0 });
     const [lastCompletedTaskId, setLastCompletedTaskId] = useState<string | null>(null);
+
+    // Init Bio Check
+    useEffect(() => {
+        const today = new Date().toISOString().split('T')[0];
+        const bioLogKey = `bioLog_${today}`;
+        const savedBio = localStorage.getItem(bioLogKey);
+        
+        if (savedBio) {
+            setBioStats(JSON.parse(savedBio));
+        } else {
+            // Delay modal slightly for smoother UX
+            const timer = setTimeout(() => setShowBioCheck(true), 1000);
+            return () => clearTimeout(timer);
+        }
+    }, []);
+
+    const handleBioSave = (data: { sleep: number; stress: number; energy: number }) => {
+        const today = new Date().toISOString().split('T')[0];
+        localStorage.setItem(`bioLog_${today}`, JSON.stringify(data));
+        setBioStats(data);
+        setShowBioCheck(false);
+        
+        // Auto-adjust default effort based on bio-feedback
+        if (data.sleep < 6 || data.stress > 7 || data.energy < 4) {
+            setNewTaskEffort(TaskEffort.Low);
+        } else if (data.energy > 8 && data.stress < 4) {
+            setNewTaskEffort(TaskEffort.High);
+        }
+    };
 
     useEffect(() => {
         if (prefilledTask) {
@@ -513,7 +591,8 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
     }, [dailyTasks, streakData.count, streakData.date]);
     
     useEffect(() => { const timerId = setInterval(() => setCurrentTime(new Date()), 1000); return () => clearInterval(timerId); }, []);
-    useEffect(() => { const today = new Date().toISOString().split('T')[0]; localStorage.setItem('dailyTasks_v1', JSON.stringify(dailyTasks)); localStorage.setItem('dailyTasksDate_v1', today); }, [dailyTasks]);
+    
+    // Removed redundant useEffect to save tasks to localstorage, now handled by parent via useJeeData
 
     useEffect(() => {
         if (!isTimerActive) { if (timerIntervalRef.current) { clearInterval(timerIntervalRef.current); timerIntervalRef.current = null; } return; }
@@ -653,8 +732,11 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
         return dailyTasks;
     }, [dailyTasks, showSchedule]);
 
+    const isRecoveryMode = bioStats && (bioStats.sleep < 6 || bioStats.stress > 7 || bioStats.energy < 4);
+
     return (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 relative">
+             {showBioCheck && <BioCheckModal onSave={handleBioSave} onClose={() => setShowBioCheck(false)} />}
              {accomplishmentModal && <AccomplishmentModal task={accomplishmentModal.task} onSave={handleSaveAccomplishment} onClose={() => setAccomplishmentModal(null)} interruptionCount={interruptionCount} />}
              
              {isHyperFocusMode && (
@@ -724,6 +806,16 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
                         <div className="flex gap-2">
                             <button onClick={onAcceptPlan} className="bg-yellow-600 hover:bg-yellow-500 text-white font-bold py-1.5 px-4 rounded-lg text-sm shadow-lg transition-transform hover:scale-105">Yes, create plan</button>
                             <button onClick={onDismissInsight} className="bg-transparent hover:bg-yellow-900/40 text-yellow-300 font-semibold py-1.5 px-4 rounded-lg text-sm transition-colors">Dismiss</button>
+                        </div>
+                    </div>
+                )}
+
+                {isRecoveryMode && (
+                    <div className="bg-indigo-900/30 border border-indigo-500/50 rounded-lg p-4 flex items-center gap-3 animate-fade-in">
+                        <div className="text-2xl">🌿</div>
+                        <div>
+                            <h4 className="font-bold text-indigo-300">Recovery Mode Active</h4>
+                            <p className="text-xs text-indigo-200/80">Bio-rhythm check detected low energy. Recommended tasks set to 'Low' effort. Avoid heavy mocks today.</p>
                         </div>
                     </div>
                 )}

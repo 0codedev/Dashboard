@@ -6,7 +6,8 @@ import {
 } from 'recharts';
 import { SUBJECT_CONFIG } from '../constants';
 import CustomTooltip from './common/CustomTooltip';
-import { LongTermGoal } from '../types';
+import { LongTermGoal, QuestionLog, ExamStrategy } from '../types';
+import { CalibrationMatrix } from './visualizations/CalibrationMatrix';
 
 // --- Tooltips ---
 const CustomRadarTooltip = ({ active, payload }: any) => {
@@ -16,9 +17,7 @@ const CustomRadarTooltip = ({ active, payload }: any) => {
             <div className="p-3 bg-slate-800/80 backdrop-blur-sm border border-slate-600/50 rounded-lg shadow-xl text-sm z-50">
                 <p className="font-bold text-white mb-2">{data.subject}</p>
                 <div className="space-y-1">
-                    <p className="text-cyan-400 flex justify-between gap-4"><span>You:</span> <span>{data.A}</span></p>
-                    <p className="text-yellow-400 flex justify-between gap-4"><span>Topper Est:</span> <span>{data.B}</span></p>
-                    <p className="text-gray-500 flex justify-between gap-4"><span>Cohort Avg:</span> <span>{data.C}</span></p>
+                    <p className="text-cyan-400 flex justify-between gap-4"><span>Avg Marks:</span> <span>{data.A}</span></p>
                 </div>
             </div>
         );
@@ -61,21 +60,58 @@ const AiChartFooter: React.FC<{ summary?: string }> = ({ summary }) => {
 
 // --- Widgets ---
 
+export const OracleWidget: React.FC<{ onConsult: () => void }> = ({ onConsult }) => {
+    return (
+        <div className="h-full w-full relative overflow-hidden bg-gradient-to-br from-indigo-950 to-slate-900 flex flex-col items-center justify-center text-center p-6 group cursor-pointer" onClick={onConsult}>
+            {/* Animated Background Mesh */}
+            <div className="absolute inset-0 opacity-20 pointer-events-none">
+                <div className="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[radial-gradient(circle_at_center,_rgba(99,102,241,0.15)_0%,_transparent_70%)] animate-[spin_20s_linear_infinite]"></div>
+            </div>
+            
+            <div className="relative z-10 transform transition-transform duration-500 group-hover:scale-105">
+                <div className="w-24 h-24 mx-auto mb-4 rounded-full bg-slate-900 border-2 border-indigo-500/50 shadow-[0_0_40px_rgba(99,102,241,0.3)] flex items-center justify-center relative">
+                    <span className="text-5xl animate-pulse">🔮</span>
+                    <div className="absolute inset-0 rounded-full border border-indigo-400/30 animate-[ping_3s_cubic-bezier(0,0,0.2,1)_infinite]"></div>
+                </div>
+                
+                <h3 className="text-2xl font-bold text-white mb-2 tracking-tight">The Oracle</h3>
+                <p className="text-indigo-200 text-sm max-w-[200px] mx-auto leading-relaxed">
+                    Predictive drill based on your likely failure points.
+                </p>
+                
+                <button className="mt-6 px-6 py-2 bg-white text-indigo-900 font-bold rounded-full text-xs uppercase tracking-widest shadow-lg hover:bg-indigo-50 transition-colors">
+                    Consult Now
+                </button>
+            </div>
+        </div>
+    );
+};
+
+// New Calibration Widget Wrapper
+export const CalibrationWidget: React.FC<{ logs: QuestionLog[] }> = ({ logs }) => (
+    <CalibrationMatrix logs={logs} />
+);
+
 export const PaperStrategyWidget: React.FC<{ 
     historicalAccuracy: { physics: number, chemistry: number, maths: number },
-    userTargetTimes?: { physics: number, chemistry: number, maths: number } 
-}> = ({ historicalAccuracy, userTargetTimes }) => {
-    const [examType, setExamType] = useState<'mains' | 'advanced'>('mains');
-    const [subjectOrder, setSubjectOrder] = useState<('physics' | 'chemistry' | 'maths')[]>(['physics', 'chemistry', 'maths']);
+    userTargetTimes?: { physics: number, chemistry: number, maths: number },
+    savedStrategy?: ExamStrategy,
+    onSave?: (strategy: ExamStrategy) => void;
+}> = ({ historicalAccuracy, userTargetTimes, savedStrategy, onSave }) => {
+    const [examType, setExamType] = useState<'mains' | 'advanced'>(savedStrategy?.examType || 'mains');
+    const [subjectOrder, setSubjectOrder] = useState<('physics' | 'chemistry' | 'maths')[]>(savedStrategy?.subjectOrder || ['physics', 'chemistry', 'maths']);
     
-    const [timeAlloc, setTimeAlloc] = useState({ physics: 60, chemistry: 60, maths: 60 });
-    const [attemptTarget, setAttemptTarget] = useState({ physics: 20, chemistry: 20, maths: 15 });
-    const [confidence, setConfidence] = useState({ physics: 50, chemistry: 50, maths: 50 });
+    const [timeAlloc, setTimeAlloc] = useState(savedStrategy?.timeAlloc || { physics: 60, chemistry: 60, maths: 60 });
+    const [attemptTarget, setAttemptTarget] = useState(savedStrategy?.attemptTarget || { physics: 20, chemistry: 20, maths: 15 });
+    const [confidence, setConfidence] = useState(savedStrategy?.confidence || { physics: 50, chemistry: 50, maths: 50 });
 
     useEffect(() => {
-        if (examType === 'mains') {
+        // Only reset targets if we switch types and NO saved strategy exists for that type, 
+        // or simplistic logic: just reset on type switch if user hasn't explicitly saved.
+        // For now, simpler behavior: Reset defaults on switch if it differs from initial state
+        if (examType === 'mains' && !savedStrategy) {
             setAttemptTarget({ physics: 20, chemistry: 20, maths: 15 });
-        } else {
+        } else if (examType === 'advanced' && !savedStrategy) {
             setAttemptTarget({ physics: 12, chemistry: 12, maths: 8 });
         }
     }, [examType]);
@@ -173,6 +209,18 @@ export const PaperStrategyWidget: React.FC<{
         });
     };
 
+    const handleSaveStrategy = () => {
+        if (onSave) {
+            onSave({
+                timeAlloc,
+                attemptTarget,
+                confidence,
+                examType,
+                subjectOrder
+            });
+        }
+    };
+
     return (
         <div className="flex flex-col h-full gap-4">
             <div className="flex justify-between items-center border-b border-slate-700 pb-2">
@@ -182,12 +230,14 @@ export const PaperStrategyWidget: React.FC<{
                 </div>
                 
                 <div className="flex items-center gap-2">
-                    <div className="text-right">
-                        <p className="text-[10px] text-gray-400">Strategy Risk</p>
-                        <div className="w-20 h-1.5 bg-slate-700 rounded-full mt-1">
-                            <div className={`h-full rounded-full ${stats.riskScore > 60 ? 'bg-red-500' : stats.riskScore > 30 ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${stats.riskScore}%` }}></div>
-                        </div>
-                    </div>
+                    {onSave && (
+                        <button 
+                            onClick={handleSaveStrategy}
+                            className="bg-green-600 hover:bg-green-500 text-white text-[10px] px-3 py-1 rounded font-bold transition-colors shadow-lg shadow-green-900/20"
+                        >
+                            Save
+                        </button>
+                    )}
                     <div className="text-right pl-4 border-l border-slate-700">
                         <p className="text-xs text-gray-400">Est. Score</p>
                         <p className="text-xl font-bold text-cyan-300 tabular-nums">{stats.totalScore}</p>
@@ -430,9 +480,8 @@ export const SubjectRadarWidget: React.FC<{ data: any[] }> = ({ data }) => {
                 <PolarAngleAxis dataKey="subject" tick={{ fill: '#9ca3af', fontSize: 12 }} />
                 <PolarRadiusAxis angle={30} domain={[0, 'dataMax']} tick={false} axisLine={false} />
                 
-                <Radar name="Cohort Avg" dataKey="C" stroke="#6b7280" strokeDasharray="3 3" fill="#6b7280" fillOpacity={0.1} />
-                <Radar name="Topper Avg" dataKey="B" stroke="#f59e0b" strokeWidth={1} fill="#f59e0b" fillOpacity={0.1} />
-                <Radar name="You" dataKey="A" stroke={SUBJECT_CONFIG.total.color} strokeWidth={2} fill={SUBJECT_CONFIG.total.color} fillOpacity={0.5} />
+                {/* Only User Data */}
+                <Radar name="You" dataKey="A" stroke={SUBJECT_CONFIG.total.color} strokeWidth={3} fill={SUBJECT_CONFIG.total.color} fillOpacity={0.6} />
                 
                 <Legend wrapperStyle={{ fontSize: '10px' }} />
                 <Tooltip content={<CustomRadarTooltip />} cursor={false} />

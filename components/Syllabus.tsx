@@ -1,25 +1,31 @@
 
-import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import type { UserProfile, QuestionLog, ChapterProgress, TestReport, QuizQuestion } from '../types';
-import { SyllabusStatus, TargetExam, QuestionStatus } from '../types';
-import { SUBJECT_CONFIG, TOPIC_WEIGHTAGE, TOPIC_DEPENDENCIES, JEE_SYLLABUS } from '../constants';
+// ... (Previous imports)
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import type { UserProfile, QuestionLog, ChapterProgress, TestReport, QuizQuestion, Flashcard } from '../types';
+import { SyllabusStatus, QuestionStatus } from '../types';
+import { SUBJECT_CONFIG, TOPIC_DEPENDENCIES, JEE_SYLLABUS } from '../constants';
 import Modal from './common/Modal';
-import { explainTopic, generateGatekeeperQuiz, generateLearningPath, generatePreMortem } from '../services/geminiService';
+import { explainTopic, generateGatekeeperQuiz, generateLearningPath, generatePreMortem, generateFlashcards } from '../services/geminiService';
 import { SyllabusSunburst } from './visualizations/SyllabusSunburst';
-import { SyllabusSubwayMap } from './visualizations/SyllabusSubwayMap';
+import { CyberSkillTree } from './visualizations/CyberSkillTree'; // Updated import
 import { SyllabusRiverFlow } from './visualizations/SyllabusRiverFlow';
 import { SyllabusTree } from './visualizations/SyllabusTree';
 import { SkeletonText } from './common/Skeletons';
 import { MarkdownRenderer } from './common/MarkdownRenderer';
+import { FlashCardModal } from './FlashCardModal';
+import { useJeeStore } from '../store/useJeeStore';
 
 // --- Imported Sub-Components ---
 import { StrategicPlanner } from './syllabus/StrategicPlanner';
 import { GatekeeperQuiz } from './syllabus/GatekeeperQuiz';
-import { ChapterCard } from './syllabus/ChapterCard'; // Required for Modal
+import { ChapterCard } from './syllabus/ChapterCard';
 import { SubjectSyllabus } from './syllabus/SubjectSyllabus';
 import { SyllabusOverviewWidget } from './syllabus/SyllabusOverview';
-import { calculateMasteryScore, getMasteryTier } from './syllabus/utils';
 
+// --- Extracted Logic Hooks ---
+import { useMasteryScores, useRevisionStack } from '../hooks/useSyllabusLogic';
+
+// ... (Interface definitions and ViewControl unchanged)
 
 interface SyllabusProps {
     userProfile: UserProfile;
@@ -39,7 +45,7 @@ const ViewControl: React.FC<{ mode: string; setMode: (m: any) => void }> = ({ mo
         { id: 'sunburst', icon: '◎', label: 'Sunburst' },
         { id: 'tree', icon: '🌳', label: 'Tree' },
         { id: 'river', icon: '🌊', label: 'River' },
-        { id: 'subway', icon: '🚇', label: 'Subway' },
+        { id: 'subway', icon: '🚇', label: 'Skill Tree' }, // Renamed Label
     ];
 
     return (
@@ -63,7 +69,9 @@ const ViewControl: React.FC<{ mode: string; setMode: (m: any) => void }> = ({ mo
     );
 };
 
+
 export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile, questionLogs, reports, apiKey, onStartFocusSession, setView, addTasksToPlanner, modelName }) => {
+    // ... (Existing state hooks)
     const [activeSubject, setActiveSubject] = useState<'physics' | 'chemistry' | 'maths'>('physics');
     const [activeUnit, setActiveUnit] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
@@ -71,26 +79,26 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
     const [vizMode, setVizMode] = useState<'overview' | 'sunburst' | 'tree' | 'river' | 'subway'>('overview');
     const [quizState, setQuizState] = useState<{ topic: string, questions?: QuizQuestion[], loading: boolean, userAnswers?: Record<number, string>, submitted?: boolean, result?: boolean[] } | null>(null);
     
-    // Chapter Detail Modal State
     const [selectedChapterForModal, setSelectedChapterForModal] = useState<string | null>(null);
     const [isGeneratingPath, setIsGeneratingPath] = useState(false);
 
-    // Pre-mortem State
     const [hurdleData, setHurdleData] = useState<{ topic: string, content: string } | null>(null);
     const [isHurdleLoading, setIsHurdleLoading] = useState(false);
     const [currentHurdleTopic, setCurrentHurdleTopic] = useState<string | null>(null);
 
-    // Quick Review Mode
-    const [isQuickReviewOpen, setIsQuickReviewOpen] = useState(false);
-    const [quickReviewCards, setQuickReviewCards] = useState<{ topic: string, content: string }[]>([]);
-    const [currentCardIndex, setCurrentCardIndex] = useState(0);
-    const [isCardFlipped, setIsCardFlipped] = useState(false);
+    // Flashcard State
+    const [isGeneratingFlashcards, setIsGeneratingFlashcards] = useState(false);
+    // Use store state for modal visibility to keep it synced
+    const { startFlashcardSession, isFlashcardModalOpen, closeFlashcardSession, getSessionResults } = useJeeStore();
 
-    // Particle effect state
     const [completionEffect, setCompletionEffect] = useState<{ x: number, y: number, key: number } | null>(null);
     const particleCanvasRef = useRef<HTMLCanvasElement>(null);
     const chapterCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
+    const allMasteryScores = useMasteryScores(userProfile, questionLogs);
+    const revisionStackTopics = useRevisionStack(userProfile, questionLogs, reports);
+
+    // ... (Effect for particles unchanged)
     const triggerCompletionEffect = useCallback((coords: { x: number, y: number }) => {
         setCompletionEffect({ ...coords, key: Date.now() });
     }, []);
@@ -132,6 +140,32 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
         return () => cancelAnimationFrame(animationFrameId);
     }, [completionEffect]);
 
+    // Sync Logic for Flashcards generated here
+    useEffect(() => {
+        if (!isFlashcardModalOpen) {
+            const sessionDeck = getSessionResults();
+            if (sessionDeck.length > 0) {
+                 // Load current cards from storage
+                 const storedCardsStr = localStorage.getItem('errorFlashcards_v1');
+                 let allCards: Flashcard[] = storedCardsStr ? JSON.parse(storedCardsStr) : [];
+                 
+                 // Merge session cards. If they exist, update them. If they are new, add them.
+                 sessionDeck.forEach(sessionCard => {
+                     const idx = allCards.findIndex(c => c.id === sessionCard.id);
+                     if (idx !== -1) {
+                         allCards[idx] = sessionCard;
+                     } else {
+                         allCards.push(sessionCard);
+                     }
+                 });
+                 
+                 localStorage.setItem('errorFlashcards_v1', JSON.stringify(allCards));
+            }
+        }
+    }, [isFlashcardModalOpen]);
+
+
+    // ... (Handlers for syllabus change, explain, quiz, learning path, pre-mortem unchanged)
     const handleSyllabusChange = (chapter: string, updatedProgress: Partial<ChapterProgress>) => {
         setUserProfile(prev => {
             const existingProgress = prev.syllabus[chapter] || { status: SyllabusStatus.NotStarted, strength: null, revisionCount: 0 };
@@ -161,24 +195,6 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
             };
         });
     };
-
-    const allMasteryScores = useMemo(() => {
-        const scores: Record<string, { score: number, tier: string, color: string }> = {};
-        if (!userProfile?.syllabus) return scores;
-
-        ['physics', 'chemistry', 'maths'].forEach(sub => {
-            // @ts-ignore
-            JEE_SYLLABUS[sub]?.forEach((unit: any) => {
-                unit.chapters.forEach((ch: any) => {
-                    const progress = userProfile.syllabus[ch.name];
-                    const score = calculateMasteryScore(ch.name, questionLogs, progress?.status);
-                    const info = getMasteryTier(score);
-                    scores[ch.name] = { score, tier: info.tier, color: info.color };
-                });
-            });
-        });
-        return scores;
-    }, [userProfile?.syllabus, questionLogs]);
 
     const handleExplainTopic = async (topic: string, complexity: 'standard' | 'simple' = 'standard') => {
         setExplainModalData({ topic, content: '', loading: true, complexity });
@@ -241,11 +257,15 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
                 const errors = questionLogs.filter(l => l.topic === p && (l.status === QuestionStatus.Wrong || l.status === QuestionStatus.PartiallyCorrect));
                 if (errors.length > 0) {
                     const reasons = errors.reduce((acc, l) => {
-                        if (l.reasonForError) acc[l.reasonForError] = (acc[l.reasonForError] || 0) + 1;
+                        const reason = l.reasonForError;
+                        if (reason) {
+                            const count = acc[reason] || 0;
+                            acc[reason] = count + 1;
+                        }
                         return acc;
                     }, {} as Record<string, number>);
                     const topReasons = Object.entries(reasons)
-                        .sort((a, b) => b[1] - a[1])
+                        .sort((a, b) => Number(b[1]) - Number(a[1]))
                         .slice(0, 2)
                         .map(r => r[0])
                         .join(', ');
@@ -264,31 +284,43 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
         }
     };
 
-    const startQuickReview = () => {
-        const cards: { topic: string, content: string }[] = [];
-        if (userProfile?.syllabus) {
-            Object.entries(userProfile.syllabus).forEach(([topic, p]) => {
-                const progress = p as ChapterProgress;
-                if (progress.flashcard) {
-                    cards.push({ topic, content: progress.flashcard });
-                }
-            });
+
+    const handleStartRevision = async () => {
+        // Collect relevant topics for revision
+        const revisionTopics = revisionStackTopics.map(t => t.name).slice(0, 5);
+        
+        if (revisionTopics.length === 0) {
+            const inProgress = Object.keys(userProfile.syllabus).filter(k => userProfile.syllabus[k]?.status === SyllabusStatus.InProgress);
+            if (inProgress.length > 0) {
+                revisionTopics.push(...inProgress.slice(0, 3));
+            } else {
+                alert("Start some chapters or mark weaknesses to generate a revision deck.");
+                return;
+            }
         }
 
-        if (cards.length === 0) {
-            alert("No flashcards saved. Use the 'Explain' feature on chapters to generate them first.");
-            return;
-        }
+        setIsGeneratingFlashcards(true);
+        try {
+            const cards = await generateFlashcards(revisionTopics, apiKey);
+            
+            // Bridge Logic: Save these cards to persistence immediately so they are available in ErrorVaccinator
+            const storedCardsStr = localStorage.getItem('errorFlashcards_v1');
+            const allCards: Flashcard[] = storedCardsStr ? JSON.parse(storedCardsStr) : [];
+            const newCards = cards.filter(c => !allCards.some(existing => existing.id === c.id));
+            
+            if (newCards.length > 0) {
+                localStorage.setItem('errorFlashcards_v1', JSON.stringify([...allCards, ...newCards]));
+            }
 
-        for (let i = cards.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [cards[i], cards[j]] = [cards[j], cards[i]];
+            // Start the session locally in the unified modal
+            startFlashcardSession(cards); 
+            
+        } catch (e) {
+            console.error(e);
+            alert("Failed to generate flashcards. Please try again.");
+        } finally {
+            setIsGeneratingFlashcards(false);
         }
-
-        setQuickReviewCards(cards);
-        setCurrentCardIndex(0);
-        setIsCardFlipped(false);
-        setIsQuickReviewOpen(true);
     };
 
     const handleNodeClick = (topic: string) => {
@@ -305,49 +337,6 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
             if (subject) { setActiveSubject(subject as 'physics' | 'chemistry' | 'maths'); setActiveUnit(name); setVizMode('overview'); }
         }
     };
-
-    const revisionStackTopics = useMemo(() => {
-        const topics: { name: string, weight: number, reason: string }[] = [];
-        if (!userProfile?.syllabus) return [];
-
-        const syllabusChapters = Object.values(JEE_SYLLABUS).flatMap((subject: any) => subject.flatMap((unit: any) => unit.chapters.map((c: any) => c.name)));
-        syllabusChapters.forEach((chapter: any) => {
-            const progress = userProfile.syllabus[chapter] || { status: SyllabusStatus.NotStarted, strength: null, revisionCount: 0, subTopicStatus: {} };
-            const baseWeight = TOPIC_WEIGHTAGE[chapter] === 'High' ? 3 : TOPIC_WEIGHTAGE[chapter] === 'Medium' ? 2 : 1;
-            let lastInteractionDate = new Date('2000-01-01');
-            let hasInteraction = false;
-             questionLogs.forEach(log => {
-                if (log.topic === chapter) {
-                    const report = reports.find(r => r.id === log.testId);
-                    if (report) {
-                        const date = new Date(report.testDate);
-                        if (date > lastInteractionDate) { lastInteractionDate = date; hasInteraction = true; }
-                    }
-                }
-            });
-            if(hasInteraction) {
-                const today = new Date();
-                const diffTime = Math.abs(today.getTime() - lastInteractionDate.getTime());
-                const daysAgo = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-                const stability = 7 * (1 + (progress.revisionCount || 0) * 0.5); 
-                const retention = Math.exp(-daysAgo / stability);
-                if(retention < 0.7) { 
-                    const urgency = retention < 0.4 ? 2 : 1;
-                    topics.push({ name: chapter, weight: baseWeight * 5 * urgency, reason: 'Fading Memory' });
-                    return; 
-                }
-            }
-            if (progress.strength === 'weakness') { topics.push({ name: chapter, weight: baseWeight * 4, reason: 'Marked Weakness' }); return; }
-            if (progress.status === SyllabusStatus.InProgress) { topics.push({ name: chapter, weight: baseWeight * 2, reason: 'In Progress' }); return; }
-        });
-        if (topics.length === 0) {
-             syllabusChapters.forEach((chapter: any) => {
-                 const progress = userProfile.syllabus[chapter];
-                 if(progress && progress.status === SyllabusStatus.InProgress) { topics.push({ name: chapter, weight: 1, reason: 'Continue Progress' }); }
-             });
-        }
-        return topics.sort((a, b) => b.weight - a.weight).slice(0, 5);
-    }, [userProfile?.syllabus, questionLogs, reports]);
 
     const handleGenerateRevisionStack = () => {
         if(revisionStackTopics.length === 0) { alert("You haven't marked enough chapters as 'In Progress' or 'Weakness' to generate a targeted stack."); return; }
@@ -376,11 +365,16 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
                 
                 <div className="flex items-center gap-4">
                     <button
-                        onClick={startQuickReview}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-lg flex items-center gap-2 text-sm hover:scale-105 transition-transform"
-                        title="Review saved AI explanations as flashcards"
+                        onClick={handleStartRevision}
+                        disabled={isGeneratingFlashcards}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-lg flex items-center gap-2 text-sm hover:scale-105 transition-transform disabled:opacity-70 disabled:cursor-not-allowed"
+                        title="Start AI-Powered Flashcard Revision"
                     >
-                        <span>⚡</span> Quick Review
+                        {isGeneratingFlashcards ? (
+                            <><span className="animate-spin text-lg">⚡</span> Generating Neural Pathways...</>
+                        ) : (
+                            <><span>⚡</span> Start Revision</>
+                        )}
                     </button>
 
                     <button 
@@ -408,7 +402,7 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
                 {vizMode === 'sunburst' ? (
                     <SyllabusSunburst userProfile={userProfile} onSliceClick={handleSunburstClick} />
                 ) : vizMode === 'subway' ? (
-                    <SyllabusSubwayMap userProfile={userProfile} masteryScores={allMasteryScores} onNodeClick={handleNodeClick} />
+                    <CyberSkillTree userProfile={userProfile} masteryScores={allMasteryScores} onNodeClick={handleNodeClick} />
                 ) : vizMode === 'river' ? (
                     <SyllabusRiverFlow userProfile={userProfile} masteryScores={allMasteryScores} onNodeClick={handleNodeClick} />
                 ) : vizMode === 'tree' ? (
@@ -492,63 +486,25 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
                 />
             </Modal>
 
-            {/* Pre-Mortem Modal */}
-            <Modal isOpen={!!hurdleData} onClose={() => setHurdleData(null)} title={`🔮 Pre-mortem: ${hurdleData?.topic}`} isInfo>
-                <div className="p-1">
-                    <div className="bg-amber-900/20 border border-amber-600/30 rounded-lg p-4">
-                        <MarkdownRenderer content={hurdleData?.content || ''} className="text-amber-100" />
+            {/* Pre-Mortem Modal (Fixed Sizing) */}
+            <Modal isOpen={!!hurdleData} onClose={() => setHurdleData(null)} title={`🔮 Pre-mortem: ${hurdleData?.topic}`} isInfo={false}>
+                <div className="max-w-4xl mx-auto w-full h-[80vh] flex flex-col">
+                    <div className="flex-grow overflow-y-auto custom-scrollbar p-1">
+                        <div className="bg-amber-900/20 border border-amber-600/30 rounded-lg p-6">
+                            <MarkdownRenderer content={hurdleData?.content || ''} className="text-amber-100" />
+                        </div>
                     </div>
-                    <div className="mt-4 flex justify-end">
-                        <button onClick={() => setHurdleData(null)} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded text-sm transition-colors">Got it</button>
+                    <div className="mt-4 pt-4 border-t border-slate-700/50 flex justify-end shrink-0">
+                        <button onClick={() => setHurdleData(null)} className="px-6 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-medium transition-colors">Got it</button>
                     </div>
                 </div>
             </Modal>
 
-            {/* Quick Review Modal */}
-            <Modal isOpen={isQuickReviewOpen} onClose={() => setIsQuickReviewOpen(false)} title="⚡ Quick Review">
-                <div className="flex flex-col items-center justify-center h-[400px] p-4 relative">
-                    {quickReviewCards.length > 0 ? (
-                        <div 
-                            className="relative w-full max-w-2xl h-full cursor-pointer perspective-1000"
-                            onClick={() => setIsCardFlipped(!isCardFlipped)}
-                        >
-                            <div className={`relative w-full h-full transition-transform duration-500 transform-style-3d ${isCardFlipped ? 'rotate-y-180' : ''}`}>
-                                {/* Front */}
-                                <div className="absolute inset-0 backface-hidden bg-slate-800 rounded-xl border border-slate-600 flex flex-col items-center justify-center p-8 shadow-2xl">
-                                    <span className="text-xs text-gray-400 uppercase tracking-widest mb-4">Topic</span>
-                                    <h2 className="text-3xl font-bold text-white text-center">{quickReviewCards[currentCardIndex].topic}</h2>
-                                    <p className="text-sm text-gray-500 mt-8 animate-pulse">Click to flip</p>
-                                </div>
-                                {/* Back */}
-                                <div className="absolute inset-0 backface-hidden rotate-y-180 bg-indigo-900/30 rounded-xl border border-indigo-500/50 flex flex-col p-8 shadow-2xl overflow-y-auto custom-scrollbar">
-                                    <span className="text-xs text-indigo-300 uppercase tracking-widest mb-2 sticky top-0 bg-transparent">Explanation</span>
-                                    <MarkdownRenderer content={quickReviewCards[currentCardIndex].content} />
-                                </div>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="text-gray-400">No flashcards loaded.</div>
-                    )}
-                    
-                    {quickReviewCards.length > 0 && (
-                        <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-4 items-center">
-                            <button 
-                                onClick={(e) => { e.stopPropagation(); setCurrentCardIndex(p => (p - 1 + quickReviewCards.length) % quickReviewCards.length); setIsCardFlipped(false); }}
-                                className="p-2 rounded-full bg-slate-700 hover:bg-slate-600 text-white transition-colors"
-                            >
-                                ← Prev
-                            </button>
-                            <span className="text-sm text-gray-400">{currentCardIndex + 1} / {quickReviewCards.length}</span>
-                            <button 
-                                onClick={(e) => { e.stopPropagation(); setCurrentCardIndex(p => (p + 1) % quickReviewCards.length); setIsCardFlipped(false); }}
-                                className="p-2 rounded-full bg-slate-700 hover:bg-slate-600 text-white transition-colors"
-                            >
-                                Next →
-                            </button>
-                        </div>
-                    )}
-                </div>
-            </Modal>
+            {/* Unified Flashcard Modal */}
+            <FlashCardModal 
+                isOpen={isFlashcardModalOpen} 
+                onClose={() => closeFlashcardSession()} 
+            />
 
             {/* Unified Chapter Detail Modal */}
             <Modal isOpen={!!selectedChapterForModal} onClose={() => setSelectedChapterForModal(null)} title="">

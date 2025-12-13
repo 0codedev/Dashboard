@@ -338,37 +338,28 @@ export const useDashboardKpis = (
         }
     }
     
-    // --- Radar Data Logic (Topper & Cohort) ---
+    // --- Radar Data Logic (Average of Last 3 Tests) ---
     const radarData = useMemo(() => {
          const subjects = ['physics', 'chemistry', 'maths'] as const;
-         return subjects.map(subject => {
-             const score = latestReport[subject].marks;
-             const max = latestReport[subject].maxMarks || 60; // Default from types/ocr
-             
-             // Estimate topper score if not provided
-             let top = latestReport.topperScore 
-                 ? (latestReport.topperScore / 3) // Rough split if total topper score given
-                 : 0; 
-             
-             if (top === 0) {
-                 // Estimation based on difficulty
-                 const diffFactor = latestReport.difficulty === 'Hard' ? 0.65 : (latestReport.difficulty === 'Easy' ? 0.95 : 0.85);
-                 top = max * diffFactor;
-             }
+         const recentReports = processedReports.slice(-3); // Get last 3 reports (or fewer)
+         
+         if (recentReports.length === 0) return [];
 
-             // Estimate Cohort Average
-             const cohortFactor = latestReport.difficulty === 'Hard' ? 0.25 : (latestReport.difficulty === 'Easy' ? 0.55 : 0.40);
-             const avg = max * cohortFactor;
+         return subjects.map(subject => {
+             // Calculate Average Score for this subject
+             const totalScore = recentReports.reduce((sum, r) => sum + r[subject].marks, 0);
+             const avgScore = totalScore / recentReports.length;
+             
+             // Calculate Max Mark (Dynamic based on max in recent tests)
+             const maxMark = Math.max(...recentReports.map(r => r[subject].maxMarks || 60), 60);
 
              return {
                  subject: SUBJECT_CONFIG[subject].name,
-                 A: score,
-                 B: Math.round(top), // Topper
-                 C: Math.round(avg),  // Cohort
-                 fullMark: max
+                 A: Math.round(avgScore), // User Average
+                 fullMark: maxMark
              };
          });
-    }, [latestReport]);
+    }, [processedReports]);
 
 
     return {

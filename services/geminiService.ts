@@ -1,10 +1,13 @@
 
+// ... [Previous imports]
 import { GoogleGenAI, Type } from "@google/genai";
-import { QuestionStatus, type TestReport, type QuestionLog, QuizQuestion, DailyTask, UserProfile, TestType, TestSubType, ModelInfo, AiAssistantPreferences } from "../types";
+import { QuestionStatus, type TestReport, type QuestionLog, QuizQuestion, DailyTask, UserProfile, TestType, TestSubType, ModelInfo, AiAssistantPreferences, Flashcard } from "../types";
 import { getMarkingScheme } from "../utils/metrics";
 import { llmPipeline } from "./llm";
+import { semanticSearch } from "./vectorStore";
 
-// --- Helper Functions ---
+// ... [Existing helper functions like fileToGenerativePart, encodeAudio, decodeAudio, decodeAudioData remain the same]
+
 export const fileToGenerativePart = async (file: File) => {
   const base64EncodedDataPromise = new Promise<string>((resolve) => {
     const reader = new FileReader();
@@ -60,156 +63,46 @@ export async function decodeAudioData(
   return buffer;
 }
 
-// --- RAG Service (Client-Side) ---
-export const getEmbeddings = async (text: string, apiKey: string): Promise<number[]> => {
-    try {
-        const ai = new GoogleGenAI({ apiKey });
-        const response = await ai.models.embedContent({
-            model: 'text-embedding-004',
-            contents: [{ parts: [{ text }] }],
-        });
-        return response.embeddings?.[0]?.values || [];
-    } catch (e) {
-        console.error("Embedding failed", e);
-        return [];
-    }
-};
+
+// --- Updated RAG Service using Vector Store ---
 
 export const retrieveRelevantContext = async (
     query: string, 
     logs: QuestionLog[], 
     apiKey: string
 ): Promise<string> => {
-    // Lightweight keyword matching for demo
-    const logsText = logs.filter(l => l.status === QuestionStatus.Wrong)
-        .slice(-20)
-        .map(l => `${l.topic}: ${l.reasonForError || 'Error'}`)
-        .join('\n');
+    try {
+        // Try semantic search first (using local TF.js model)
+        const semanticResults = await semanticSearch(query, 5);
         
-    return logsText ? `Recent Weakness History:\n${logsText}` : "";
-};
+        if (semanticResults.length > 0) {
+            console.log("RAG: Semantic search hit.");
+            return `Relevant Past Performance History:\n${semanticResults.map(r => r.content).join('\n---\n')}`;
+        }
+        
+        // Fallback to keyword matching if vector store empty or fails
+        console.log("RAG: Fallback to keyword matching.");
+        const keywords = query.toLowerCase().split(' ').filter(w => w.length > 3);
+        const relevantLogs = logs.filter(l => {
+            const content = `${l.topic} ${l.reasonForError} ${l.subject}`.toLowerCase();
+            return keywords.some(k => content.includes(k));
+        }).slice(-10);
 
-// --- GenUI Tools Definitions ---
-export const GENUI_TOOLS = [
-    {
-        name: "renderChart",
-        description: "Renders a visual chart in the chat.",
-        parameters: {
-            type: Type.OBJECT,
-            properties: {
-                title: { type: Type.STRING },
-                chartType: { type: Type.STRING, enum: ["bar", "line", "pie"] },
-                data: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: { name: { type: Type.STRING }, value: { type: Type.NUMBER }, label: { type: Type.STRING } }
-                    }
-                },
-                xAxisLabel: { type: Type.STRING }
-            },
-            required: ["title", "chartType", "data"]
+        if (relevantLogs.length === 0) {
+             // Fallback to recent wrong answers if no keywords match
+             const recentErrors = logs.filter(l => l.status === QuestionStatus.Wrong).slice(-5);
+             return recentErrors.length ? `Recent Errors:\n${recentErrors.map(l => `${l.topic}: ${l.reasonForError}`).join('\n')}` : "";
         }
-    },
-    {
-        name: "createActionPlan",
-        description: "Creates an interactive checklist.",
-        parameters: {
-            type: Type.OBJECT,
-            properties: {
-                title: { type: Type.STRING },
-                items: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: { task: { type: Type.STRING }, priority: { type: Type.STRING, enum: ["High", "Medium", "Low"] } }
-                    }
-                }
-            },
-            required: ["title", "items"]
-        }
-    },
-    {
-        name: "renderDiagram",
-        description: "Generates SVG diagram code.",
-        parameters: {
-            type: Type.OBJECT,
-            properties: { title: { type: Type.STRING }, svgContent: { type: Type.STRING }, description: { type: Type.STRING } },
-            required: ["title", "svgContent"]
-        }
-    },
-    {
-        name: "createMindMap",
-        description: "Creates hierarchical mind map.",
-        parameters: {
-            type: Type.OBJECT,
-            properties: {
-                root: { 
-                    type: Type.OBJECT,
-                    properties: { label: { type: Type.STRING }, children: { type: Type.ARRAY, items: { type: Type.OBJECT } } },
-                    required: ["label"]
-                }
-            },
-            required: ["root"]
-        }
+
+        return `Context based on keywords:\n${relevantLogs.map(l => `${l.topic} (${l.subject}): ${l.reasonForError || 'Error'}`).join('\n')}`;
+
+    } catch (e) {
+        console.error("RAG Retrieval failed:", e);
+        return "";
     }
-];
-
-export const getAvailableModels = async (apiKey: string): Promise<ModelInfo[]> => {
-    // Only returning local fallback since we use the internal registry now
-    return [
-        { id: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', description: 'Main Model' },
-        { id: 'gemini-2.5-flash-lite', displayName: 'Gemini 2.5 Flash-Lite', description: 'Budget Friendly' }
-    ];
 };
 
-// --- OCR Function (Remains direct Gemini) ---
-export const extractDataFromImage = async (
-    scoreSheetFile: File,
-    apiKey: string,
-    modelName: string = "gemini-2.5-flash", 
-    instructionSheetFile?: File
-): Promise<{ report: Partial<TestReport>, questions: Partial<QuestionLog>[], confidence: Record<string, 'high'|'medium'|'low'> }> => {
-  try {
-    const ai = new GoogleGenAI({ apiKey });
-    const scoreSheetPart = await fileToGenerativePart(scoreSheetFile);
-    const parts: any[] = [scoreSheetPart];
-    
-    if (instructionSheetFile) {
-        const instructionPart = await fileToGenerativePart(instructionSheetFile);
-        parts.push(instructionPart);
-    }
-
-    const prompt = `You are an expert OCR system specialized in reading JEE Student Score Reports. Extract Test Name, Date, Subject Marks, Rank, and Question details. Return strictly JSON.`;
-    parts.push({ text: prompt });
-
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash', // Strict override for Vision
-        contents: { parts: parts },
-        config: {
-            responseMimeType: "application/json",
-            // Schema definitions omitted for brevity, keeping original behavior
-        },
-    });
-
-    const jsonText = response.text.trim();
-    // Assuming simple parsing for this partial update, reuse original logic in implementation
-    const parsedJson = JSON.parse(jsonText);
-    
-    // Minimal mock return structure to satisfy type signature if JSON fails, 
-    // in reality reuse the big schema from original file
-    return { 
-        report: parsedJson || {}, 
-        questions: parsedJson.questions || [], 
-        confidence: { physics: 'high', chemistry: 'high', maths: 'high', total: 'high' } 
-    };
-  } catch (error) {
-    console.error("Error extracting data:", error);
-    throw new Error(`Failed to process image. API Key or Model might be invalid.`);
-  }
-};
-
-// --- Updated Functions using llmPipeline ---
+// ... [GENUI_TOOLS, getAvailableModels, extractDataFromImage, validateOCRData, inferTestMetadata, getAIAnalysis, generateStudyPlan, generateContextualInsight, generateDashboardInsight, generateChartAnalysis, getDailyQuote, generateChecklistFromPlan, generateEndOfDaySummary, getAIChiefAnalystSummary, generateFocusedStudyPlan, explainTopic, generateGatekeeperQuiz, generateTasksFromGoal, generateSmartTasks, generateSmartTaskOrder, generateLearningPath, generateNextWhy, generatePreMortem, generateOracleDrill remain unchanged]
 
 // Helper to get dummy prefs for internal calls if not passed
 const getMockPrefs = (apiKey: string): AiAssistantPreferences => {
@@ -452,4 +345,210 @@ export const generatePreMortem = async (topic: string, prereqs: string[], errors
         userPreferences: getMockPrefs(apiKey),
         googleApiKey: apiKey
     });
+};
+
+export const generateOracleDrill = async (
+    errorStats: { topic: string; reason: string; count: number }[], 
+    apiKey: string, 
+    model?: string
+): Promise<QuizQuestion[]> => {
+    // Select top 3 weak topics
+    const topWeaknesses = errorStats.slice(0, 3);
+    const topicsContext = topWeaknesses.map(w => `${w.topic} (Failure Pattern: ${w.reason})`).join(', ');
+    
+    const prompt = `
+    Generate a 'Predictive Drill' of 5 JEE Advanced level Multiple Choice Questions.
+    Focus specifically on these student weaknesses: ${topicsContext}.
+    
+    Design questions that trap the student into making the specific errors listed (e.g. if 'Silly Mistake', add calculation traps. If 'Conceptual Gap', test fundamental understanding).
+    
+    Return strictly JSON in the following format:
+    {
+      "quiz": [
+        {
+          "question": "string",
+          "options": {"A": "...", "B": "...", "C": "...", "D": "..."},
+          "answer": "A",
+          "explanation": "Detailed solution explaining the trap and correct concept."
+        }
+      ]
+    }
+    `;
+    
+    try {
+        const res = await llmPipeline({
+            task: 'math', // High reasoning required
+            prompt,
+            expectJson: true,
+            userPreferences: getMockPrefs(apiKey),
+            googleApiKey: apiKey
+        });
+        return JSON.parse(res).quiz || [];
+    } catch (e) {
+        console.error("Oracle Generation Failed", e);
+        return [];
+    }
+};
+
+export const generateFlashcards = async (topics: string[], apiKey: string): Promise<Flashcard[]> => {
+    const prompt = `
+    Generate 3 conceptual JEE flashcards for the following topics: ${topics.join(', ')}.
+    Each flashcard should test a core concept, formula application, or common misconception.
+    
+    Return strictly a JSON array of objects with the following structure:
+    [
+      {
+        "topic": "Topic Name",
+        "front": "Question or Scenario",
+        "back": "Answer and Key Concept Explanation",
+        "difficulty": "Medium" 
+      }
+    ]
+    Valid difficulty levels are 'Easy', 'Medium', 'Hard'.
+    `;
+
+    try {
+        const res = await llmPipeline({
+            task: 'math', // Flashcards often involve math/concepts
+            prompt,
+            expectJson: true,
+            userPreferences: getMockPrefs(apiKey),
+            googleApiKey: apiKey
+        });
+        const parsed = JSON.parse(res);
+        // Map to internal Flashcard type
+        return (parsed.flashcards || parsed || []).map((card: any, index: number) => ({
+            id: `fc-${Date.now()}-${index}`,
+            topic: card.topic,
+            front: card.front,
+            back: card.back,
+            difficulty: card.difficulty,
+            nextReview: new Date().toISOString(),
+            interval: 0,
+            easeFactor: 2.5,
+            reviews: 0
+        }));
+    } catch (e) {
+        console.error("Flashcard generation failed", e);
+        throw new Error("Failed to generate flashcards.");
+    }
+};
+
+// ... [GENUI_TOOLS and other exports remain unchanged]
+export const GENUI_TOOLS = [
+    {
+        name: "renderChart",
+        description: "Renders a visual chart in the chat.",
+        parameters: {
+            type: Type.OBJECT,
+            properties: {
+                title: { type: Type.STRING },
+                chartType: { type: Type.STRING, enum: ["bar", "line", "pie"] },
+                data: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: { name: { type: Type.STRING }, value: { type: Type.NUMBER }, label: { type: Type.STRING } }
+                    }
+                },
+                xAxisLabel: { type: Type.STRING }
+            },
+            required: ["title", "chartType", "data"]
+        }
+    },
+    {
+        name: "createActionPlan",
+        description: "Creates an interactive checklist.",
+        parameters: {
+            type: Type.OBJECT,
+            properties: {
+                title: { type: Type.STRING },
+                items: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: { task: { type: Type.STRING }, priority: { type: Type.STRING, enum: ["High", "Medium", "Low"] } }
+                    }
+                }
+            },
+            required: ["title", "items"]
+        }
+    },
+    {
+        name: "renderDiagram",
+        description: "Generates SVG diagram code.",
+        parameters: {
+            type: Type.OBJECT,
+            properties: { title: { type: Type.STRING }, svgContent: { type: Type.STRING }, description: { type: Type.STRING } },
+            required: ["title", "svgContent"]
+        }
+    },
+    {
+        name: "createMindMap",
+        description: "Creates hierarchical mind map.",
+        parameters: {
+            type: Type.OBJECT,
+            properties: {
+                root: { 
+                    type: Type.OBJECT,
+                    properties: { label: { type: Type.STRING }, children: { type: Type.ARRAY, items: { type: Type.OBJECT } } },
+                    required: ["label"]
+                }
+            },
+            required: ["root"]
+        }
+    }
+];
+
+export const getAvailableModels = async (apiKey: string): Promise<ModelInfo[]> => {
+    return [
+        { id: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', description: 'Main Model' },
+        { id: 'gemini-2.5-flash-lite', displayName: 'Gemini 2.5 Flash-Lite', description: 'Budget Friendly' }
+    ];
+};
+
+// --- OCR Function (Remains direct Gemini) ---
+export const extractDataFromImage = async (
+    scoreSheetFile: File,
+    apiKey: string,
+    modelName: string = "gemini-2.5-flash", 
+    instructionSheetFile?: File
+): Promise<{ report: Partial<TestReport>, questions: Partial<QuestionLog>[], confidence: Record<string, 'high'|'medium'|'low'> }> => {
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+    const scoreSheetPart = await fileToGenerativePart(scoreSheetFile);
+    const parts: any[] = [scoreSheetPart];
+    
+    if (instructionSheetFile) {
+        const instructionPart = await fileToGenerativePart(instructionSheetFile);
+        parts.push(instructionPart);
+    }
+
+    const prompt = `You are an expert OCR system specialized in reading JEE Student Score Reports. Extract Test Name, Date, Subject Marks, Rank, and Question details. Return strictly JSON.`;
+    parts.push({ text: prompt });
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash', // Strict override for Vision
+        contents: { parts: parts },
+        config: {
+            responseMimeType: "application/json",
+            // Schema definitions omitted for brevity, keeping original behavior
+        },
+    });
+
+    const jsonText = response.text.trim();
+    // Assuming simple parsing for this partial update, reuse original logic in implementation
+    const parsedJson = JSON.parse(jsonText);
+    
+    // Minimal mock return structure to satisfy type signature if JSON fails, 
+    // in reality reuse the big schema from original file
+    return { 
+        report: parsedJson || {}, 
+        questions: parsedJson.questions || [], 
+        confidence: { physics: 'high', chemistry: 'high', maths: 'high', total: 'high' } 
+    };
+  } catch (error) {
+    console.error("Error extracting data:", error);
+    throw new Error(`Failed to process image. API Key or Model might be invalid.`);
+  }
 };
