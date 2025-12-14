@@ -282,7 +282,8 @@ export const useDashboardKpis = (
              // Base Effort (Low accuracy = High base effort)
              const baseEffort = (1 / (accuracy + 0.2));
              
-             const effort = baseEffort * complexity * effortModifier * 5; // Scale to approx 0-100
+             // Adjusted scaling to better utilize the 0-100 range
+             const effort = baseEffort * complexity * effortModifier * 15; 
 
              // Determine Quadrant
              let quadrant: StrategicROIPoint['quadrant'] = 'Maintenance';

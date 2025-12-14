@@ -642,6 +642,17 @@ const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleRepo
     reports, logs, userProfile, aiPreferences, notificationPreferences, appearancePreferences, gamificationState, studyGoals, longTermGoals, chatHistory
 }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [confirmModal, setConfirmModal] = useState<{
+        isOpen: boolean;
+        title: string;
+        message: string;
+        action: () => void;
+        dangerLevel: 'high' | 'critical';
+    }>({ isOpen: false, title: '', message: '', action: () => {}, dangerLevel: 'high' });
+
+    const openConfirm = (title: string, message: string, action: () => void, dangerLevel: 'high' | 'critical' = 'high') => {
+        setConfirmModal({ isOpen: true, title, message, action, dangerLevel });
+    };
 
     const handleBackup = () => {
         const data = {
@@ -677,6 +688,18 @@ const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleRepo
 
     return (
         <div className="space-y-8 animate-fade-in">
+             <Modal isOpen={confirmModal.isOpen} onClose={() => setConfirmModal({...confirmModal, isOpen: false})} title={confirmModal.title} isInfo>
+                <div className="space-y-4">
+                    <p className="text-gray-300">{confirmModal.message}</p>
+                    <div className="flex justify-end gap-3 pt-2">
+                        <Button variant="secondary" onClick={() => setConfirmModal({...confirmModal, isOpen: false})}>Cancel</Button>
+                        <Button variant="danger" onClick={() => { confirmModal.action(); setConfirmModal({...confirmModal, isOpen: false}); }}>
+                            {confirmModal.dangerLevel === 'critical' ? 'I Understand, Delete' : 'Confirm'}
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
+
             <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
                  <h3 className="text-lg font-bold text-[rgb(var(--color-primary-rgb))] mb-2 flex items-center gap-2">
                     <span className="text-xl">💾</span> Data & Privacy
@@ -702,22 +725,50 @@ const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleRepo
                         <div className="bg-red-950/30 p-3 rounded border border-red-900/30">
                             <p className="text-xs text-red-200 font-bold mb-1">Academic Data</p>
                             <p className="text-[10px] text-red-300/70 mb-3">Reports & Logs only</p>
-                            <Button variant="danger" size="sm" onClick={() => { if(confirm('Delete all academic reports?')) handleReportsReset() }} className="w-full">Purge Reports</Button>
+                            <Button 
+                                variant="danger" 
+                                size="sm" 
+                                onClick={() => openConfirm('Purge Reports?', 'This will permanently delete all uploaded test reports and question logs. This cannot be undone.', handleReportsReset)} 
+                                className="w-full"
+                            >
+                                Purge Reports
+                            </Button>
                         </div>
                          <div className="bg-red-950/30 p-3 rounded border border-red-900/30">
                             <p className="text-xs text-red-200 font-bold mb-1">AI Memory</p>
                             <p className="text-[10px] text-red-300/70 mb-3">Chat history</p>
-                            <Button variant="danger" size="sm" onClick={() => { if(confirm('Clear chat history?')) handleChatReset() }} className="w-full">Wipe Memory</Button>
+                            <Button 
+                                variant="danger" 
+                                size="sm" 
+                                onClick={() => openConfirm('Wipe AI Memory?', 'This will clear your entire chat history with the AI Coach.', handleChatReset)} 
+                                className="w-full"
+                            >
+                                Wipe Memory
+                            </Button>
                         </div>
                          <div className="bg-red-950/30 p-3 rounded border border-red-900/30">
                             <p className="text-xs text-red-200 font-bold mb-1">Career Progress</p>
                             <p className="text-[10px] text-red-300/70 mb-3">XP, Levels, Badges</p>
-                            <Button variant="danger" size="sm" onClick={() => { if(confirm('Reset all achievements and XP?')) handleGamificationReset() }} className="w-full">Reset Progress</Button>
+                            <Button 
+                                variant="danger" 
+                                size="sm" 
+                                onClick={() => openConfirm('Reset Progress?', 'This will reset your XP, Level, and all earned Achievements.', handleGamificationReset)} 
+                                className="w-full"
+                            >
+                                Reset Progress
+                            </Button>
                         </div>
                         <div className="bg-red-950/30 p-3 rounded border border-red-900/30">
                             <p className="text-xs text-red-200 font-bold mb-1">Factory Reset</p>
                             <p className="text-[10px] text-red-300/70 mb-3">Everything</p>
-                            <Button variant="danger" size="sm" onClick={() => { if(confirm('ARE YOU SURE? This will wipe ALL data and cannot be undone.')) handleFullReset() }} className="w-full font-black tracking-widest">NUKE DATA</Button>
+                            <Button 
+                                variant="danger" 
+                                size="sm" 
+                                onClick={() => openConfirm('Factory Reset?', 'ARE YOU SURE? This will wipe ALL data including settings, profile, and logs. This action is irreversible.', handleFullReset, 'critical')} 
+                                className="w-full font-black tracking-widest"
+                            >
+                                NUKE DATA
+                            </Button>
                         </div>
                     </div>
                 </div>

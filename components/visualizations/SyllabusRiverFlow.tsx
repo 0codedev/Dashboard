@@ -1,6 +1,6 @@
 
 import React, { useMemo, useState, useRef, useEffect } from 'react';
-import { UserProfile } from '../../types';
+import { UserProfile, SyllabusStatus } from '../../types';
 import { JEE_SYLLABUS, TOPIC_DEPENDENCIES, SUBJECT_COLORS, TOPIC_WEIGHTAGE } from '../../constants';
 
 interface SyllabusRiverFlowProps {
@@ -26,8 +26,10 @@ export const SyllabusRiverFlow: React.FC<SyllabusRiverFlowProps> = ({ userProfil
     const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
     const [transform, setTransform] = useState({ scale: 1, x: 0, y: 0 });
     const [isPanning, setIsPanning] = useState(false);
+    const [hoveredNode, setHoveredNode] = useState<{ topic: string, x: number, y: number, subject: string } | null>(null);
     const lastMousePos = useRef({ x: 0, y: 0 });
     const svgRef = useRef<SVGSVGElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
 
     const { layers, edges, nodePositions, maxLayerWidth, contentHeight } = useMemo(() => {
         const allTopics = new Set(Object.values(JEE_SYLLABUS).flatMap(s => s.flatMap(u => u.chapters.map(c => c.name))));
@@ -170,13 +172,28 @@ export const SyllabusRiverFlow: React.FC<SyllabusRiverFlowProps> = ({ userProfil
         lastMousePos.current = { x: e.clientX, y: e.clientY };
     };
     const handleMouseUp = () => setIsPanning(false);
+    
     const handleNodeClick = (e: React.MouseEvent, topic: string) => {
         e.stopPropagation();
         setSelectedTopic(prev => prev === topic ? null : topic);
+        if (onNodeClick) onNodeClick(topic); // Optional: if prop provided
     }
 
+    const handleNodeEnter = (e: React.MouseEvent, topic: string, subject: string) => {
+        const rect = (e.target as Element).getBoundingClientRect();
+        const containerRect = containerRef.current?.getBoundingClientRect();
+        if (containerRect) {
+            setHoveredNode({
+                topic,
+                x: rect.left - containerRect.left + rect.width / 2,
+                y: rect.top - containerRect.top - 10,
+                subject
+            });
+        }
+    };
+
     return (
-        <div className="w-full h-[600px] bg-slate-900 rounded-xl border border-slate-700 p-4 relative overflow-hidden">
+        <div ref={containerRef} className="w-full h-[600px] bg-slate-900 rounded-xl border border-slate-700 p-4 relative overflow-hidden">
             <h3 className="text-xl font-bold text-slate-200 absolute top-4 left-4 z-10">Prerequisite River Flow</h3>
             <svg 
                 ref={svgRef}
@@ -216,7 +233,13 @@ export const SyllabusRiverFlow: React.FC<SyllabusRiverFlowProps> = ({ userProfil
                         const isActive = selectedTopic === topic || upstream.has(topic) || downstream.has(topic);
                         const radius = 12 + weight * 4;
                         return (
-                             <g key={topic} className="cursor-pointer group" onClick={(e) => handleNodeClick(e, topic)}>
+                             <g 
+                                key={topic} 
+                                className="cursor-pointer group" 
+                                onClick={(e) => handleNodeClick(e, topic)}
+                                onMouseEnter={(e) => handleNodeEnter(e, topic, subject)}
+                                onMouseLeave={() => setHoveredNode(null)}
+                            >
                                 <circle 
                                     cx={x} cy={y}
                                     r={radius + 3}
@@ -237,7 +260,6 @@ export const SyllabusRiverFlow: React.FC<SyllabusRiverFlowProps> = ({ userProfil
                                 <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fill="#fff" fontSize="10" fontWeight="bold" className="pointer-events-none" opacity={selectedTopic ? (isActive ? 1 : 0.3) : 1}>
                                     {getAbbreviation(topic)}
                                 </text>
-                                <title>{topic}</title>
                             </g>
                         )
                     })}
@@ -250,6 +272,69 @@ export const SyllabusRiverFlow: React.FC<SyllabusRiverFlowProps> = ({ userProfil
                     <button onClick={() => handleZoom('out')} className="w-6 h-6 bg-slate-700 rounded text-white hover:bg-slate-600">-</button>
                  </div>
             </div>
+
+            {/* Professional Overlay Tooltip */}
+            {hoveredNode && (
+                <div 
+                    className="fixed z-50 pointer-events-none transform -translate-x-1/2 -translate-y-full mb-4 animate-fade-in"
+                    style={{ 
+                        left: containerRef.current?.getBoundingClientRect().left! + hoveredNode.x, 
+                        top: containerRef.current?.getBoundingClientRect().top! + hoveredNode.y 
+                    }}
+                >
+                    <div className="bg-slate-900/90 backdrop-blur-xl border border-cyan-500/30 p-4 rounded-xl shadow-[0_0_30px_rgba(0,0,0,0.5)] min-w-[220px]">
+                        <div className="flex justify-between items-start mb-2 border-b border-cyan-900/50 pb-2">
+                            <span className="text-xs font-bold text-cyan-300 uppercase tracking-widest">{hoveredNode.subject}</span>
+                            <span className="text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded">ID: {getAbbreviation(hoveredNode.topic)}</span>
+                        </div>
+                        <p className="text-white font-bold text-base mb-3 leading-tight">{hoveredNode.topic}</p>
+                        
+                        {(() => {
+                            const prog = userProfile.syllabus[hoveredNode.topic];
+                            const status = prog?.status || SyllabusStatus.NotStarted;
+                            const mastery = masteryScores[hoveredNode.topic];
+                            
+                            return (
+                                <div className="space-y-3">
+                                    <div className="flex justify-between text-[11px] text-gray-400">
+                                        <span>Status</span>
+                                        <span className={`font-medium ${status === SyllabusStatus.Completed ? 'text-green-400' : status === SyllabusStatus.InProgress ? 'text-yellow-400' : 'text-white'}`}>{status}</span>
+                                    </div>
+                                    
+                                    {mastery && (
+                                        <div className="bg-slate-800/50 p-2 rounded-lg border border-slate-700/50">
+                                            <div className="flex justify-between text-[10px] mb-1">
+                                                <span className="text-slate-400">Mastery</span>
+                                                <span className="font-bold" style={{color: mastery.color}}>{mastery.tier}</span>
+                                            </div>
+                                            <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden">
+                                                <div 
+                                                    className="h-full rounded-full transition-all duration-500" 
+                                                    style={{ width: `${Math.min(100, (mastery.score / 2000) * 100)}%`, backgroundColor: mastery.color }}
+                                                ></div>
+                                            </div>
+                                            <div className="text-right text-[9px] text-slate-500 mt-1 font-mono">{Math.round(mastery.score)} XP</div>
+                                        </div>
+                                    )}
+
+                                    {TOPIC_DEPENDENCIES[hoveredNode.topic] && TOPIC_DEPENDENCIES[hoveredNode.topic].length > 0 && (
+                                         <div className="text-[10px] text-slate-400 border-t border-slate-800 pt-2 mt-2">
+                                            <span className="block mb-1 font-semibold">Depends on:</span>
+                                            <div className="flex flex-wrap gap-1">
+                                                {TOPIC_DEPENDENCIES[hoveredNode.topic].map(dep => (
+                                                    <span key={dep} className="px-1.5 py-0.5 bg-slate-800 rounded text-slate-300 border border-slate-700">{getAbbreviation(dep)}</span>
+                                                ))}
+                                            </div>
+                                         </div>
+                                    )}
+                                </div>
+                            );
+                        })()}
+                    </div>
+                    {/* Tooltip Arrow */}
+                    <div className="absolute left-1/2 -translate-x-1/2 bottom-[-8px] w-4 h-4 bg-slate-900 border-r border-b border-cyan-500/30 transform rotate-45"></div>
+                </div>
+            )}
         </div>
     );
 };

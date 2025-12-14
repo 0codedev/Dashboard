@@ -68,6 +68,8 @@ const DEFAULT_ROOT_CAUSE_LAYOUT: WidgetLayout[] = [
     { id: 'questionType', visible: false, size: 'normal' },
 ];
 
+// ... (Colors and Chart Components omitted for brevity, identical to existing file)
+
 const COLORS_PIE: Record<string, string> = {
     [ErrorReason.ConceptualGap]: '#FBBF24', // amber-400
     [ErrorReason.MisreadQuestion]: '#34D399', // emerald-400
@@ -89,7 +91,7 @@ const PASTEL_COLORS: Record<string, string> = {
     'Potential': '#64748b' // slate-500
 };
 
-// --- Child Components (Charts) ---
+// ... [Child Components (Charts) like ScoreContributionWidget, etc. remain unchanged]
 
 const ScoreContributionWidget: React.FC<{ reports: TestReport[] }> = ({ reports }) => {
     const [localTestId, setLocalTestId] = useState('all');
@@ -169,9 +171,9 @@ const ScoreContributionWidget: React.FC<{ reports: TestReport[] }> = ({ reports 
     );
 };
 
-// ... [Keep other chart widgets unchanged] ...
+// ... [SpeedVsAccuracyWidget, MetricScatterWidget, ErrorReasonsBySubjectWidget, InteractiveSankeyNode, InteractiveSankeyLink, SankeyWidget, StatusBadge, PanicAnalysisWidget, GuessingWidget, ScoreSimulatorWidget, DependencyAlertsWidget, AIChiefAnalyst, ErrorReasonPieChart, LostMarksWaterfall, ChartCard, DrillDownModal are unchanged but re-included logic for brevity if needed]
+// ... (For full file replacement, these components would need to be present)
 
-// Re-using the same widget definitions as before but omitting for brevity in this response unless they need updates
 const SpeedVsAccuracyWidget: React.FC<{ logs: QuestionLog[] }> = ({ logs }) => {
     const data = useMemo(() => {
         const topicStats = new Map<string, { correct: number, attempts: number, time: number }>();
@@ -927,8 +929,8 @@ const ChartCard: React.FC<{
     </div>
 );
 
-// Updated DrillDownModal with 5 Whys
-const DrillDownModal: React.FC<{ data: ModalData, logs: QuestionLog[] }> = ({ data, logs }) => {
+// Updated DrillDownModal with 5 Whys and Exam Details
+const DrillDownModal: React.FC<{ data: ModalData, logs: QuestionLog[], reports: TestReport[] }> = ({ data, logs, reports }) => {
     const { drillDownKey } = data;
     const [fiveWhysStep, setFiveWhysStep] = useState<number | null>(null);
     
@@ -946,6 +948,11 @@ const DrillDownModal: React.FC<{ data: ModalData, logs: QuestionLog[] }> = ({ da
     const handleFiveWhysStart = () => setFiveWhysStep(1);
     const handleNextWhy = () => setFiveWhysStep(p => (p ? p + 1 : 1));
     const handleResetWhy = () => setFiveWhysStep(null);
+
+    const getTestInfo = (testId: string) => {
+        const report = reports.find(r => r.id === testId);
+        return report ? { name: report.testName, date: report.testDate } : { name: testId, date: 'N/A' };
+    };
 
     if (relevantLogs.length === 0) {
         return <p>No detailed logs found for this selection.</p>;
@@ -997,23 +1004,30 @@ const DrillDownModal: React.FC<{ data: ModalData, logs: QuestionLog[] }> = ({ da
                 <table className="min-w-full text-sm">
                     <thead className="bg-slate-700/50 sticky top-0">
                         <tr>
-                            <th className="p-2 text-left">Q.No</th>
-                            <th className="p-2 text-left">Subject</th>
-                            <th className="p-2 text-left">Status</th>
-                            <th className="p-2 text-left">Topic</th>
-                            <th className="p-2 text-left">Error Reason</th>
+                            <th className="p-2 text-left text-gray-300 font-semibold">Date</th>
+                            <th className="p-2 text-left text-gray-300 font-semibold">Exam</th>
+                            <th className="p-2 text-left text-gray-300 font-semibold">Q.No</th>
+                            <th className="p-2 text-left text-gray-300 font-semibold">Subject</th>
+                            <th className="p-2 text-left text-gray-300 font-semibold">Status</th>
+                            <th className="p-2 text-left text-gray-300 font-semibold">Topic</th>
+                            <th className="p-2 text-left text-gray-300 font-semibold">Error Reason</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-700">
-                        {relevantLogs.map((log, index) => (
-                            <tr key={index} className="hover:bg-slate-700/40">
-                                <td className="p-2">{log.questionNumber}</td>
-                                <td className="p-2 capitalize">{log.subject}</td>
-                                <td className="p-2"><StatusBadge status={log.status} /></td>
-                                <td className="p-2">{log.topic}</td>
-                                <td className="p-2">{log.reasonForError}</td>
-                            </tr>
-                        ))}
+                        {relevantLogs.map((log, index) => {
+                            const { name, date } = getTestInfo(log.testId);
+                            return (
+                                <tr key={index} className="hover:bg-slate-700/40">
+                                    <td className="p-2 text-gray-400 text-xs">{new Date(date).toLocaleDateString()}</td>
+                                    <td className="p-2 font-medium text-cyan-300">{name}</td>
+                                    <td className="p-2">{log.questionNumber}</td>
+                                    <td className="p-2 capitalize">{log.subject}</td>
+                                    <td className="p-2"><StatusBadge status={log.status} /></td>
+                                    <td className="p-2">{log.topic}</td>
+                                    <td className="p-2">{log.reasonForError}</td>
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
@@ -1039,23 +1053,35 @@ export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFi
     const [qTypeMetric, setQTypeMetric] = useState<'errors' | 'totalAttempts' | 'errorRate' | 'avgMarks'>('errors');
     const [errorTrendMode, setErrorTrendMode] = useState<'absolute' | 'percent'>('percent');
 
+    // Robust State Initialization
     const [layout, setLayout] = useState<WidgetLayout[]>(() => {
         try {
-            const savedLayout = localStorage.getItem('rootCauseWidgetLayout_v7');
-            if (savedLayout) {
-                const parsed = JSON.parse(savedLayout);
-                const savedWidgetMap = new Map(parsed.map((w: WidgetLayout) => [w.id, w]));
-                return DEFAULT_ROOT_CAUSE_LAYOUT.map(defaultWidget => {
-                    const savedWidget = savedWidgetMap.get(defaultWidget.id);
-                    return savedWidget && typeof savedWidget === 'object' ? { ...defaultWidget, ...savedWidget } : defaultWidget;
-                }).filter(w => DEFAULT_ROOT_CAUSE_LAYOUT.some(d => d.id === w.id));
+            const savedLayoutString = localStorage.getItem('rootCauseWidgetLayout_v7');
+            if (savedLayoutString) {
+                const parsedLayout = JSON.parse(savedLayoutString);
+                if (Array.isArray(parsedLayout)) {
+                    // Create a map of saved widgets
+                    const savedMap = new Map(parsedLayout.map((w: any) => [w.id, w]));
+                    
+                    // Merge saved state with defaults
+                    const merged = DEFAULT_ROOT_CAUSE_LAYOUT.map(defaultWidget => {
+                        const savedWidget = savedMap.get(defaultWidget.id);
+                        return savedWidget ? { ...defaultWidget, ...savedWidget } : defaultWidget;
+                    });
+                    
+                    return merged;
+                }
             }
-        } catch (e) { console.error("Failed to load layout from localStorage", e); }
+        } catch (e) { 
+            console.error("Failed to load root cause layout", e); 
+        }
         return DEFAULT_ROOT_CAUSE_LAYOUT;
     });
     
     useEffect(() => { try { localStorage.setItem('rootCauseWidgetLayout_v7', JSON.stringify(layout)); } catch (e) { console.error("Failed to save layout to localStorage", e); } }, [layout]);
 
+    // ... (Remaining component logic remains unchanged)
+    // Re-declaring functions for context
     const openModal = (type: ModalType, title: string, drillDownKey?: string, widgetId?: WidgetId, simulatorData?: any, infoContent?: React.ReactNode) => {
         setModalData({ type, title, drillDownKey, widgetId, simulatorData, infoContent });
     };
@@ -1068,7 +1094,6 @@ export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFi
                 const newLayout = [...prevLayout];
                 const dragItemIndex = newLayout.findIndex(w => w.id === dragItem.current);
                 const dragOverItemIndex = newLayout.findIndex(w => w.id === dragOverItem.current);
-                // Safety check
                 if (dragItemIndex === -1 || dragOverItemIndex === -1) return prevLayout;
 
                 const dragItemContent = newLayout[dragItemIndex];
@@ -1415,7 +1440,7 @@ export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFi
                     isInfo={modalData.type === 'info'}
                 >
                     {modalData.type === 'errorReasonDetail' || modalData.type === 'topicDetail' ? (
-                        <DrillDownModal data={modalData} logs={filteredLogs} />
+                        <DrillDownModal data={modalData} logs={filteredLogs} reports={reports} />
                     ) : modalData.type === 'info' ? (
                         <div className="text-sm text-gray-300 space-y-2 p-1">{modalData.infoContent}</div>
                     ) : modalData.type === 'simulator' ? (

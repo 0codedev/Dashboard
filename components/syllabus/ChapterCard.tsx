@@ -15,7 +15,7 @@ const MemoryBattery: React.FC<{ percentage: number; status: 'good' | 'fading' | 
     const blocks = Math.ceil(percentage / 25); 
 
     return (
-        <div className="group relative flex items-center gap-1 cursor-help">
+        <div className="group relative flex items-center gap-1 cursor-help z-20">
             <div className="w-6 h-3 border border-slate-500 rounded-sm p-[1px] flex gap-[1px]">
                 {[1, 2, 3, 4].map(i => (
                     <div key={i} className={`h-full flex-1 rounded-[1px] ${i <= blocks ? color : 'bg-transparent'}`}></div>
@@ -23,14 +23,30 @@ const MemoryBattery: React.FC<{ percentage: number; status: 'good' | 'fading' | 
             </div>
             <div className="w-[2px] h-1.5 bg-slate-500 rounded-r-sm"></div>
             
-            <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 hidden group-hover:block bg-slate-900 text-xs text-white p-3 rounded-lg shadow-xl z-50 w-40 border border-slate-600 pointer-events-none">
-                <p className="font-bold mb-1 flex justify-between items-center">
-                    <span>Retention</span>
-                    <span className={(status === 'good' || status === 'fresh') ? 'text-green-400' : status === 'fading' ? 'text-yellow-400' : status === 'critical' ? 'text-red-400' : 'text-gray-400'}>{percentage}%</span>
-                </p>
-                <p className="text-gray-400 text-[10px] mb-1">Last reviewed: <span className="text-white">{daysAgo === 0 ? 'Today' : daysAgo === -1 ? 'Never' : `${daysAgo} days ago`}</span></p>
-                {status !== 'good' && status !== 'fresh' && status !== 'dormant' && <p className="text-cyan-400 text-[10px] font-semibold mt-1">Revision Recommended</p>}
-                <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 border-b border-r border-slate-600 rotate-45"></div>
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block w-48 pointer-events-none">
+                <div className="bg-slate-900/95 backdrop-blur-md text-xs text-white p-3 rounded-lg shadow-xl border border-slate-600 relative">
+                    <p className="font-bold mb-2 flex justify-between items-center border-b border-slate-700 pb-1">
+                        <span className="text-gray-300">Memory Strength</span>
+                        <span className={(status === 'good' || status === 'fresh') ? 'text-green-400' : status === 'fading' ? 'text-yellow-400' : status === 'critical' ? 'text-red-400' : 'text-gray-400'}>{percentage}%</span>
+                    </p>
+                    <div className="space-y-1">
+                        <p className="text-gray-400 text-[10px] flex justify-between">
+                            <span>Last Reviewed:</span>
+                            <span className="text-white font-mono">{daysAgo === 0 ? 'Today' : daysAgo === -1 ? 'Never' : `${daysAgo}d ago`}</span>
+                        </p>
+                        <p className="text-gray-400 text-[10px] flex justify-between">
+                            <span>Status:</span>
+                            <span className="uppercase font-bold text-[9px] tracking-wider">{status}</span>
+                        </p>
+                    </div>
+                    {status !== 'good' && status !== 'fresh' && status !== 'dormant' && (
+                        <div className="mt-2 pt-1 border-t border-slate-700/50 text-center">
+                             <span className="text-cyan-400 text-[10px] font-semibold animate-pulse">⚡ Revision Recommended</span>
+                        </div>
+                    )}
+                    {/* Tooltip Arrow */}
+                    <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 border-b border-r border-slate-600 rotate-45"></div>
+                </div>
             </div>
         </div>
     );
@@ -48,21 +64,21 @@ const DependencyIndicator: React.FC<{ topic: string, userProfile: UserProfile }>
     const isBlocked = incompletePrereqs.length > 0;
 
     return (
-        <div className="group relative">
+        <div className="group relative z-20">
             <span className={`text-xs px-1.5 py-0.5 rounded border cursor-help ${isBlocked ? 'bg-red-900/30 border-red-800 text-red-300' : 'bg-slate-800 border-slate-600 text-slate-400'}`}>
                 {isBlocked ? '⚠️ Prereq Missing' : '🔗 Prereqs OK'}
             </span>
             
-             <div className="absolute bottom-full mb-2 left-0 hidden group-hover:block bg-slate-900 text-xs text-white p-3 rounded-lg shadow-xl z-50 w-48 border border-slate-600 pointer-events-none">
-                <p className="font-bold mb-2 text-gray-300">Prerequisites:</p>
-                <ul className="space-y-1">
+             <div className="absolute bottom-full mb-2 left-0 hidden group-hover:block bg-slate-900/95 backdrop-blur-md text-xs text-white p-3 rounded-lg shadow-xl z-50 w-56 border border-slate-600 pointer-events-none">
+                <p className="font-bold mb-2 text-gray-300 border-b border-slate-700 pb-1">Dependency Chain</p>
+                <ul className="space-y-1.5">
                     {prereqs.map(p => {
                          const pProg = userProfile?.syllabus[p];
                          const pDone = pProg && (pProg.status === SyllabusStatus.Completed || pProg.status === SyllabusStatus.Revising);
                          return (
                              <li key={p} className="flex justify-between items-center">
-                                 <span>{p}</span>
-                                 <span className={pDone ? 'text-green-400' : 'text-red-400'}>{pDone ? '✓' : '✗'}</span>
+                                 <span className={pDone ? 'text-gray-400' : 'text-white font-medium'}>{p}</span>
+                                 <span className={`text-[10px] px-1.5 rounded ${pDone ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'}`}>{pDone ? 'Done' : 'Missing'}</span>
                              </li>
                          )
                     })}
@@ -256,12 +272,12 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
         ringGlowStyle.boxShadow = '0 0 0 2px rgba(239, 68, 68, 0.5)';
     }
 
+    // Removed 'overflow-hidden' from main wrapper to allow tooltips to pop out
     return (
         <div ref={cardRef} className={`relative rounded-lg p-px ${forceExpanded ? 'h-full' : ''}`} style={ringGlowStyle}>
-            {/* REMOVED overflow-hidden here when forceExpanded is true to allow scrolling inside Modal */}
-            <div className={`relative rounded-lg border transition-all duration-300 ${forceExpanded ? '' : 'overflow-hidden'} ${statusColors[progress.status]} ${forceExpanded ? 'bg-slate-900 h-full border-0' : ''}`}>
+            <div className={`relative rounded-lg border transition-all duration-300 ${statusColors[progress.status]} ${forceExpanded ? 'bg-slate-900 h-full border-0' : ''}`}>
                 {isHighYield && !forceExpanded && (
-                    <div className="absolute top-0 right-0 pointer-events-none z-10 w-16 h-16 overflow-hidden">
+                    <div className="absolute top-0 right-0 pointer-events-none z-0 w-16 h-16 overflow-hidden rounded-tr-lg">
                         <div className="bg-amber-500 text-white text-[9px] font-bold py-1 w-[120px] text-center rotate-45 absolute top-[8px] -right-[36px] shadow-sm">
                             HY
                         </div>
@@ -284,7 +300,7 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
                         </div>
                         
                         <div className="flex-grow min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
+                            <div className="flex items-center gap-2 flex-wrap relative z-10">
                                 <p className={`font-semibold truncate ${isHighYield ? 'text-amber-100' : 'text-gray-200'} ${forceExpanded ? 'text-lg' : ''}`}>{chapter.name}</p>
                                 <MemoryBattery percentage={memoryHealth.percentage} status={memoryHealth.status} daysAgo={memoryHealth.daysAgo} />
                             </div>
@@ -309,7 +325,7 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
                                     e.stopPropagation(); 
                                     setIsExpandedState(!isExpandedState); 
                                 }}
-                                className="p-1 rounded-full hover:bg-slate-700/50 transition-colors"
+                                className="p-1 rounded-full hover:bg-slate-700/50 transition-colors z-10"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 text-gray-400 transition-transform duration-300 flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                             </div>
@@ -317,7 +333,7 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
                     </div>
 
                     {isExpanded && (
-                        <div className="mt-4 pt-4 border-t border-slate-700/50 space-y-4 animate-fade-in">
+                        <div className="mt-4 pt-4 border-t border-slate-700/50 space-y-4 animate-fade-in relative z-0">
                             <div className="flex justify-between items-center">
                                 <DependencyIndicator topic={chapter.name} userProfile={userProfile} />
                                 <div className="text-right">

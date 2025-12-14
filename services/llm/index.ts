@@ -1,7 +1,7 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { AiAssistantPreferences, LlmTaskCategory } from "../../types";
-import { MODEL_REGISTRY, TASK_DEFAULTS, getModelById } from "./models";
+import { TASK_DEFAULTS, getModelById } from "./models";
 import { generateTextOpenAI } from "./providers";
 
 interface GenerationOptions {
@@ -31,16 +31,7 @@ export const llmPipeline = async (options: GenerationOptions): Promise<string> =
     });
 
     // C. Ultimate Fallback Strategy (The "Safety Net")
-    // If it's a complicated task (Analysis, Math), fallback to Gemini Flash (Reasoning).
-    // If it's a simple/fast task (Creative, Chat), fallback to Gemini Flash Lite (Speed/Cost).
-    const complexTasks: LlmTaskCategory[] = ['analysis', 'math', 'planning', 'coding'];
-    const ultimateFallback = complexTasks.includes(task) ? 'gemini-2.5-flash' : 'gemini-2.5-flash-lite';
-
-    if (!candidates.includes(ultimateFallback)) {
-        candidates.push(ultimateFallback);
-    }
-    
-    // Ensure we have at least one Gemini model as absolute last resort if Lite fails or isn't picked
+    // Fallback to Gemini Flash as it is the most reliable generalist
     if (!candidates.includes('gemini-2.5-flash')) {
         candidates.push('gemini-2.5-flash');
     }
@@ -52,39 +43,57 @@ export const llmPipeline = async (options: GenerationOptions): Promise<string> =
     // 2. Iterate and Try
     for (const modelId of candidates) {
         const modelDef = getModelById(modelId);
-        if (!modelDef) continue;
+        
+        // If model definition is missing but ID looks like a Google model, assume Google (legacy compatibility)
+        const isImplicitGoogle = !modelDef && (modelId.includes('gemini') || modelId.includes('gemma'));
+        const provider = modelDef ? modelDef.provider : (isImplicitGoogle ? 'google' : null);
 
-        // Check if we have the key for this provider
-        let apiKey = '';
-        if (modelDef.provider === 'google') apiKey = googleApiKey;
-        if (modelDef.provider === 'groq') apiKey = userPreferences.groqApiKey || '';
-        if (modelDef.provider === 'openrouter') apiKey = userPreferences.openRouterApiKey || '';
+        if (!provider) continue;
 
-        // Skip if missing key, UNLESS it's Google (we assume app requires google key to even start)
-        if (!apiKey && modelDef.provider !== 'google') {
-            console.debug(`Skipping ${modelId}: Missing ${modelDef.provider} API key.`);
+        // Retrieve the correct API Key based on provider
+        let currentApiKey = '';
+        if (provider === 'google') currentApiKey = googleApiKey;
+        else if (provider === 'groq') currentApiKey = userPreferences.groqApiKey || '';
+        else if (provider === 'openrouter') currentApiKey = userPreferences.openRouterApiKey || '';
+
+        // Skip if missing key (Exception: Google key is mandatory for app, so we assume it exists if we are here, but good to check)
+        if (!currentApiKey) {
+            console.warn(`[LLM Pipeline] Skipping ${modelId}: Missing API Key for ${provider}`);
             continue;
         }
 
         try {
-            console.log(`[LLM Pipeline] executing ${task} via ${modelId}...`);
+            // console.log(`[LLM Pipeline] Executing ${task} via ${modelId} (${provider})...`);
             
-            if (modelDef.provider === 'google') {
-                // Use Native Gemini
-                const ai = new GoogleGenAI({ apiKey });
-                const config: any = {
-                    systemInstruction: systemInstruction,
-                };
+            if (provider === 'google') {
+                // --- NATIVE GOOGLE SDK ---
+                const ai = new GoogleGenAI({ apiKey: currentApiKey });
+                const config: any = {};
+                
+                // Gemma specific handling: No systemInstruction in config
+                const isGemma = modelId.toLowerCase().includes('gemma');
+                
+                let finalContents: any[] = [];
+                
+                if (isGemma && systemInstruction) {
+                    // Prepend system instruction to prompt for Gemma
+                    finalContents = [{ role: 'user', parts: [{ text: `SYSTEM: ${systemInstruction}\n\nUSER: ${prompt}` }] }];
+                } else {
+                    if (systemInstruction) config.systemInstruction = systemInstruction;
+                    finalContents = [{ role: 'user', parts: [{ text: prompt }] }];
+                }
                 
                 // Handle JSON schema
-                if (jsonSchema || expectJson) {
+                if (jsonSchema) {
                     config.responseMimeType = "application/json";
-                    if (jsonSchema) config.responseSchema = jsonSchema;
+                    config.responseSchema = jsonSchema;
+                } else if (expectJson) {
+                    config.responseMimeType = "application/json";
                 }
 
                 const response = await ai.models.generateContent({
                     model: modelId,
-                    contents: { parts: [{ text: prompt }] },
+                    contents: finalContents,
                     config: config
                 });
                 
@@ -93,15 +102,19 @@ export const llmPipeline = async (options: GenerationOptions): Promise<string> =
                 break; // Success
 
             } else {
-                // Use OpenAI Compatible (Groq/OpenRouter)
+                // --- OPENAI COMPATIBLE (Groq / OpenRouter) ---
+                // We cannot pass Google's `jsonSchema` object directly to OpenAI providers as the schema formats differ slightly.
+                // We rely on `jsonMode: true` and prompt engineering for these providers.
+                
                 const result = await generateTextOpenAI(
-                    modelDef.provider,
-                    apiKey,
+                    provider as 'groq' | 'openrouter',
+                    currentApiKey,
                     modelId,
                     prompt,
                     systemInstruction,
-                    expectJson || !!jsonSchema
+                    expectJson || !!jsonSchema // Enable JSON mode if schema was requested
                 );
+                
                 resultText = result;
                 usedModelId = modelId;
                 break; // Success
@@ -115,19 +128,15 @@ export const llmPipeline = async (options: GenerationOptions): Promise<string> =
     }
 
     if (!usedModelId) {
-        throw new Error(`All LLM candidates failed for task '${task}'. Last error: ${lastError?.message}`);
+        throw new Error(`All AI models failed for task '${task}'. Please check API keys in Settings. Last error: ${lastError?.message}`);
     }
 
-    // 3. Attribution Logic (Only for text-heavy, non-JSON tasks)
-    // We skip attribution for 'creative' (quotes), 'chat' (short tooltips), and JSON data.
-    if (!expectJson && !jsonSchema && usedModelId) {
-        const showAttribution = task === 'analysis' || task === 'planning' || task === 'math';
-        
-        if (showAttribution) {
-            const modelDef = getModelById(usedModelId);
-            const modelName = modelDef ? modelDef.name : usedModelId;
-            resultText += `\n\n<div class="text-[10px] text-gray-500 mt-4 pt-2 border-t border-slate-700/50 flex items-center gap-1"><span>⚡</span> Generated by <strong>${modelName}</strong></div>`;
-        }
+    // 3. Attribution (Optional footer for analysis tasks)
+    if (!expectJson && !jsonSchema && usedModelId && (task === 'analysis' || task === 'planning')) {
+        const modelDef = getModelById(usedModelId);
+        const modelName = modelDef ? modelDef.name : usedModelId;
+        // Simple HTML footer for markdown renderer
+        resultText += `\n\n<div class="text-[10px] text-slate-500 mt-4 pt-2 border-t border-slate-700/50 flex items-center gap-1"><span>⚡</span> Generated by <strong>${modelName}</strong></div>`;
     }
 
     return resultText;

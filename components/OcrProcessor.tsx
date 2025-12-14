@@ -2,7 +2,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import type { TestReport, SubjectData, QuestionLog } from '../types';
 import { QuestionType, TestType, TestSubType, QuestionStatus, DifficultyLevel } from '../types';
-import { extractDataFromImage, validateOCRData, inferTestMetadata } from '../services/geminiService';
+import { extractDataFromImage, validateOCRData } from '../services/geminiService';
 import { exportSingleReportToCsv, exportExtractedQuestionsToCsv } from '../services/sheetParser';
 import { calculateMarks, getMarkingScheme } from '../utils/metrics';
 
@@ -268,8 +268,6 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey, m
     setError(null);
     
     // FORCE GEMINI FLASH FOR OCR
-    // We ignore the `modelName` prop (user's chat preference) because Gemma (text-only) cannot do OCR.
-    // We strictly use 'gemini-2.5-flash' for vision tasks.
     const VISION_MODEL = 'gemini-2.5-flash';
     console.debug(`Processing image with dedicated vision model: ${VISION_MODEL}`);
 
@@ -278,12 +276,7 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey, m
       // NOTE: modelName is crucial here. If changed in settings, it must propagate.
       const { report, questions, confidence } = await extractDataFromImage(imageFile, apiKey, VISION_MODEL, instructionFile || undefined);
       
-      // Smart Auto-Detection for Test Metadata (Uses Flash internally)
-      if (report.testName) {
-          const inferred = await inferTestMetadata(report.testName, apiKey);
-          report.type = inferred.type;
-          report.subType = inferred.subType;
-      }
+      // Removed separate inference call. The prompt now handles type/subtype logic directly.
 
       // Format question type string to include marking scheme if separated by AI
       const formattedQuestions = questions.map(q => {
@@ -322,7 +315,7 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey, m
       setError(err instanceof Error ? err.message : 'An unknown error occurred.');
       setWorkflowStep('upload'); // Go back to upload step on error
     }
-  }, [imageFile, instructionFile, apiKey]); // removed modelName dependency
+  }, [imageFile, instructionFile, apiKey]); 
 
     const handleInputChange = <K extends keyof Omit<TestReport, 'id'>>(
         key: K,
