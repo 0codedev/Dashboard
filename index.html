@@ -214,7 +214,6 @@
     .metric-bar-fill.red { background: linear-gradient(90deg, #ef4444, #f87171); }
 
     .particle-canvas { position: absolute; top: 0; left: 0; pointer-events: none; z-index: 1; }
-    .background-particle-canvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; /* Behind main content */ pointer-events: none; }
 
     /* Custom Scrollbar */
     ::-webkit-scrollbar { width: 8px; }
@@ -266,7 +265,6 @@
 </style>
 </head>
   <body class="bg-gray-900 text-gray-100">
-    <canvas id="background-canvas" class="background-particle-canvas"></canvas>
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
   </body>

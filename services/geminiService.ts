@@ -93,13 +93,14 @@ export const retrieveRelevantContext = async (
     }
 };
 
-// ... [LLM Helper functions like validateOCRData, inferTestMetadata, etc. - NO CHANGES]
+// ... [LLM Helper functions like validateOCRData, inferTestMetadata, etc.]
 // Helper to get dummy prefs for internal calls if not passed
 const getMockPrefs = (apiKey: string): AiAssistantPreferences => {
     try {
         const stored = localStorage.getItem('aiAssistantPreferences_v1');
         if (stored) return JSON.parse(stored);
     } catch {}
+    // Updated default to 2.5
     return { model: 'gemini-2.5-flash', responseLength: 'medium', tone: 'neutral' };
 }
 
@@ -118,7 +119,6 @@ export const validateOCRData = async (report: Partial<TestReport>, logs: Partial
 };
 
 export const inferTestMetadata = async (testName: string, apiKey: string): Promise<{ type: TestType, subType: TestSubType }> => {
-    // This is now redundant for OCR flow but kept for manual entry if needed
     const prompt = `Infer JEE Test Type/SubType from name "${testName}". Return JSON {type: string, subType: string}.`;
     try {
         const res = await llmPipeline({
@@ -541,8 +541,9 @@ export const extractDataFromImage = async (
     `;
     parts.push({ text: prompt });
 
+    // Explicitly use 2.5 Flash for OCR as requested
     const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash', // Strict override for Vision
+        model: 'gemini-2.5-flash', 
         contents: { parts: parts },
         config: {
             responseMimeType: "application/json",

@@ -37,7 +37,14 @@ export const generateEmbedding = async (text: string): Promise<number[]> => {
 // Store embeddings for question logs in IndexedDB
 export const indexQuestionLogs = async (logs: QuestionLog[]) => {
     // Check which logs are already indexed (optimization)
-    const existingIds = await dbService.getAllKeys('vectorIndex');
+    let existingIds: IDBValidKey[] = [];
+    try {
+        existingIds = await dbService.getAllKeys('vectorIndex');
+    } catch {
+        // Store might not be ready, abort
+        return;
+    }
+    
     const existingSet = new Set(existingIds);
     
     const newLogs = logs.filter(l => !existingSet.has(`${l.testId}-${l.questionNumber}`));
@@ -45,7 +52,7 @@ export const indexQuestionLogs = async (logs: QuestionLog[]) => {
     if (newLogs.length === 0) return;
 
     // Process in batches to avoid freezing UI
-    const BATCH_SIZE = 10;
+    const BATCH_SIZE = 5; // Smaller batch size to prevent hanging
     for (let i = 0; i < newLogs.length; i += BATCH_SIZE) {
         const batch = newLogs.slice(i, i + BATCH_SIZE);
         
@@ -92,16 +99,22 @@ const cosineSimilarity = (a: number[], b: number[]): number => {
 // Semantic Search
 export const semanticSearch = async (query: string, limit: number = 5): Promise<{ id: string, score: number, content: string }[]> => {
     if (!model) await initVectorModel();
+    if (!model) return [];
     
-    const queryVector = await generateEmbedding(query);
-    const allVectors = await dbService.getAll<{ id: string, vector: number[], content: string }>('vectorIndex');
-    
-    const results = allVectors.map(item => ({
-        id: item.id,
-        score: cosineSimilarity(queryVector, item.vector),
-        content: item.content
-    }));
-    
-    // Sort by similarity score descending
-    return results.sort((a, b) => b.score - a.score).slice(0, limit);
+    try {
+        const queryVector = await generateEmbedding(query);
+        const allVectors = await dbService.getAll<{ id: string, vector: number[], content: string }>('vectorIndex');
+        
+        const results = allVectors.map(item => ({
+            id: item.id,
+            score: cosineSimilarity(queryVector, item.vector),
+            content: item.content
+        }));
+        
+        // Sort by similarity score descending
+        return results.sort((a, b) => b.score - a.score).slice(0, limit);
+    } catch (e) {
+        console.error("Semantic search failed", e);
+        return [];
+    }
 };

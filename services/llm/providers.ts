@@ -49,14 +49,25 @@ export const generateTextOpenAI = async (
 
     // Strict JSON Mode handling
     if (jsonMode) {
-        body.response_format = { type: "json_object" };
+        // CRITICAL FIX: Many OpenRouter free models (Mistral, Phi, Gemma) CRASH if response_format is sent.
+        // We only enable the API-level JSON mode for models known to support it (OpenAI, Llama 3 on Groq, etc.)
+        const modelName = model.toLowerCase();
+        const supportsJsonParam = 
+            modelName.includes('gpt') || 
+            (provider === 'groq' && modelName.includes('llama-3')) ||
+            modelName.includes('deepseek-r1') || // R1 usually handles it
+            modelName.includes('qwen');
+
+        if (supportsJsonParam) {
+            body.response_format = { type: "json_object" };
+        }
         
-        // Safety: Ensure the prompt actually mentions JSON, or some providers (like Groq) will 400 error.
+        // Safety: Ensure the prompt actually mentions JSON for ALL models (especially those where we stripped the param)
         const lastMsg = messages[messages.length - 1];
         if (typeof lastMsg.content === 'string' && 
             !lastMsg.content.toLowerCase().includes('json') && 
             !systemInstruction?.toLowerCase().includes('json')) {
-             messages[messages.length - 1].content += " \n\nOutput strictly in valid JSON format.";
+             messages[messages.length - 1].content += " \n\nIMPORTANT: Return the result strictly as a valid JSON object. Do not wrap in markdown code blocks.";
         }
     }
 

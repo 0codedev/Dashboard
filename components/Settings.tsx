@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import type { AiAssistantPreferences, NotificationPreferences, UserProfile, Theme, AppearancePreferences, TestReport, QuestionLog, LongTermGoal, GamificationState, StudyGoal, ChatMessage, LlmTaskCategory, TargetExam } from '../types';
 import { getDailyQuote } from '../services/geminiService';
-import { MODEL_REGISTRY, TASK_DEFAULTS } from '../services/llm/models';
+import { MODEL_REGISTRY, TASK_DEFAULTS, AIModel } from '../services/llm/models';
 import Modal from './common/Modal';
 import { Button } from './common/Button';
 import { Input } from './common/Input';
@@ -339,6 +339,38 @@ const TASK_USAGE_DESC: Record<LlmTaskCategory, string> = {
     coding: "Data Formatting, Structural Parsing (Internal Logic)"
 };
 
+// Custom Professional Dropdown Item
+const ModelOptionItem: React.FC<{ model: AIModel; isSelected: boolean; onClick: () => void }> = ({ model, isSelected, onClick }) => (
+    <button 
+        onClick={onClick} 
+        className={`w-full text-left p-3 flex items-start gap-3 transition-colors border-b border-slate-700/50 hover:bg-slate-700/30 ${isSelected ? 'bg-indigo-900/20' : ''}`}
+    >
+        <span className="text-xl mt-0.5">{model.icon}</span>
+        <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-0.5">
+                <span className={`text-sm font-bold truncate ${isSelected ? 'text-cyan-400' : 'text-gray-200'}`}>{model.name}</span>
+                <span className={`text-[9px] px-1.5 rounded uppercase font-bold tracking-wider border ${
+                    model.provider === 'google' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                    model.provider === 'groq' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
+                    'bg-purple-500/10 text-purple-400 border-purple-500/20'
+                }`}>
+                    {model.provider}
+                </span>
+            </div>
+            <p className="text-xs text-gray-500 truncate">{model.description}</p>
+            <div className="flex items-center gap-2 mt-1.5">
+                <span className="text-[9px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">
+                    {(model.contextWindow / 1000)}k Context
+                </span>
+                <span className={`text-[9px] font-bold ${model.costCategory === 'free' ? 'text-green-500' : 'text-yellow-500'}`}>
+                    {model.costCategory === 'free' ? 'FREE' : 'PAID'}
+                </span>
+            </div>
+        </div>
+        {isSelected && <span className="text-cyan-400 font-bold">✓</span>}
+    </button>
+);
+
 const AdvancedModelConfig: React.FC<{ 
     isOpen: boolean; 
     onClose: () => void; 
@@ -355,6 +387,8 @@ const AdvancedModelConfig: React.FC<{
         { id: 'coding', label: 'Technical Ops', icon: '💻' }
     ];
 
+    const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+
     const handleOverrideChange = (task: LlmTaskCategory, modelId: string) => {
         onUpdate({
             ...preferences,
@@ -363,17 +397,18 @@ const AdvancedModelConfig: React.FC<{
                 [task]: modelId
             }
         });
+        setOpenDropdown(null);
     };
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Advanced Neural Routing">
-            <div className="p-1 space-y-6">
+            <div className="p-1 space-y-6" onClick={() => setOpenDropdown(null)}>
                 <div className="bg-blue-900/20 border border-blue-800/50 p-4 rounded-lg flex gap-3 items-start">
                     <span className="text-2xl">⚡</span>
                     <div>
                         <p className="text-sm text-blue-200 font-bold">Precision Control</p>
                         <p className="text-xs text-blue-300/70 mt-1">
-                            Assign specialized AI models to specific cognitive tasks. If a selected model is unavailable (e.g., API key missing), the system automatically fails over to <strong>Gemini Flash</strong>.
+                            Assign specialized AI models to specific cognitive tasks. If a selected model is unavailable, the system automatically fails over to <strong>Gemini Flash</strong>.
                         </p>
                     </div>
                 </div>
@@ -383,15 +418,8 @@ const AdvancedModelConfig: React.FC<{
                         const currentModelId = preferences.modelOverrides?.[task.id] || TASK_DEFAULTS[task.id][0];
                         const currentModelDef = MODEL_REGISTRY.find(m => m.id === currentModelId);
 
-                        // Fix repeated provider name in display
-                        const displayModelName = currentModelDef?.name 
-                            ? (currentModelDef.name.toLowerCase().includes(currentModelDef.provider) 
-                                ? currentModelDef.name 
-                                : `${currentModelDef.name} (${currentModelDef.provider})`)
-                            : currentModelId;
-
                         return (
-                            <div key={task.id} className="bg-slate-900 p-4 rounded-xl border border-slate-700/50 hover:border-slate-600 transition-all flex flex-col md:flex-row gap-4 items-start md:items-center">
+                            <div key={task.id} className="bg-slate-900 p-4 rounded-xl border border-slate-700/50 hover:border-slate-600 transition-all flex flex-col md:flex-row gap-4 items-start md:items-center relative z-auto">
                                 <div className="flex-1">
                                     <h4 className="text-sm font-bold text-white flex items-center gap-2">
                                         <span className="text-lg">{task.icon}</span> {task.label}
@@ -399,40 +427,33 @@ const AdvancedModelConfig: React.FC<{
                                     <p className="text-[11px] text-slate-400 mt-1 pl-7">{TASK_USAGE_DESC[task.id]}</p>
                                 </div>
                                 
-                                <div className="w-full md:w-64 flex flex-col gap-2">
-                                    <div className="relative">
-                                        <select 
-                                            value={currentModelId} 
-                                            onChange={(e) => handleOverrideChange(task.id, e.target.value)}
-                                            className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none appearance-none font-medium"
-                                        >
-                                            {MODEL_REGISTRY.map(model => {
-                                                const label = model.name.toLowerCase().includes(model.provider) 
-                                                    ? model.name 
-                                                    : `${model.name} (${model.provider})`;
-                                                return <option key={model.id} value={model.id}>{label}</option>
-                                            })}
-                                        </select>
-                                        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none text-xs">▼</div>
-                                    </div>
-                                    
-                                    <div className="flex justify-between items-center px-1">
-                                        <div className="flex gap-2">
-                                            <span className={`text-[9px] px-1.5 py-0.5 rounded uppercase font-bold tracking-wider border ${
-                                                currentModelDef?.provider === 'google' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
-                                                currentModelDef?.provider === 'groq' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
-                                                'bg-purple-500/10 text-purple-400 border-purple-500/20'
-                                            }`}>
-                                                {currentModelDef?.provider}
-                                            </span>
-                                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                                                {currentModelDef?.contextWindow ? (currentModelDef.contextWindow / 1000) + 'k ctx' : 'N/A'}
-                                            </span>
+                                <div className="w-full md:w-72 relative">
+                                    <button 
+                                        onClick={(e) => { e.stopPropagation(); setOpenDropdown(openDropdown === task.id ? null : task.id); }}
+                                        className="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 text-left flex items-center gap-3 hover:bg-slate-750 transition-colors"
+                                    >
+                                        <span className="text-lg">{currentModelDef?.icon || '🤖'}</span>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-xs font-bold text-white truncate">{currentModelDef?.name || currentModelId}</span>
+                                            </div>
+                                            <span className="text-[10px] text-slate-400 uppercase">{currentModelDef?.provider || 'Unknown'}</span>
                                         </div>
-                                        <span className={`text-[9px] font-bold ${currentModelDef?.costCategory === 'free' ? 'text-green-500' : 'text-yellow-500'}`}>
-                                            {currentModelDef?.costCategory === 'free' ? 'FREE' : 'PAID'}
-                                        </span>
-                                    </div>
+                                        <span className="text-slate-500 text-xs">▼</span>
+                                    </button>
+
+                                    {openDropdown === task.id && (
+                                        <div className="absolute top-full right-0 mt-2 w-80 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 animate-scale-in overflow-hidden max-h-[300px] overflow-y-auto custom-scrollbar">
+                                            {MODEL_REGISTRY.map(model => (
+                                                <ModelOptionItem 
+                                                    key={model.id}
+                                                    model={model}
+                                                    isSelected={currentModelId === model.id}
+                                                    onClick={() => handleOverrideChange(task.id, model.id)}
+                                                />
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         );

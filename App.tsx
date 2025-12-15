@@ -1,25 +1,39 @@
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, Suspense } from 'react';
 import type { TestReport, QuestionLog, StudyGoal, GlobalFilter, AiFilter, ChatMessage, RootCauseFilter, Toast, AiAssistantPreferences, NotificationPreferences, UserProfile, Theme, DailyTask, AppearancePreferences, View, GamificationState, LongTermGoal } from './types';
 import { TaskType, QuestionStatus, TaskEffort } from './types';
-import { Dashboard } from './components/Dashboard';
-import { OcrProcessor } from './components/OcrProcessor';
-import { DeepAnalysis } from './components/DeepAnalysis';
-import { RootCause } from './components/RootCause';
-import { DetailedReportsView } from './components/DetailedReportsView';
-import { AiAssistant } from './components/AiAssistant';
-import { QuestionLogEditor } from './components/QuestionLogEditor';
 import { ApiKeyManager } from './components/ApiKeyManager';
-import { DailyPlanner } from './components/DailyPlanner';
-import { Achievements } from './components/Achievements';
-import { Settings } from './components/Settings';
-import { Syllabus } from './components/Syllabus';
-import { ErrorVaccinator } from './components/flashcards/ErrorVaccinator';
 import { AppShell } from './components/layout/AppShell';
 import { generateFocusedStudyPlan } from './services/geminiService';
 import { useJeeData } from './hooks/useJeeData';
 import { useAchievements } from './hooks/useAchievements';
 import { dbService } from './services/dbService';
+
+// --- Lazy Load Heavy Components ---
+// This splits the code into separate chunks, so the browser doesn't load
+// heavy charts/physics engines until the user actually navigates to that tab.
+const Dashboard = React.lazy(() => import('./components/Dashboard').then(module => ({ default: module.Dashboard })));
+const OcrProcessor = React.lazy(() => import('./components/OcrProcessor').then(module => ({ default: module.OcrProcessor })));
+const DeepAnalysis = React.lazy(() => import('./components/DeepAnalysis').then(module => ({ default: module.DeepAnalysis })));
+const RootCause = React.lazy(() => import('./components/RootCause').then(module => ({ default: module.RootCause })));
+const DetailedReportsView = React.lazy(() => import('./components/DetailedReportsView').then(module => ({ default: module.DetailedReportsView })));
+const AiAssistant = React.lazy(() => import('./components/AiAssistant').then(module => ({ default: module.AiAssistant })));
+const QuestionLogEditor = React.lazy(() => import('./components/QuestionLogEditor').then(module => ({ default: module.QuestionLogEditor })));
+const DailyPlanner = React.lazy(() => import('./components/DailyPlanner').then(module => ({ default: module.DailyPlanner })));
+const Achievements = React.lazy(() => import('./components/Achievements').then(module => ({ default: module.Achievements })));
+const Settings = React.lazy(() => import('./components/Settings').then(module => ({ default: module.Settings })));
+const Syllabus = React.lazy(() => import('./components/Syllabus').then(module => ({ default: module.Syllabus })));
+const ErrorVaccinator = React.lazy(() => import('./components/flashcards/ErrorVaccinator').then(module => ({ default: module.ErrorVaccinator })));
+
+// --- Loading Component ---
+const PageLoader = () => (
+    <div className="flex h-full w-full items-center justify-center bg-slate-900/50 backdrop-blur-sm rounded-lg">
+        <div className="flex flex-col items-center gap-4">
+            <div className="h-12 w-12 animate-spin rounded-full border-4 border-slate-700 border-t-cyan-500"></div>
+            <p className="text-sm font-medium text-slate-400 animate-pulse tracking-widest uppercase">Loading Module...</p>
+        </div>
+    </div>
+);
 
 const App: React.FC = () => {
     const [apiKey, setApiKey] = useState<string | null>(() => localStorage.getItem('gemini-api-key'));
@@ -35,11 +49,10 @@ const App: React.FC = () => {
             const saved = localStorage.getItem('aiAssistantPreferences_v1'); 
             const parsed = saved ? JSON.parse(saved) : {};
             return { 
-                ...parsed, // CRITICAL FIX: Load all saved fields (keys, overrides) first
+                ...parsed, 
                 model: parsed.model || 'gemini-2.5-flash', 
                 responseLength: parsed.responseLength || 'medium', 
                 tone: parsed.tone || 'encouraging',
-                // Explicit defaults for legacy data, but ...parsed handles new fields
             }; 
         } catch { 
             return { model: 'gemini-2.5-flash', responseLength: 'medium', tone: 'encouraging' }; 
@@ -72,7 +85,6 @@ const App: React.FC = () => {
         setDailyTasks
     } = jeeData;
 
-    // Memoize the callback to ensure referential stability
     const handleAchievementToast = useCallback((toast: Omit<Toast, 'id'>) => {
         if (notificationPreferences.achievements) {
             setToasts(p => [...p, { ...toast, id: Date.now() }]);
@@ -91,110 +103,6 @@ const App: React.FC = () => {
     const lastReportCountRef = useRef(testReports.length);
 
     useEffect(() => {
-        const canvas = document.getElementById('background-canvas') as HTMLCanvasElement;
-        if (!canvas) return;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-
-        let animationFrameId: number;
-        let particles: any[] = [];
-        const mouse = { x: -200, y: -200 };
-
-        const style = getComputedStyle(document.documentElement);
-        let primaryRgb = style.getPropertyValue('--color-primary-rgb').trim();
-        let accentRgb = style.getPropertyValue('--color-primary-accent-rgb').trim();
-
-        const updateColors = () => {
-             const newStyle = getComputedStyle(document.documentElement);
-             primaryRgb = newStyle.getPropertyValue('--color-primary-rgb').trim();
-             accentRgb = newStyle.getPropertyValue('--color-primary-accent-rgb').trim();
-        }
-
-        const resizeCanvas = () => {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-            init(); // Re-initialize particles on resize
-        };
-
-        const handleMouseMove = (event: MouseEvent) => {
-            mouse.x = event.clientX;
-            mouse.y = event.clientY;
-        };
-
-        window.addEventListener('resize', resizeCanvas);
-        window.addEventListener('mousemove', handleMouseMove);
-        
-        class Particle {
-            x: number; y: number; size: number; speedX: number; speedY: number; color: string;
-            constructor() {
-                this.x = Math.random() * canvas.width;
-                this.y = Math.random() * canvas.height;
-                this.size = Math.random() * 1.5 + 0.5;
-                this.speedX = (Math.random() * 2 - 1) * 0.2;
-                this.speedY = (Math.random() * 2 - 1) * 0.2;
-                this.color = `rgba(${primaryRgb}, 0.5)`;
-            }
-            update() {
-                if (this.x > canvas.width || this.x < 0) this.speedX = -this.speedX;
-                if (this.y > canvas.height || this.y < 0) this.speedY = -this.speedY;
-                this.x += this.speedX;
-                this.y += this.speedY;
-            }
-            draw() { if(ctx) { ctx.fillStyle = this.color; ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill(); } }
-        }
-
-        function init() {
-            updateColors();
-            particles = [];
-            const numberOfParticles = Math.floor(canvas.width / 40);
-            for (let i = 0; i < numberOfParticles; i++) { particles.push(new Particle()); }
-        }
-
-        function connect() {
-            if (!ctx) return;
-            let opacityValue = 1;
-            for (let a = 0; a < particles.length; a++) {
-                for (let b = a; b < particles.length; b++) {
-                    const distance = Math.sqrt(Math.pow(particles[a].x - particles[b].x, 2) + Math.pow(particles[a].y - particles[b].y, 2));
-                    if (distance < 120) {
-                        opacityValue = 1 - distance / 120;
-                        ctx.strokeStyle = `rgba(${primaryRgb}, ${opacityValue * 0.3})`;
-                        ctx.lineWidth = 1;
-                        ctx.beginPath(); ctx.moveTo(particles[a].x, particles[a].y); ctx.lineTo(particles[b].x, particles[b].y); ctx.stroke();
-                    }
-                }
-            }
-            for (let i = 0; i < particles.length; i++) {
-                const distance = Math.sqrt(Math.pow(particles[i].x - mouse.x, 2) + Math.pow(particles[i].y - mouse.y, 2));
-                if (distance < 200) {
-                    opacityValue = 1 - distance / 200;
-                    ctx.strokeStyle = `rgba(${accentRgb}, ${opacityValue * 0.4})`;
-                    ctx.lineWidth = 1;
-                    ctx.beginPath(); ctx.moveTo(particles[i].x, particles[i].y); ctx.lineTo(mouse.x, mouse.y); ctx.stroke();
-                }
-            }
-        }
-
-        function animate() {
-            if (!ctx) return;
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            particles.forEach(p => { p.update(); p.draw(); });
-            connect();
-            animationFrameId = requestAnimationFrame(animate);
-        }
-
-        resizeCanvas();
-        animate();
-
-        return () => {
-            window.removeEventListener('resize', resizeCanvas);
-            window.removeEventListener('mousemove', handleMouseMove);
-            cancelAnimationFrame(animationFrameId);
-        };
-    }, [theme]);
-
-
-    useEffect(() => {
         const mainContent = document.getElementById('main-content');
         if (mainContent) {
             mainContent.scrollTo({ top: 0, behavior: 'smooth' });
@@ -211,10 +119,6 @@ const App: React.FC = () => {
         localStorage.setItem('appearancePreferences_v1', JSON.stringify(appearancePreferences));
         document.body.classList.toggle('reduce-motion', appearancePreferences.reduceMotion);
         document.body.classList.toggle('high-contrast', appearancePreferences.highContrast);
-        const canvas = document.getElementById('background-canvas') as HTMLCanvasElement;
-        if (canvas) {
-            canvas.style.display = appearancePreferences.disableParticles ? 'none' : 'block';
-        }
     }, [appearancePreferences]);
     useEffect(() => { localStorage.setItem('userProfile_v2', JSON.stringify(userProfile)); }, [userProfile]);
     useEffect(() => {
@@ -222,12 +126,8 @@ const App: React.FC = () => {
         document.documentElement.className = `theme-${theme}`;
     }, [theme]);
 
-    // Backup Reminder Logic
     useEffect(() => {
         if (testReports.length > lastReportCountRef.current) {
-            // Data increased
-            const diff = testReports.length - lastReportCountRef.current;
-            // Trigger every 3rd report added or simply if data grew significantly
             if (testReports.length % 3 === 0) {
                 setToasts(prev => [...prev, { id: Date.now(), title: 'Backup Recommended', message: 'You have added significant data. Consider backing up your progress in Settings.', icon: '💾' }]);
             }
@@ -241,7 +141,6 @@ const App: React.FC = () => {
     
     const handleResetData = async () => {
         await dbService.clearAllStores();
-        // Clear relevant localStorage items
         localStorage.removeItem('jeeGlobalFilter_v2');
         localStorage.removeItem('dailyQuote');
         localStorage.removeItem('streakData_v1');
@@ -305,7 +204,7 @@ const App: React.FC = () => {
             const latestAccuracy = latestReport[`${subject}Metrics`]?.accuracy ?? 0;
             const secondLatestAccuracy = secondLatestReport[`${subject}Metrics`]?.accuracy ?? 0;
             
-            if (latestAccuracy > 0 && secondLatestAccuracy > 0 && latestAccuracy < secondLatestAccuracy - 5) { // 5% drop
+            if (latestAccuracy > 0 && secondLatestAccuracy > 0 && latestAccuracy < secondLatestAccuracy - 5) {
                 setProactiveInsight({ subject, visible: true });
                 break;
             }
@@ -352,43 +251,26 @@ const App: React.FC = () => {
     };
 
     const handleDeleteReport = (reportId: string) => {
-        // Confirmation is now handled by the DeleteConfirmationModal in DetailedReportsView
         setTestReports(prev => prev.filter(r => r.id !== reportId));
         setQuestionLogs(prev => prev.filter(l => l.testId !== reportId));
         setToasts(p => [...p, { id: Date.now(), title: 'Report Deleted', message: 'Test report and logs have been removed.', icon: '🗑️' }]);
     };
 
-    // Enhanced Data Restore Handler
     const handleDataSync = (data: any) => {
         if (data.reports) setTestReports(data.reports);
-        
         if (data.logs) {
             setQuestionLogs(data.logs);
         } else if (data.reports) {
-            // If reports are provided but logs are not, clear the logs to avoid mismatch
             setQuestionLogs([]);
         }
-
-        // Restore Profile & Syllabus
-        if (data.userProfile) {
-            setUserProfile(data.userProfile);
-        }
-
-        // Restore Goals
+        if (data.userProfile) setUserProfile(data.userProfile);
         if (data.studyGoals) jeeData.setStudyGoals(data.studyGoals);
         if (data.longTermGoals) jeeData.setLongTermGoals(data.longTermGoals);
-
-        // Restore Gamification
         if (data.gamificationState) setGamificationState(data.gamificationState);
-
-        // Restore Preferences
         if (data.aiPreferences) setAiPreferences(data.aiPreferences);
         if (data.notificationPreferences) setNotificationPreferences(data.notificationPreferences);
         if (data.appearancePreferences) setAppearancePreferences(data.appearancePreferences);
-        
-        // Restore Chat
         if (data.chatHistory) jeeData.setChatHistory(data.chatHistory);
-    
         setToasts(p => [...p, { id: Date.now(), title: 'Restore Complete', message: 'All data including syllabus, reports, and progress has been restored.', icon: '✅' }]);
         setView('dashboard');
     };
@@ -410,47 +292,49 @@ const App: React.FC = () => {
                 toasts={toasts}
                 setToasts={setToasts}
             >
-                {view === 'daily-planner' && <DailyPlanner goals={jeeData.studyGoals} setGoals={jeeData.setStudyGoals} apiKey={apiKey} logs={jeeData.questionLogs} proactiveInsight={proactiveInsight} onAcceptPlan={handleAcceptPlan} onDismissInsight={handleDismissInsight} addXp={() => addXp('completeTask')} userProfile={userProfile} prefilledTask={prefilledTask} setPrefilledTask={setPrefilledTask} dailyTasks={jeeData.dailyTasks} setDailyTasks={jeeData.setDailyTasks} modelName={aiPreferences.model} />}
-                {view === 'dashboard' && <Dashboard reports={jeeData.filteredReports} logs={jeeData.filteredLogs} apiKey={apiKey} setView={setView} setRootCauseFilter={setRootCauseFilter} onStartFocusSession={handleStartFocusSession} longTermGoals={jeeData.longTermGoals} modelName={aiPreferences.model} userProfile={userProfile} onUpdateProfile={setUserProfile} />}
-                {view === 'syllabus' && <Syllabus userProfile={userProfile} setUserProfile={setUserProfile} questionLogs={jeeData.questionLogs} reports={jeeData.filteredReports} apiKey={apiKey} onStartFocusSession={handleStartFocusSession} setView={setView} addTasksToPlanner={addTasksToPlanner} modelName={aiPreferences.model} />}
-                {view === 'detailed-reports' && <DetailedReportsView allReports={jeeData.testReports} filteredReports={jeeData.filteredReports} setReports={setTestReports} onViewQuestionLog={handleViewQuestionLogForTest} onDeleteReport={handleDeleteReport}/>}
-                {view === 'deep-analysis' && <DeepAnalysis reports={jeeData.filteredReports} />}
-                {view === 'root-cause' && <RootCause logs={jeeData.filteredLogs} reports={jeeData.filteredReports} rootCauseFilter={rootCauseFilter} setRootCauseFilter={setRootCauseFilter} apiKey={apiKey} onAddTask={(task) => addTasksToPlanner([task])} modelName={aiPreferences.model} />}
-                {view === 'ai-assistant' && <AiAssistant reports={jeeData.filteredReports} questionLogs={jeeData.questionLogs} setView={setView} setActiveLogFilter={setActiveLogFilter} apiKey={apiKey} chatHistory={jeeData.chatHistory} setChatHistory={jeeData.setChatHistory} studyGoals={jeeData.studyGoals} setStudyGoals={jeeData.setStudyGoals} preferences={aiPreferences} onUpdatePreferences={setAiPreferences} />}
-                {view === 'flashcards' && <ErrorVaccinator logs={jeeData.questionLogs} apiKey={apiKey} />}
-                {view === 'question-log-editor' && <QuestionLogEditor logs={jeeData.questionLogs} reports={jeeData.testReports} setLogs={setQuestionLogs} activeLogFilter={activeLogFilter} setActiveLogFilter={setActiveLogFilter} />}
-                {view === 'data-entry' && <OcrProcessor onAddData={addData} apiKey={apiKey} modelName={aiPreferences.model} />}
-                {view === 'achievements' && <Achievements gamificationState={gamificationState} achievements={achievements} levelInfo={levelInfo} />}
-                {view === 'settings' && (
-                    <Settings 
-                        apiKey={apiKey!} 
-                        onKeySubmit={handleKeySubmit} 
-                        onClearKey={handleClearKey} 
-                        handleFullReset={handleResetData} 
-                        handleReportsReset={clearTestReportsAndLogs} 
-                        handleChatReset={clearChatHistory} 
-                        handleGamificationReset={clearGamificationState} 
-                        aiPreferences={aiPreferences} 
-                        setAiPreferences={setAiPreferences} 
-                        notificationPreferences={notificationPreferences} 
-                        setNotificationPreferences={setNotificationPreferences} 
-                        appearancePreferences={appearancePreferences} 
-                        setAppearancePreferences={setAppearancePreferences} 
-                        userProfile={userProfile} 
-                        setUserProfile={setUserProfile} 
-                        theme={theme} 
-                        setTheme={setTheme} 
-                        addToast={(toast: any) => setToasts(p => [...p, { ...toast, id: Date.now() }])} 
-                        reports={jeeData.testReports} 
-                        logs={jeeData.questionLogs} 
-                        onSyncData={handleDataSync} 
-                        longTermGoals={jeeData.longTermGoals} 
-                        setLongTermGoals={jeeData.setLongTermGoals} 
-                        gamificationState={gamificationState}
-                        studyGoals={jeeData.studyGoals}
-                        chatHistory={jeeData.chatHistory}
-                    />
-                )}
+                <Suspense fallback={<PageLoader />}>
+                    {view === 'daily-planner' && <DailyPlanner goals={jeeData.studyGoals} setGoals={jeeData.setStudyGoals} apiKey={apiKey} logs={jeeData.questionLogs} proactiveInsight={proactiveInsight} onAcceptPlan={handleAcceptPlan} onDismissInsight={handleDismissInsight} addXp={() => addXp('completeTask')} userProfile={userProfile} prefilledTask={prefilledTask} setPrefilledTask={setPrefilledTask} dailyTasks={jeeData.dailyTasks} setDailyTasks={jeeData.setDailyTasks} modelName={aiPreferences.model} />}
+                    {view === 'dashboard' && <Dashboard reports={jeeData.filteredReports} logs={jeeData.filteredLogs} apiKey={apiKey} setView={setView} setRootCauseFilter={setRootCauseFilter} onStartFocusSession={handleStartFocusSession} longTermGoals={jeeData.longTermGoals} modelName={aiPreferences.model} userProfile={userProfile} onUpdateProfile={setUserProfile} />}
+                    {view === 'syllabus' && <Syllabus userProfile={userProfile} setUserProfile={setUserProfile} questionLogs={jeeData.questionLogs} reports={jeeData.filteredReports} apiKey={apiKey} onStartFocusSession={handleStartFocusSession} setView={setView} addTasksToPlanner={addTasksToPlanner} modelName={aiPreferences.model} />}
+                    {view === 'detailed-reports' && <DetailedReportsView allReports={jeeData.testReports} filteredReports={jeeData.filteredReports} setReports={setTestReports} onViewQuestionLog={handleViewQuestionLogForTest} onDeleteReport={handleDeleteReport}/>}
+                    {view === 'deep-analysis' && <DeepAnalysis reports={jeeData.filteredReports} />}
+                    {view === 'root-cause' && <RootCause logs={jeeData.filteredLogs} reports={jeeData.filteredReports} rootCauseFilter={rootCauseFilter} setRootCauseFilter={setRootCauseFilter} apiKey={apiKey} onAddTask={(task) => addTasksToPlanner([task])} modelName={aiPreferences.model} />}
+                    {view === 'ai-assistant' && <AiAssistant reports={jeeData.filteredReports} questionLogs={jeeData.questionLogs} setView={setView} setActiveLogFilter={setActiveLogFilter} apiKey={apiKey} chatHistory={jeeData.chatHistory} setChatHistory={jeeData.setChatHistory} studyGoals={jeeData.studyGoals} setStudyGoals={jeeData.setStudyGoals} preferences={aiPreferences} onUpdatePreferences={setAiPreferences} userProfile={userProfile} onAddTasksToPlanner={addTasksToPlanner} />}
+                    {view === 'flashcards' && <ErrorVaccinator logs={jeeData.questionLogs} apiKey={apiKey} />}
+                    {view === 'question-log-editor' && <QuestionLogEditor logs={jeeData.questionLogs} reports={jeeData.testReports} setLogs={setQuestionLogs} activeLogFilter={activeLogFilter} setActiveLogFilter={setActiveLogFilter} />}
+                    {view === 'data-entry' && <OcrProcessor onAddData={addData} apiKey={apiKey} modelName={aiPreferences.model} />}
+                    {view === 'achievements' && <Achievements gamificationState={gamificationState} achievements={achievements} levelInfo={levelInfo} />}
+                    {view === 'settings' && (
+                        <Settings 
+                            apiKey={apiKey!} 
+                            onKeySubmit={handleKeySubmit} 
+                            onClearKey={handleClearKey} 
+                            handleFullReset={handleResetData} 
+                            handleReportsReset={clearTestReportsAndLogs} 
+                            handleChatReset={clearChatHistory} 
+                            handleGamificationReset={clearGamificationState} 
+                            aiPreferences={aiPreferences} 
+                            setAiPreferences={setAiPreferences} 
+                            notificationPreferences={notificationPreferences} 
+                            setNotificationPreferences={setNotificationPreferences} 
+                            appearancePreferences={appearancePreferences} 
+                            setAppearancePreferences={setAppearancePreferences} 
+                            userProfile={userProfile} 
+                            setUserProfile={setUserProfile} 
+                            theme={theme} 
+                            setTheme={setTheme} 
+                            addToast={(toast: any) => setToasts(p => [...p, { ...toast, id: Date.now() }])} 
+                            reports={jeeData.testReports} 
+                            logs={jeeData.questionLogs} 
+                            onSyncData={handleDataSync} 
+                            longTermGoals={jeeData.longTermGoals} 
+                            setLongTermGoals={jeeData.setLongTermGoals} 
+                            gamificationState={gamificationState}
+                            studyGoals={jeeData.studyGoals}
+                            chatHistory={jeeData.chatHistory}
+                        />
+                    )}
+                </Suspense>
             </AppShell>
         </div>
     );
