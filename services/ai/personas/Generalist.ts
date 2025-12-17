@@ -10,7 +10,8 @@ export class GeneralistPersona implements IPersona {
   }
 
   getModelPreference(basePrefs: any) {
-    return 'gemini-2.5-flash-lite'; // Fast, cheap model for chat
+    // Respect the user's selected model for general chat
+    return basePrefs.model; 
   }
 
   getSystemInstruction(context: AIContext): string {

@@ -1,5 +1,6 @@
 
 import { IPersona, AIContext } from '../types';
+import { summarizeTestHistory } from '../../geminiService';
 
 export class TherapistPersona implements IPersona {
   id = 'therapist';
@@ -10,20 +11,15 @@ export class TherapistPersona implements IPersona {
   }
 
   getModelPreference(basePrefs: any) {
-    return 'gemini-2.5-flash-lite'; // Fast, conversational model
+    // Therapy is text-only, so any user-selected model works fine
+    return basePrefs.model; 
   }
 
   getSystemInstruction(context: AIContext): string {
     const { reports, userProfile } = context;
 
-    // --- 1. CALCULATE PSYCHOLOGICAL STATE DATA ---
-    const recentScores = reports.slice(-3).map(r => r.total.marks);
-    const isSlump = recentScores.length >= 2 && recentScores[recentScores.length-1] < recentScores[recentScores.length-2];
-    const lastScore = recentScores[recentScores.length-1] || 0;
-    
-    const stateContext = isSlump 
-        ? "The student is currently in a performance dip (Slump)." 
-        : "The student is holding steady or improving.";
+    // --- 1. OPTIMIZED CONTEXT ---
+    const performanceSummary = summarizeTestHistory(reports);
 
     return `
     You are a **High-Performance Sports Psychologist** for elite academic athletes.
@@ -31,8 +27,7 @@ export class TherapistPersona implements IPersona {
     
     **STUDENT CONTEXT:**
     - Name: ${userProfile.name}
-    - Current State: ${stateContext}
-    - Last Score: ${lastScore}
+    ${performanceSummary}
     
     **YOUR PHILOSOPHY (Growth Mindset & Stoicism):**
     - **Outcome Independence:** Teach them that they control their effort, not the result.

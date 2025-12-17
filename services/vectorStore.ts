@@ -1,37 +1,63 @@
 
-import * as tf from '@tensorflow/tfjs';
-import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { dbService } from './dbService';
 import { QuestionLog } from '../types';
 
-let model: use.UniversalSentenceEncoder | null = null;
-let isModelLoading = false;
+// Worker Interface
+let worker: Worker | null = null;
+const pendingRequests = new Map<string, { resolve: (val: any) => void, reject: (err: any) => void }>();
 
-// Initialize TensorFlow.js and load the model
-export const initVectorModel = async () => {
-    if (model || isModelLoading) return;
-    
-    isModelLoading = true;
-    try {
-        await tf.ready(); // Ensure backend is ready (WebGL/WASM)
-        model = await use.load();
-        console.log("Universal Sentence Encoder loaded.");
-    } catch (error) {
-        console.error("Failed to load USE model:", error);
-    } finally {
-        isModelLoading = false;
+const getWorker = () => {
+    if (!worker) {
+        // Use absolute path for worker to avoid 'Invalid URL' errors with import.meta.url in some envs
+        // and ensure module type is set.
+        worker = new Worker('/workers/vector.worker.ts', { type: 'module' });
+        
+        worker.onmessage = (e) => {
+            const { id, type, vector, error } = e.data;
+            
+            if (type === 'MODEL_LOADED') {
+                console.log("Vector Worker: Model Loaded");
+                return;
+            }
+
+            const request = pendingRequests.get(id);
+            if (request) {
+                if (type === 'ERROR') request.reject(new Error(error));
+                else request.resolve(vector);
+                pendingRequests.delete(id);
+            }
+        };
+        
+        worker.onerror = (e) => {
+            console.error("Vector Worker Error:", e);
+        };
+
+        // Trigger initialization
+        worker.postMessage({ type: 'INIT' });
     }
+    return worker;
 };
 
-// Generate an embedding vector for a given text
 export const generateEmbedding = async (text: string): Promise<number[]> => {
-    if (!model) await initVectorModel();
-    if (!model) throw new Error("Vector model failed to initialize.");
+    const worker = getWorker();
+    const id = crypto.randomUUID ? crypto.randomUUID() : `uuid-${Date.now()}-${Math.random()}`;
+    
+    return new Promise((resolve, reject) => {
+        // Add timeout to prevent hanging if worker fails silently
+        const timeout = setTimeout(() => {
+            if (pendingRequests.has(id)) {
+                pendingRequests.delete(id);
+                reject(new Error("Embedding generation timed out"));
+            }
+        }, 30000); // 30s timeout for model load + inference
 
-    const embeddings = await model.embed(text);
-    const vector = await embeddings.array();
-    embeddings.dispose(); // Clean up tensor memory
-    return vector[0];
+        pendingRequests.set(id, { 
+            resolve: (val) => { clearTimeout(timeout); resolve(val); }, 
+            reject: (err) => { clearTimeout(timeout); reject(err); } 
+        });
+        
+        worker.postMessage({ id, type: 'EMBED', text });
+    });
 };
 
 // Store embeddings for question logs in IndexedDB
@@ -47,15 +73,18 @@ export const indexQuestionLogs = async (logs: QuestionLog[]) => {
     
     const existingSet = new Set(existingIds);
     
+    // Filter strictly for new items
     const newLogs = logs.filter(l => !existingSet.has(`${l.testId}-${l.questionNumber}`));
     
     if (newLogs.length === 0) return;
 
-    // Process in batches to avoid freezing UI
-    const BATCH_SIZE = 5; // Smaller batch size to prevent hanging
+    // Process in batches to avoid overwhelming the worker message queue
+    const BATCH_SIZE = 5; 
+    
     for (let i = 0; i < newLogs.length; i += BATCH_SIZE) {
         const batch = newLogs.slice(i, i + BATCH_SIZE);
         
+        // We can run these in parallel
         await Promise.all(batch.map(async (log) => {
             const context = `
                 Subject: ${log.subject}
@@ -66,20 +95,19 @@ export const indexQuestionLogs = async (logs: QuestionLog[]) => {
             `.trim();
             
             try {
+                // This now calls the worker
                 const vector = await generateEmbedding(context);
+                
                 await dbService.put('vectorIndex', {
                     id: `${log.testId}-${log.questionNumber}`,
                     vector,
-                    logId: `${log.testId}-${log.questionNumber}`, // Reference to original log
+                    logId: `${log.testId}-${log.questionNumber}`,
                     content: context
                 });
             } catch (e) {
                 console.warn(`Failed to embed log ${log.testId}-${log.questionNumber}`, e);
             }
         }));
-        
-        // Small delay to yield to main thread
-        await new Promise(resolve => setTimeout(resolve, 50));
     }
 };
 
@@ -98,11 +126,11 @@ const cosineSimilarity = (a: number[], b: number[]): number => {
 
 // Semantic Search
 export const semanticSearch = async (query: string, limit: number = 5): Promise<{ id: string, score: number, content: string }[]> => {
-    if (!model) await initVectorModel();
-    if (!model) return [];
-    
+    // We compute the query vector in the worker
     try {
         const queryVector = await generateEmbedding(query);
+        
+        // We fetch stored vectors from DB (Main Thread)
         const allVectors = await dbService.getAll<{ id: string, vector: number[], content: string }>('vectorIndex');
         
         const results = allVectors.map(item => ({

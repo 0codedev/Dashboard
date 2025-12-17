@@ -1,10 +1,11 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { GoogleGenAI, LiveServerMessage, Blob as GenAiBlob, Modality, HarmBlockThreshold, HarmCategory } from "@google/genai";
-import { QuestionStatus, type TestReport, type QuestionLog, type AiFilter, type ChatMessage, type StudyGoal, type AiAssistantPreferences, type GenUIToolType, type GenUIComponentData, type UserProfile } from '../types';
+import { QuestionStatus, type TestReport, type QuestionLog, type AiFilter, type ChatMessage, type StudyGoal, type AiAssistantPreferences, type GenUIToolType, type GenUIComponentData, type UserProfile, type LlmTaskCategory } from '../types';
 import { retrieveRelevantContext, GENUI_TOOLS, decodeAudioData, encodeAudio, decodeAudio, fileToGenerativePart } from '../services/geminiService';
 import { MODEL_REGISTRY, AIModel } from '../services/llm/models';
 import { generateTextOpenAI } from '../services/llm/providers';
+import { llmPipeline } from '../services/llm'; 
 import { MarkdownRenderer } from './common/MarkdownRenderer';
 
 // --- NEW AI ARCHITECTURE IMPORTS ---
@@ -28,8 +29,8 @@ interface AiAssistantProps {
   setStudyGoals: React.Dispatch<React.SetStateAction<StudyGoal[]>>;
   preferences: AiAssistantPreferences;
   onUpdatePreferences?: React.Dispatch<React.SetStateAction<AiAssistantPreferences>>;
-  userProfile: UserProfile; // Added for Context
-  onAddTasksToPlanner?: (tasks: { task: string, time: number, topic: string }[]) => void; // New Prop
+  userProfile: UserProfile; 
+  onAddTasksToPlanner?: (tasks: { task: string, time: number, topic: string }[]) => void; 
 }
 
 const PRIMARY_MODELS = MODEL_REGISTRY.filter(m => m.provider === 'google');
@@ -223,116 +224,186 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
         setChatHistory(prev => [...prev, { role: 'user', content: userMessageContent }]);
         setIsStreamingResponse(true);
 
-        try {
-            // --- NEW ROUTING LOGIC ---
+        // --- CORE GENERATION LOGIC ---
+        const executeGeneration = async (modelId: string, fallbackFrom?: string) => {
             // 1. Classify Intent
             const intent = await classifyIntent(currentInput, apiKey);
             
             // 2. Get Persona
             const persona = getPersona(intent);
             
-            // 2.5 RAG Retrieval (Enhancement)
+            // 2.5 RAG Retrieval
             let ragContext = "";
             if (intent !== 'GENERAL' && intent !== 'EMOTIONAL') {
-                 // Only fetch factual context for Concept/Analysis/Planning
                  ragContext = await retrieveRelevantContext(currentInput, questionLogs, apiKey);
             }
 
-            // 3. Construct Context (Passed to Persona)
+            // 3. Construct Context
+            // IMPORTANT: Inject the *currently attempted* modelId into preferences 
+            // so the Persona logic knows which model is active (crucial for Coach/Tutor checks)
             const aiContext: AIContext = {
                 reports,
                 logs: questionLogs,
                 userProfile,
-                preferences,
+                preferences: { ...preferences, model: modelId }, 
                 userQuery: currentInput,
                 ragContext
             };
 
-            // 4. Get System Instruction & Tools (Strictly scoped)
+            // 4. Get System Instruction & Tools
             const systemInstruction = persona.getSystemInstruction(aiContext);
             const allowedTools = persona.getTools();
-            const preferredModel = persona.getModelPreference(preferences) || preferences.model; // Fallback to user pref
+            
+            // Detect if model is Google or External
+            const modelDef = MODEL_REGISTRY.find(m => m.id === modelId);
+            const isGoogleModel = !modelDef || modelDef.provider === 'google' || modelId.includes('gemini') || modelId.includes('gemma');
 
-            // 5. Prepare GenAI Call
-            const parts: any[] = [{ text: currentInput || "Analyze this." }];
-            if (currentImage) {
-                const imagePart = await fileToGenerativePart(currentImage);
-                parts.unshift(imagePart);
-            }
-
-            const isGemma = preferredModel.toLowerCase().includes('gemma');
-            let reqConfig: any = {};
-            let reqContents = [{ role: 'user', parts: parts }];
-
-            if (isGemma) {
-                // Gemma logic (Text only, usually)
-                const textParts = parts.filter(p => p.text);
-                if (textParts.length > 0) {
-                    textParts[0].text = `SYSTEM INSTRUCTION:\n${systemInstruction}\n\nUSER QUERY:\n${textParts[0].text}`;
+            if (isGoogleModel) {
+                // --- GOOGLE SDK STREAMING PATH ---
+                const parts: any[] = [{ text: currentInput || "Analyze this." }];
+                if (currentImage) {
+                    const imagePart = await fileToGenerativePart(currentImage);
+                    parts.unshift(imagePart);
                 }
-                reqContents = [{ role: 'user', parts: textParts }];
-                reqConfig = { safetySettings: [] }; // Minimal safety for efficiency
-            } else {
-                // Standard Gemini Logic with Tools
-                reqConfig = {
-                    systemInstruction,
-                    tools: allowedTools.length > 0 ? [{ functionDeclarations: allowedTools.map(t => ({ name: t.name, description: t.description, parameters: t.parameters })) }] : undefined,
-                };
-                reqContents = [{ role: 'user', parts: parts }];
-            }
 
-            // 6. Call API
-            const response = await ai.models.generateContentStream({
-                model: preferredModel, 
-                contents: reqContents,
-                config: reqConfig
-            });
+                const isGemma = modelId.toLowerCase().includes('gemma');
+                let reqConfig: any = {};
+                let reqContents = [{ role: 'user', parts: parts }];
 
-            let streamedText = '';
-
-            for await (const chunk of response) {
-                const toolCall = chunk.functionCalls?.[0];
-                if (toolCall) {
-                    let genType: GenUIToolType = 'none';
-                    if (toolCall.name === 'renderChart') genType = 'chart';
-                    else if (toolCall.name === 'createActionPlan') genType = 'checklist';
-                    else if (toolCall.name === 'renderDiagram') genType = 'chart'; // Using chart type for diagram component mapping
-                    else if (toolCall.name === 'createMindMap') genType = 'chart'; 
-
-                    const genData: GenUIComponentData = {
-                        type: genType, 
-                        data: toolCall.args,
-                        id: toolCall.id || Date.now().toString()
-                    };
-                    
-                    if (toolCall.name === 'renderDiagram') {
-                        setChatHistory(prev => [...prev, { role: 'model', content: { type: 'genUI', component: { ...genData, type: 'diagram' as any } } }]);
-                    } else if (toolCall.name === 'createMindMap') {
-                        setChatHistory(prev => [...prev, { role: 'model', content: { type: 'genUI', component: { ...genData, type: 'mindmap' as any } } }]);
-                    } else if (genData.type !== 'none') {
-                        setChatHistory(prev => [...prev, { role: 'model', content: { type: 'genUI', component: genData } }]);
+                if (isGemma) {
+                    const textParts = parts.filter(p => p.text);
+                    if (textParts.length > 0) {
+                        textParts[0].text = `SYSTEM: ${systemInstruction}\n\nUSER QUERY: ${textParts[0].text}`;
                     }
-                    continue; 
+                    reqContents = [{ role: 'user', parts: textParts }];
+                    reqConfig = { safetySettings: [] };
+                } else {
+                    reqConfig = {
+                        systemInstruction,
+                        tools: allowedTools.length > 0 ? [{ functionDeclarations: allowedTools.map(t => ({ name: t.name, description: t.description, parameters: t.parameters })) }] : undefined,
+                    };
+                    reqContents = [{ role: 'user', parts: parts }];
                 }
 
-                if (chunk.text) {
-                    streamedText += chunk.text;
-                    
-                    setChatHistory(prev => {
-                        const last = prev[prev.length - 1];
-                        let displayContent = streamedText;
+                const response = await ai.models.generateContentStream({
+                    model: modelId, 
+                    contents: reqContents,
+                    config: reqConfig
+                });
+
+                let streamedText = '';
+
+                for await (const chunk of response) {
+                    const toolCall = chunk.functionCalls?.[0];
+                    if (toolCall) {
+                        let genType: GenUIToolType = 'none';
+                        if (toolCall.name === 'renderChart') genType = 'chart';
+                        else if (toolCall.name === 'createActionPlan') genType = 'checklist';
+                        else if (toolCall.name === 'renderDiagram') genType = 'chart'; 
+                        else if (toolCall.name === 'createMindMap') genType = 'chart'; 
+
+                        const genData: GenUIComponentData = {
+                            type: genType, 
+                            data: toolCall.args,
+                            id: toolCall.id || Date.now().toString()
+                        };
                         
-                        if (last?.role === 'model' && typeof last.content === 'string') {
-                            return [...prev.slice(0, -1), { role: 'model', content: displayContent }];
+                        if (toolCall.name === 'renderDiagram') {
+                            setChatHistory(prev => [...prev, { role: 'model', content: { type: 'genUI', component: { ...genData, type: 'diagram' as any } } }]);
+                        } else if (toolCall.name === 'createMindMap') {
+                            setChatHistory(prev => [...prev, { role: 'model', content: { type: 'genUI', component: { ...genData, type: 'mindmap' as any } } }]);
+                        } else if (genData.type !== 'none') {
+                            setChatHistory(prev => [...prev, { role: 'model', content: { type: 'genUI', component: genData } }]);
                         }
-                        return [...prev, { role: 'model', content: displayContent }];
-                    });
-                }
-            }
+                        continue; 
+                    }
 
+                    if (chunk.text) {
+                        streamedText += chunk.text;
+                        
+                        setChatHistory(prev => {
+                            const last = prev[prev.length - 1];
+                            let displayContent = streamedText;
+                            
+                            if (last?.role === 'model' && typeof last.content === 'string') {
+                                return [...prev.slice(0, -1), { role: 'model', content: displayContent }];
+                            }
+                            return [...prev, { role: 'model', content: displayContent }];
+                        });
+                    }
+                }
+
+                // 7. Append Model Footer (Google Models Only - Manual Logic)
+                const usedModelName = modelDef ? modelDef.name : modelId;
+                let footerHtml = '';
+                
+                if (fallbackFrom) {
+                    const fallbackName = MODEL_REGISTRY.find(m => m.id === fallbackFrom)?.name || fallbackFrom;
+                    footerHtml = `\n\n<div class="text-[10px] text-slate-400 mt-4 pt-2 border-t border-slate-700/50 flex items-center gap-1"><span class="text-amber-500">⚠️</span> Fallback to <strong>${usedModelName}</strong> <span class="text-slate-500">(${fallbackName} unavailable)</span></div>`;
+                } else {
+                    footerHtml = `\n\n<div class="text-[10px] text-slate-500 mt-4 pt-2 border-t border-slate-700/50 flex items-center gap-1"><span>⚡</span> Generated by <strong>${usedModelName}</strong></div>`;
+                }
+
+                setChatHistory(prev => {
+                    const last = prev[prev.length - 1];
+                    if (last?.role === 'model' && typeof last.content === 'string' && !last.content.includes('Generated by <strong>') && !last.content.includes('Fallback to <strong>')) {
+                         return [...prev.slice(0, -1), { ...last, content: last.content + footerHtml }];
+                    }
+                    return prev;
+                });
+
+            } else {
+                // --- EXTERNAL PROVIDER PATH ---
+                // For external models, we delegate the fallback logic AND the footer generation to the llmPipeline directly.
+                // We do NOT manually append the footer here, because llmPipeline will do it, ensuring the footer accurately reflects
+                // which model was *actually* used after any internal fallbacks.
+                
+                let taskCategory: LlmTaskCategory = 'chat';
+                if (intent === 'ANALYSIS') taskCategory = 'analysis';
+                if (intent === 'PLANNING') taskCategory = 'planning';
+                if (intent === 'CONCEPT') taskCategory = 'math';
+                if (intent === 'EMOTIONAL') taskCategory = 'creative';
+
+                const responseText = await llmPipeline({
+                    task: taskCategory,
+                    prompt: currentInput,
+                    systemInstruction: systemInstruction,
+                    userPreferences: {
+                        ...preferences,
+                        modelOverrides: { [taskCategory]: modelId } // Force override
+                    },
+                    googleApiKey: apiKey,
+                    expectJson: false,
+                    includeFooter: true // IMPORTANT: Tell pipeline to append footer
+                });
+
+                setChatHistory(prev => [...prev, { role: 'model', content: responseText }]);
+            }
+        };
+
+        // --- EXECUTION WITH OUTER FALLBACK ---
+        // If the *entire* execution block fails (e.g. Google SDK limit), we catch it here.
+        
+        const targetModelId = secondaryModelId !== 'none' ? secondaryModelId : preferences.model;
+        
+        try {
+            await executeGeneration(targetModelId);
         } catch (err) {
-            console.error("Chat generation error:", err);
-            setChatHistory(prev => [...prev, { role: 'model', content: "Error generating response. Please check your API key or network." }]);
+            console.warn(`Attempt with ${targetModelId} failed.`, err);
+            
+            // 2. Fallback Logic (Outer Safety Net)
+            // If the failed model was the secondary one, fall back to primary
+            if (targetModelId !== preferences.model) {
+                // Pass targetModelId as 'fallbackFrom' to generate the correct footer
+                try {
+                    await executeGeneration(preferences.model, targetModelId);
+                } catch (fallbackErr) {
+                    console.error("Fallback generation error:", fallbackErr);
+                    setChatHistory(prev => [...prev, { role: 'model', content: `Error generating response (Primary & Secondary failed).\nDetails: ${(fallbackErr as Error).message}` }]);
+                }
+            } else {
+                setChatHistory(prev => [...prev, { role: 'model', content: `Error generating response.\nDetails: ${(err as Error).message}` }]);
+            }
         }
         
         setIsStreamingResponse(false);
@@ -447,7 +518,7 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
                                 <div className="flex items-end p-2">
                                     <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3 text-gray-400 hover:text-cyan-400 hover:bg-cyan-900/20 rounded-full transition-all" title="Attach image"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg></button>
                                     <textarea ref={inputRef} value={userInput} onChange={handleUserInput} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e); } }} placeholder={`Message ${secondaryModelId !== 'none' ? currentSecondary?.name : currentModel.name}...`} className="w-full bg-transparent text-gray-100 px-3 py-3.5 max-h-48 focus:outline-none resize-none text-sm placeholder-gray-500" rows={1} disabled={isStreamingResponse} />
-                                    <button type="submit" disabled={isStreamingResponse || (userInput.trim() === '' && !attachedImage)} className="p-2 mb-1 mr-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded-full transition-all disabled:opacity-0 disabled:scale-75 shadow-lg shadow-cyan-500/20"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg></button>
+                                    <button type="submit" disabled={isStreamingResponse || (userInput.trim() === '' && !attachedImage)} className="p-2 mb-1 mr-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded-full transition-all disabled:opacity-0 disabled:scale-75 shadow-lg shadow-cyan-500/20"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0 l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg></button>
                                 </div>
                             </form>
                             <div className="text-center mt-2"><p className="text-[10px] text-gray-600">AI can make mistakes. Verify important information.</p></div>

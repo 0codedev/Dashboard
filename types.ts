@@ -263,6 +263,7 @@ export interface AiAssistantPreferences {
   // New: Advanced Multi-Provider Config
   groqApiKey?: string;
   openRouterApiKey?: string;
+  googleDriveClientId?: string;
   
   // Per-task model overrides
   modelOverrides?: Partial<Record<LlmTaskCategory, string>>;

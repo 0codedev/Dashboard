@@ -1,6 +1,13 @@
 
 import React from 'react';
 
+// Declare KaTeX on window object since it's loaded via CDN
+declare global {
+    interface Window {
+        katex: any;
+    }
+}
+
 interface MarkdownRendererProps {
     content: string;
     className?: string;
@@ -17,39 +24,148 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     if (!content) return null;
 
     const renderInline = (text: string) => {
-        // Updated regex to be slightly more robust for bold/italic/code
-        const parts = text.split(/(\*\*.*?\*\*|\*.*?\*|`.*?`)/g).filter(Boolean);
+        // Regex Breakdown:
+        // 1. Code: `...`
+        // 2. Block Math: $$...$$
+        // 3. Inline Math: $...$ (non-greedy)
+        // 4. Bold: **...**
+        // 5. Italic: *...*
+        const parts = text.split(/(`[^`]+`|\$\$[^$]+\$\$|\$[^$]+\$|\*\*[^*]+\*\*|\*[^*]+\*)/g).filter(Boolean);
+        
         return parts.map((part, index) => {
-            if (part.startsWith('**') && part.endsWith('**')) {
-                return <strong key={index} className="text-white font-bold tracking-wide">{part.slice(2, -2)}</strong>;
-            }
-            if (part.startsWith('*') && part.endsWith('*')) {
-                return <em key={index} className="text-indigo-200 italic font-medium">{part.slice(1, -1)}</em>;
-            }
+            // Code
             if (part.startsWith('`') && part.endsWith('`')) {
                 return <code key={index} className="bg-slate-800 text-amber-300 px-1.5 py-0.5 rounded text-xs font-mono border border-slate-700 shadow-sm">{part.slice(1, -1)}</code>;
             }
+            // Block Math
+            if (part.startsWith('$$') && part.endsWith('$$')) {
+                const math = part.slice(2, -2);
+                try {
+                    if (window.katex) {
+                        const html = window.katex.renderToString(math, { 
+                            throwOnError: false, 
+                            displayMode: true 
+                        });
+                        return <span key={index} dangerouslySetInnerHTML={{ __html: html }} className="block my-2 text-center" />;
+                    }
+                } catch (e) {
+                    console.error("KaTeX error", e);
+                }
+                return <div key={index} className="font-mono text-cyan-200 bg-slate-900 p-2 rounded text-center">{math}</div>; // Fallback
+            }
+            // Inline Math
+            if (part.startsWith('$') && part.endsWith('$')) {
+                const math = part.slice(1, -1);
+                try {
+                    if (window.katex) {
+                        const html = window.katex.renderToString(math, { 
+                            throwOnError: false, 
+                            displayMode: false 
+                        });
+                        return <span key={index} dangerouslySetInnerHTML={{ __html: html }} className="mx-1" />;
+                    }
+                } catch (e) {
+                    console.error("KaTeX error", e);
+                }
+                return <span key={index} className="font-mono text-cyan-200">{part}</span>; // Fallback
+            }
+            // Bold
+            if (part.startsWith('**') && part.endsWith('**')) {
+                return <strong key={index} className="text-white font-bold tracking-wide">{part.slice(2, -2)}</strong>;
+            }
+            // Italic
+            if (part.startsWith('*') && part.endsWith('*')) {
+                return <em key={index} className="text-indigo-200 italic font-medium">{part.slice(1, -1)}</em>;
+            }
+            // Regular Text
             return <span key={index}>{part}</span>;
         });
+    };
+
+    const renderTable = (rows: string[], keyIndex: number) => {
+        // Basic Markdown Table Parser
+        if (rows.length < 2) return null; // Need at least header and separator
+
+        // Filter out empty strings that result from split if there are leading/trailing pipes
+        const cleanRow = (r: string) => {
+            // Remove leading/trailing pipes if present
+            let content = r.trim();
+            if (content.startsWith('|')) content = content.substring(1);
+            if (content.endsWith('|')) content = content.substring(0, content.length - 1);
+            return content.split('|').map(c => c.trim());
+        };
+
+        const headers = cleanRow(rows[0]);
+        // rows[1] is the separator line (e.g. |---|), skip it
+        const bodyRows = rows.slice(2).map(cleanRow);
+
+        return (
+            <div key={`table-${keyIndex}`} className="overflow-x-auto my-4 rounded-lg border border-slate-700/50 shadow-sm">
+                <table className="min-w-full text-sm text-left">
+                    <thead className="bg-slate-800 text-slate-200 font-bold uppercase tracking-wider text-xs">
+                        <tr>
+                            {headers.map((h, idx) => (
+                                <th key={idx} className="px-4 py-3 border-b border-slate-700 whitespace-nowrap bg-slate-800/80">{renderInline(h)}</th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-700/50 bg-slate-900/30 text-slate-300">
+                        {bodyRows.map((row, rIdx) => (
+                            <tr key={rIdx} className="hover:bg-slate-800/30 transition-colors">
+                                {row.map((cell, cIdx) => (
+                                    <td key={cIdx} className="px-4 py-2 border-r border-slate-700/30 last:border-r-0">{renderInline(cell)}</td>
+                                ))}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        );
     };
 
     const lines = content.split('\n');
     const elements: React.ReactNode[] = [];
     let listStack: React.ReactNode[] = [];
     let inList = false;
+    let tableBuffer: string[] = [];
+    let inTable = false;
+
+    const flushList = (keyPrefix: number) => {
+        if (listStack.length > 0) {
+            elements.push(<ul key={`ul-${keyPrefix}`} className="space-y-2 my-4 pl-2">{listStack}</ul>);
+            listStack = [];
+        }
+        inList = false;
+    };
+
+    const flushTable = (keyPrefix: number) => {
+        if (tableBuffer.length > 0) {
+            elements.push(renderTable(tableBuffer, keyPrefix));
+            tableBuffer = [];
+        }
+        inTable = false;
+    };
 
     lines.forEach((line, i) => {
         const trimmed = line.trim();
         
+        // Handle Table Detection
+        if (trimmed.startsWith('|')) {
+            if (!inTable) {
+                flushList(i); // Close any open list
+                inTable = true;
+            }
+            tableBuffer.push(trimmed);
+            return;
+        } else if (inTable) {
+            flushTable(i);
+        }
+
         // Handle Injected HTML (e.g. Footer)
         if (trimmed.startsWith('<div')) {
-             if (inList && listStack.length > 0) {
-                elements.push(<ul key={`ul-${i}`} className="space-y-2 my-4 pl-2">{listStack}</ul>);
-                listStack = [];
-                inList = false;
-            }
-            elements.push(<div key={i} dangerouslySetInnerHTML={{ __html: line }} />);
-            return;
+             if (inList) flushList(i);
+             elements.push(<div key={i} dangerouslySetInnerHTML={{ __html: line }} />);
+             return;
         }
 
         // Handle Lists
@@ -70,11 +186,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         }
 
         // Close list if we encounter non-list item
-        if (inList && listStack.length > 0) {
-            elements.push(<ul key={`ul-${i}`} className="space-y-2 my-4 pl-2">{listStack}</ul>);
-            listStack = [];
-            inList = false;
-        }
+        if (inList) flushList(i);
 
         // Headers
         if (trimmed.startsWith('###')) {
@@ -125,10 +237,9 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         }
     });
 
-    // Flush remaining list
-    if (listStack.length > 0) {
-        elements.push(<ul key="ul-end" className="space-y-2 my-4 pl-2">{listStack}</ul>);
-    }
+    // Flush remaining structures
+    if (inList) flushList(lines.length);
+    if (inTable) flushTable(lines.length);
 
     return <div className={`font-sans ${className}`}>{elements}</div>;
 };

@@ -11,8 +11,9 @@ export class TutorPersona implements IPersona {
   }
 
   getModelPreference(basePrefs: any) {
-    // Requires specific formatting capabilities
-    return 'gemini-2.5-flash'; 
+    // Respect user preference completely.
+    // The execution layer (AiAssistant) handles provider switching and tool compatibility.
+    return basePrefs.model;
   }
 
   getSystemInstruction(context: AIContext): string {

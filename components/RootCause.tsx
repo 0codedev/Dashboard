@@ -1060,16 +1060,18 @@ export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFi
             if (savedLayoutString) {
                 const parsedLayout = JSON.parse(savedLayoutString);
                 if (Array.isArray(parsedLayout)) {
-                    // Create a map of saved widgets
-                    const savedMap = new Map(parsedLayout.map((w: any) => [w.id, w]));
+                    const savedIds = new Set(parsedLayout.map((w: any) => w.id));
                     
-                    // Merge saved state with defaults
-                    const merged = DEFAULT_ROOT_CAUSE_LAYOUT.map(defaultWidget => {
-                        const savedWidget = savedMap.get(defaultWidget.id);
-                        return savedWidget ? { ...defaultWidget, ...savedWidget } : defaultWidget;
-                    });
+                    const validSavedLayout = parsedLayout
+                        .filter((w: any) => DEFAULT_ROOT_CAUSE_LAYOUT.some(d => d.id === w.id))
+                        .map((savedW: any) => {
+                             const defaultW = DEFAULT_ROOT_CAUSE_LAYOUT.find(d => d.id === savedW.id);
+                             return { ...defaultW, ...savedW };
+                        });
+
+                    const newWidgets = DEFAULT_ROOT_CAUSE_LAYOUT.filter(d => !savedIds.has(d.id));
                     
-                    return merged;
+                    return [...validSavedLayout, ...newWidgets];
                 }
             }
         } catch (e) { 

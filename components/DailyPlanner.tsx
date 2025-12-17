@@ -26,46 +26,64 @@ interface DailyPlannerProps {
 }
 
 // --- NEW COMPONENT: Bio Check Modal ---
-const BioCheckModal: React.FC<{ 
+const BioCheckModal: React.FC<{
     onSave: (data: { sleep: number; stress: number; energy: number }) => void;
-    onClose: () => void 
-}> = ({ onSave, onClose }) => {
+    onSkip: () => void;
+    onSnooze: () => void;
+}> = ({ onSave, onSkip, onSnooze }) => {
     const [sleep, setSleep] = useState(7);
     const [stress, setStress] = useState(5);
     const [energy, setEnergy] = useState(7);
 
     return (
-        <Modal isOpen={true} onClose={onClose} title="Morning Bio-Check 🌿">
-            <div className="space-y-6 p-2">
-                <p className="text-gray-300 text-sm">Synchronize your cognitive load with your biological state. Be honest!</p>
+        <Modal isOpen={true} onClose={onSkip} title="🌿 Morning Bio-Check" isInfo={true}>
+            <div className="flex flex-col h-full p-2">
+                <p className="text-slate-400 text-xs mb-6 text-center">Calibrate your day. Honesty maximizes efficiency.</p>
                 
-                <div>
-                    <div className="flex justify-between mb-2">
-                        <label className="text-sm font-bold text-blue-300">Sleep (Hours)</label>
-                        <span className="text-sm text-white font-mono">{sleep}h</span>
+                <div className="space-y-5 flex-grow">
+                    {/* Sleep */}
+                    <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 flex items-center justify-center bg-blue-900/50 rounded-lg text-xl border border-blue-700/50">🌙</div>
+                        <div className="flex-grow">
+                            <div className="flex justify-between items-baseline mb-1">
+                                <label className="text-sm font-bold text-blue-300">Sleep</label>
+                                <span className="text-sm text-white font-mono">{sleep}h</span>
+                            </div>
+                            <input type="range" min="3" max="12" step="0.5" value={sleep} onChange={e => setSleep(parseFloat(e.target.value))} className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+                        </div>
                     </div>
-                    <input type="range" min="3" max="12" step="0.5" value={sleep} onChange={e => setSleep(parseFloat(e.target.value))} className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500" />
-                </div>
 
-                <div>
-                    <div className="flex justify-between mb-2">
-                        <label className="text-sm font-bold text-red-300">Stress Level (1-10)</label>
-                        <span className="text-sm text-white font-mono">{stress}</span>
+                    {/* Stress */}
+                    <div className="flex items-center gap-4">
+                         <div className="w-10 h-10 flex items-center justify-center bg-red-900/50 rounded-lg text-xl border border-red-700/50">🤯</div>
+                        <div className="flex-grow">
+                            <div className="flex justify-between items-baseline mb-1">
+                                <label className="text-sm font-bold text-red-300">Stress</label>
+                                <span className="text-sm text-white font-mono">{stress}/10</span>
+                            </div>
+                            <input type="range" min="1" max="10" step="1" value={stress} onChange={e => setStress(parseInt(e.target.value))} className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-red-500" />
+                        </div>
                     </div>
-                    <input type="range" min="1" max="10" step="1" value={stress} onChange={e => setStress(parseInt(e.target.value))} className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-red-500" />
-                </div>
 
-                <div>
-                    <div className="flex justify-between mb-2">
-                        <label className="text-sm font-bold text-yellow-300">Energy Level (1-10)</label>
-                        <span className="text-sm text-white font-mono">{energy}</span>
+                    {/* Energy */}
+                    <div className="flex items-center gap-4">
+                         <div className="w-10 h-10 flex items-center justify-center bg-yellow-900/50 rounded-lg text-xl border border-yellow-700/50">⚡️</div>
+                        <div className="flex-grow">
+                            <div className="flex justify-between items-baseline mb-1">
+                                <label className="text-sm font-bold text-yellow-300">Energy</label>
+                                <span className="text-sm text-white font-mono">{energy}/10</span>
+                            </div>
+                            <input type="range" min="1" max="10" step="1" value={energy} onChange={e => setEnergy(parseInt(e.target.value))} className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-yellow-500" />
+                        </div>
                     </div>
-                    <input type="range" min="1" max="10" step="1" value={energy} onChange={e => setEnergy(parseInt(e.target.value))} className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-yellow-500" />
                 </div>
-
-                <div className="flex justify-end gap-3 pt-4">
-                    <button onClick={onClose} className="text-gray-400 hover:text-white px-4 py-2 text-sm">Skip</button>
-                    <button onClick={() => onSave({ sleep, stress, energy })} className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-6 rounded-lg shadow-lg">Sync & Plan</button>
+                
+                <div className="flex justify-between items-center pt-6 mt-4 border-t border-slate-700/50">
+                    <button onClick={onSnooze} className="text-slate-500 hover:text-slate-300 px-4 py-2 text-xs font-medium transition-colors">Remind Me Later</button>
+                    <div className="flex gap-2">
+                        <button onClick={onSkip} className="text-gray-400 hover:text-white px-4 py-2 text-sm">Skip for Today</button>
+                        <button onClick={() => onSave({ sleep, stress, energy })} className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-6 rounded-lg shadow-lg text-sm">Sync & Plan</button>
+                    </div>
                 </div>
             </div>
         </Modal>
@@ -81,12 +99,16 @@ class AudioEngine {
     private isPlaying: boolean = false;
     private buffers: Map<string, AudioBuffer> = new Map();
 
-    init() {
+    public init() {
         if (!this.ctx && typeof window !== 'undefined') {
             const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
             if (AudioContextClass) {
                 this.ctx = new AudioContextClass();
             }
+        }
+        // Ensure we try to resume if it was suspended (browser policy)
+        if (this.ctx && this.ctx.state === 'suspended') {
+            this.ctx.resume().catch(() => {});
         }
     }
 
@@ -128,9 +150,8 @@ class AudioEngine {
     }
 
     playNoise(type: 'brown' | 'pink' | 'white', volume: number = 0.1) {
-        this.init();
+        // Only proceed if context exists (explicit init required via user gesture)
         if (!this.ctx) return;
-        if (this.ctx.state === 'suspended') this.ctx.resume().catch(err => console.warn("AudioContext resume failed:", err));
         
         if (this.isPlaying) this.stop();
 
@@ -151,9 +172,7 @@ class AudioEngine {
     }
 
     playBinaural(baseFreq: number, beatFreq: number, volume: number = 0.1) {
-        this.init();
         if (!this.ctx) return;
-        if (this.ctx.state === 'suspended') this.ctx.resume().catch(err => console.warn("AudioContext resume failed:", err));
         
         if (this.isPlaying) this.stop();
 
@@ -471,14 +490,19 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
         const today = new Date().toISOString().split('T')[0];
         const bioLogKey = `bioLog_${today}`;
         const savedBio = localStorage.getItem(bioLogKey);
-        
+        const snoozeUntil = localStorage.getItem('bioCheckSnoozeUntil');
+
         if (savedBio) {
             setBioStats(JSON.parse(savedBio));
-        } else {
-            // Delay modal slightly for smoother UX
-            const timer = setTimeout(() => setShowBioCheck(true), 1000);
-            return () => clearTimeout(timer);
+            return;
         }
+
+        if (snoozeUntil && Date.now() < parseInt(snoozeUntil, 10)) {
+            return;
+        }
+        
+        const timer = setTimeout(() => setShowBioCheck(true), 1000);
+        return () => clearTimeout(timer);
     }, []);
 
     const handleBioSave = (data: { sleep: number; stress: number; energy: number }) => {
@@ -493,6 +517,18 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
         } else if (data.energy > 8 && data.stress < 4) {
             setNewTaskEffort(TaskEffort.High);
         }
+    };
+
+    const handleBioSnooze = () => {
+        const snoozeUntil = Date.now() + 4 * 60 * 60 * 1000;
+        localStorage.setItem('bioCheckSnoozeUntil', snoozeUntil.toString());
+        setShowBioCheck(false);
+    };
+
+    const handleBioSkip = () => {
+        const today = new Date().toISOString().split('T')[0];
+        localStorage.setItem(`bioLog_${today}`, JSON.stringify({ skipped: true }));
+        setShowBioCheck(false);
     };
 
     useEffect(() => {
@@ -676,6 +712,7 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
     const handleTimerModeChange = (mode: 'focus' | 'short' | 'long' | 'custom') => { setIsTimerActive(false); setTimerMode(mode); setIsCompleted(false); endTimeRef.current = null; setActiveTask(null); if (mode === 'custom') { setShowCustomInput(true); setTimeLeft(customTime * 60); } else { setShowCustomInput(false); setTimeLeft(timerModes[mode]); } };
     
     const handleTimerToggle = () => { 
+        audioEngine.init(); // Explicit init on user interaction to handle browser policy
         setIsCompleted(false); 
         if (!isTimerActive) { 
             // Resuming or Starting
@@ -697,7 +734,10 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
 
     const handleTimerReset = () => { setIsTimerActive(false); setIsHyperFocusMode(false); setIsCompleted(false); endTimeRef.current = null; setActiveTask(null); setInterruptionCount(0); if(timerMode === 'custom') { setTimeLeft(customTime * 60); } else { setTimeLeft(timerModes[timerMode]); } };
     
-    const handleStartFocus = (task: DailyTask) => { setActiveTask(task); setIsTimerActive(false); setTimerMode('focus'); setShowCustomInput(false); setIsCompleted(false); setInterruptionCount(0); endTimeRef.current = null; setTimeLeft(task.estimatedTime > 0 ? task.estimatedTime * 60 : timerModes.focus); setTimeout(() => { endTimeRef.current = Date.now() + (task.estimatedTime > 0 ? task.estimatedTime * 60 : timerModes.focus) * 1000; setIsTimerActive(true); setIsHyperFocusMode(true); }, 100); };
+    const handleStartFocus = (task: DailyTask) => { 
+        audioEngine.init(); // Explicit init on user interaction
+        setActiveTask(task); setIsTimerActive(false); setTimerMode('focus'); setShowCustomInput(false); setIsCompleted(false); setInterruptionCount(0); endTimeRef.current = null; setTimeLeft(task.estimatedTime > 0 ? task.estimatedTime * 60 : timerModes.focus); setTimeout(() => { endTimeRef.current = Date.now() + (task.estimatedTime > 0 ? task.estimatedTime * 60 : timerModes.focus) * 1000; setIsTimerActive(true); setIsHyperFocusMode(true); }, 100); 
+    };
     
     const formatTime = (seconds: number) => { const mins = Math.floor(seconds / 60); const secs = seconds % 60; return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`; };
     
@@ -736,7 +776,7 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 relative">
-             {showBioCheck && <BioCheckModal onSave={handleBioSave} onClose={() => setShowBioCheck(false)} />}
+             {showBioCheck && <BioCheckModal onSave={handleBioSave} onSkip={handleBioSkip} onSnooze={handleBioSnooze} />}
              {accomplishmentModal && <AccomplishmentModal task={accomplishmentModal.task} onSave={handleSaveAccomplishment} onClose={() => setAccomplishmentModal(null)} interruptionCount={interruptionCount} />}
              
              {isHyperFocusMode && (
@@ -754,7 +794,7 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
                          
                          <div className="flex items-center gap-8 justify-center mt-8">
                             <div className="flex flex-col items-center gap-2">
-                                <button onClick={() => setAmbientSound(prev => prev === 'off' ? 'brown' : 'off')} className={`p-4 rounded-full transition-all duration-300 border ${ambientSound !== 'off' ? 'bg-cyan-600 border-cyan-500 text-white shadow-[0_0_30px_rgba(34,211,238,0.4)]' : 'bg-slate-800 border-slate-700 text-gray-400 hover:border-gray-500'}`}>
+                                <button onClick={() => { audioEngine.init(); setAmbientSound(prev => prev === 'off' ? 'brown' : 'off'); }} className={`p-4 rounded-full transition-all duration-300 border ${ambientSound !== 'off' ? 'bg-cyan-600 border-cyan-500 text-white shadow-[0_0_30px_rgba(34,211,238,0.4)]' : 'bg-slate-800 border-slate-700 text-gray-400 hover:border-gray-500'}`}>
                                     {ambientSound !== 'off' ? <span className="text-2xl">🔊</span> : <span className="text-2xl">🔇</span>}
                                 </button>
                                 <span className="text-xs text-gray-500 font-medium uppercase tracking-wider">Soundscape</span>
@@ -763,11 +803,11 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
                                 <div className="bg-slate-900/80 p-4 rounded-2xl border border-slate-800 flex gap-4 items-center animate-scale-in">
                                     <div className="flex gap-1">
                                         {(['brown', 'pink', 'white'].map(type => (
-                                            <button key={type} onClick={() => setAmbientSound(type as any)} className={`px-3 py-1 text-xs rounded-md border uppercase font-bold transition-colors ${ambientSound === type ? 'bg-slate-700 border-cyan-500 text-cyan-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>{type}</button>
+                                            <button key={type} onClick={() => { audioEngine.init(); setAmbientSound(type as any); }} className={`px-3 py-1 text-xs rounded-md border uppercase font-bold transition-colors ${ambientSound === type ? 'bg-slate-700 border-cyan-500 text-cyan-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>{type}</button>
                                         )))}
                                         <div className="w-px h-6 bg-slate-700 mx-1"></div>
-                                        <button onClick={() => setAmbientSound('alpha')} className={`px-3 py-1 text-xs rounded-md border uppercase font-bold transition-colors ${ambientSound === 'alpha' ? 'bg-indigo-900/50 border-indigo-500 text-indigo-400' : 'border-transparent text-indigo-400/50 hover:text-indigo-400'}`} title="Alpha Waves (Focus)">Alpha</button>
-                                        <button onClick={() => setAmbientSound('theta')} className={`px-3 py-1 text-xs rounded-md border uppercase font-bold transition-colors ${ambientSound === 'theta' ? 'bg-purple-900/50 border-purple-500 text-purple-400' : 'border-transparent text-purple-400/50 hover:text-purple-400'}`} title="Theta Waves (Deep Focus)">Theta</button>
+                                        <button onClick={() => { audioEngine.init(); setAmbientSound('alpha'); }} className={`px-3 py-1 text-xs rounded-md border uppercase font-bold transition-colors ${ambientSound === 'alpha' ? 'bg-indigo-900/50 border-indigo-500 text-indigo-400' : 'border-transparent text-indigo-400/50 hover:text-indigo-400'}`} title="Alpha Waves (Focus)">Alpha</button>
+                                        <button onClick={() => { audioEngine.init(); setAmbientSound('theta'); }} className={`px-3 py-1 text-xs rounded-md border uppercase font-bold transition-colors ${ambientSound === 'theta' ? 'bg-purple-900/50 border-purple-500 text-purple-400' : 'border-transparent text-purple-400/50 hover:text-purple-400'}`} title="Theta Waves (Deep Focus)">Theta</button>
                                     </div>
                                     <div className="h-8 w-[1px] bg-slate-700"></div>
                                     <input type="range" min="0" max="1" step="0.01" value={soundVolume} onChange={e => setSoundVolume(parseFloat(e.target.value))} className="w-24 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"/>

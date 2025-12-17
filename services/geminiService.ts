@@ -63,6 +63,44 @@ export async function decodeAudioData(
   return buffer;
 }
 
+// --- NEW: Token Optimization Helper ---
+export const summarizeTestHistory = (reports: TestReport[]): string => {
+    if (!reports || reports.length === 0) return "No test history available.";
+
+    // Sort by date (oldest first) to ensure trend is linear
+    const sortedReports = [...reports].sort((a, b) => new Date(a.testDate).getTime() - new Date(b.testDate).getTime());
+    const totalTests = sortedReports.length;
+    
+    // 1. Full History Trace (Low Token Cost, High Trend Value)
+    // Format: [100, 110, 105, 120]
+    const scoreTrace = sortedReports.map(r => r.total.marks).join(', ');
+    
+    // 2. Aggregate Stats
+    const totalScoreSum = sortedReports.reduce((s, r) => s + r.total.marks, 0);
+    const avgScore = (totalScoreSum / totalTests).toFixed(1);
+    const maxScore = Math.max(...sortedReports.map(r => r.total.marks));
+
+    // 3. High Resolution Recent Context (Last 3 Tests)
+    // We provide breakdown for the most recent tests only
+    const recentReports = sortedReports.slice(-3).reverse(); // Newest first
+    const recentDetails = recentReports.map(r => {
+        const p = r.physics.marks;
+        const c = r.chemistry.marks;
+        const m = r.maths.marks;
+        const acc = r.totalMetrics?.accuracy.toFixed(0) || 'N/A';
+        return `[${r.testDate}] ${r.testName}: Total ${r.total.marks} (P:${p}/C:${c}/M:${m}) Acc:${acc}%`;
+    }).join('\n');
+
+    return `
+**Test History Summary:**
+- Count: ${totalTests} tests
+- Avg: ${avgScore} | Max: ${maxScore}
+- Score Trend (Old->New): [${scoreTrace}]
+- Recent Detail (Last 3):
+${recentDetails}
+    `.trim();
+};
+
 
 // ... [RAG Service - NO CHANGES]
 
@@ -137,22 +175,34 @@ export const inferTestMetadata = async (testName: string, apiKey: string): Promi
 };
 
 export const getAIAnalysis = async (reports: TestReport[], logs: QuestionLog[], apiKey: string, modelName?: string): Promise<string> => {
-    const prompt = `Analyze this JEE student performance. Reports: ${JSON.stringify(reports.slice(-3))}. Weak Topics: ${JSON.stringify(logs.slice(-20))}. Provide comprehensive Markdown report with strategy.`;
+    // Use summarizer for efficiency
+    const historySummary = summarizeTestHistory(reports);
+    const prompt = `Analyze this JEE student performance. 
+    ${historySummary}
+    Weak Topics Sample: ${JSON.stringify(logs.slice(-20))}. 
+    Provide comprehensive Markdown report with strategy.`;
+    
     return await llmPipeline({
         task: 'analysis',
         prompt,
         userPreferences: getMockPrefs(apiKey),
-        googleApiKey: apiKey
+        googleApiKey: apiKey,
+        includeFooter: true
     });
 };
 
 export const generateStudyPlan = async (reports: TestReport[], logs: QuestionLog[], apiKey: string, modelName?: string): Promise<string> => {
-    const prompt = `Create a 7-day JEE study plan based on this data. Output Markdown. Data: ${JSON.stringify(reports.slice(-2))}`;
+    // Use summarizer for efficiency
+    const historySummary = summarizeTestHistory(reports);
+    const prompt = `Create a 7-day JEE study plan based on this data. Output Markdown. 
+    ${historySummary}`;
+    
     return await llmPipeline({
         task: 'planning',
         prompt,
         userPreferences: getMockPrefs(apiKey),
-        googleApiKey: apiKey
+        googleApiKey: apiKey,
+        includeFooter: true
     });
 };
 
@@ -166,9 +216,11 @@ export const generateContextualInsight = async (promptData: string, apiKey: stri
 };
 
 export const generateDashboardInsight = async (reports: TestReport[], apiKey: string): Promise<string> => {
+    // Use summarizer for efficiency
+    const historySummary = summarizeTestHistory(reports);
     return await llmPipeline({
         task: 'creative',
-        prompt: `Review these 3 recent scores: ${JSON.stringify(reports.slice(-3))}. Give 1 motivating sentence.`,
+        prompt: `Review this performance data: ${historySummary}. Give 1 motivating sentence.`,
         userPreferences: getMockPrefs(apiKey),
         googleApiKey: apiKey
     });
@@ -221,7 +273,8 @@ export const getAIChiefAnalystSummary = async (weakTopics: any, errorReasons: an
         task: 'analysis', 
         prompt,
         userPreferences: getMockPrefs(apiKey),
-        googleApiKey: apiKey
+        googleApiKey: apiKey,
+        includeFooter: true
     });
 };
 
@@ -230,7 +283,8 @@ export const generateFocusedStudyPlan = async (subject: string, weakTopics: stri
         task: 'planning',
         prompt: `Create 3-day recovery plan for ${subject}. Weakness: ${weakTopics.join(', ')}. Markdown format.`,
         userPreferences: getMockPrefs(apiKey),
-        googleApiKey: apiKey
+        googleApiKey: apiKey,
+        includeFooter: true
     });
 };
 
@@ -239,7 +293,8 @@ export const explainTopic = async (topic: string, apiKey: string, complexity: 's
         task: 'chat',
         prompt: `Explain '${topic}' for JEE student. Complexity: ${complexity}. Markdown.`,
         userPreferences: getMockPrefs(apiKey),
-        googleApiKey: apiKey
+        googleApiKey: apiKey,
+        includeFooter: true
     });
 };
 
@@ -332,7 +387,8 @@ export const generatePreMortem = async (topic: string, prereqs: string[], errors
         task: 'analysis',
         prompt: `Pre-mortem for '${topic}'. Prereq errors: ${errors.join('; ')}. Predict hurdles.`,
         userPreferences: getMockPrefs(apiKey),
-        googleApiKey: apiKey
+        googleApiKey: apiKey,
+        includeFooter: true
     });
 };
 

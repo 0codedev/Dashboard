@@ -33,7 +33,8 @@ export const DynamicKnowledgeGraph: React.FC<DynamicKnowledgeGraphProps> = ({ lo
     const edgesRef = useRef<Edge[]>([]);
     
     const [interactionMode, setInteractionMode] = useState<'interact' | 'drilldown'>('interact');
-    const [isStable, setIsStable] = useState(false); 
+    const [isStable, setIsStable] = useState(false);
+    const [isVisible, setIsVisible] = useState(false);
 
     // --- TUNED PHYSICS PARAMETERS (RELAXED) ---
     const REPULSION = 3500;      // Increased to push nodes apart
@@ -61,6 +62,22 @@ export const DynamicKnowledgeGraph: React.FC<DynamicKnowledgeGraphProps> = ({ lo
             default: return { x: width / 2, y: height / 2 };
         }
     };
+
+    // Intersection Observer to pause simulation when off-screen
+    useEffect(() => {
+        const observer = new IntersectionObserver(
+            ([entry]) => {
+                setIsVisible(entry.isIntersecting);
+            },
+            { threshold: 0.1 } // Start when 10% visible
+        );
+
+        if (containerRef.current) {
+            observer.observe(containerRef.current);
+        }
+
+        return () => observer.disconnect();
+    }, []);
 
     useEffect(() => {
         const errorCounts = new Map<string, number>();
@@ -310,9 +327,12 @@ export const DynamicKnowledgeGraph: React.FC<DynamicKnowledgeGraphProps> = ({ lo
     }, [interactionMode, isStable]);
 
     useEffect(() => {
+        // Only run animation if visible
+        if (!isVisible) return;
+
         requestRef.current = requestAnimationFrame(animate);
         return () => { if (requestRef.current) cancelAnimationFrame(requestRef.current); };
-    }, [animate]);
+    }, [animate, isVisible]);
 
     useEffect(() => {
         const resize = () => {
@@ -381,6 +401,7 @@ export const DynamicKnowledgeGraph: React.FC<DynamicKnowledgeGraphProps> = ({ lo
              <div className="absolute top-2 left-2 text-xs text-slate-400 pointer-events-none z-10 bg-slate-900/80 p-1 rounded border border-slate-700">
                 {interactionMode === 'interact' ? 'Drag nodes to wake up simulation.' : 'Click nodes to view details.'}
                 {isStable && interactionMode === 'interact' && <span className="text-green-400 ml-2">● Stable</span>}
+                {!isVisible && <span className="text-yellow-400 ml-2">● Paused (Off-screen)</span>}
             </div>
             <div className="absolute top-2 right-2 z-10 flex bg-slate-800 rounded-lg p-1 border border-slate-600 shadow-lg">
                 <button onClick={() => setInteractionMode('interact')} className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${interactionMode === 'interact' ? 'bg-cyan-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}>✋ Interact</button>

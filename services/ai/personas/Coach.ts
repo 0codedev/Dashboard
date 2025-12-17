@@ -2,6 +2,7 @@
 import { IPersona, AIContext } from '../types';
 import { ANALYTIC_TOOLS, PLANNING_TOOLS } from '../toolRegistry';
 import { QuestionStatus } from '../../../types';
+import { summarizeTestHistory } from '../../geminiService';
 
 export class CoachPersona implements IPersona {
   id = 'coach';
@@ -12,41 +13,18 @@ export class CoachPersona implements IPersona {
   }
 
   getModelPreference(basePrefs: any) {
-    // Requires max reasoning capabilities for strategy
-    return 'gemini-2.5-flash'; 
+    // Respect user preference completely. 
+    // The execution layer (AiAssistant) handles provider switching and tool compatibility.
+    return basePrefs.model;
   }
 
   getSystemInstruction(context: AIContext): string {
     const { reports, logs, userProfile, ragContext } = context;
     
-    // --- 1. PRE-COMPUTE ANALYTICS (The "Hard Truths") ---
+    // --- 1. OPTIMIZED CONTEXT GENERATION ---
     
-    const totalTests = reports.length;
-    // Use last 5 reports for a more stable trend line (Context Optimization)
-    const recentReports = reports.slice(-5); 
-    
-    // Score Trend
-    const scores = recentReports.map(r => r.total.marks);
-    let trendDirection = 'Stable';
-    if (scores.length > 1) {
-        const first = scores[0];
-        const last = scores[scores.length - 1];
-        if (last > first * 1.05) trendDirection = 'Improving 📈';
-        else if (last < first * 0.95) trendDirection = 'Declining 📉';
-        else trendDirection = 'Plateauing ➖';
-    } else {
-        trendDirection = 'Insufficient Data';
-    }
-
-    // Subject Performance (Last 5 Tests Aggregated)
-    const subjectAvgs = { physics: 0, chemistry: 0, maths: 0 };
-    recentReports.forEach(r => {
-        subjectAvgs.physics += r.physics.marks;
-        subjectAvgs.chemistry += r.chemistry.marks;
-        subjectAvgs.maths += r.maths.marks;
-    });
-    const denom = recentReports.length || 1;
-    const performanceStr = `Physics: ${(subjectAvgs.physics/denom).toFixed(1)}, Chem: ${(subjectAvgs.chemistry/denom).toFixed(1)}, Maths: ${(subjectAvgs.maths/denom).toFixed(1)}`;
+    // Use the new token-efficient summary instead of raw processing
+    const performanceSummary = summarizeTestHistory(reports);
 
     // Error Pattern Analysis (Optimized Context Window)
     // Prevent "Lost in the Middle": Process only the 200 most recent logs if dataset is huge.
@@ -86,8 +64,9 @@ export class CoachPersona implements IPersona {
     
     **STUDENT DATA:**
     - Target: ${userProfile.targetExams.join(', ')}
-    - Trend: ${trendDirection}
-    - Recent Avgs: [${performanceStr}]
+    ${performanceSummary}
+    
+    **DIAGNOSTICS:**
     - Top 5 Weak Topics: ${topWeaknesses || "None detected yet."}
     - Top 3 Error Causes: ${topReasons || "N/A"}
     - Primary Diagnosis: ${primaryErrorType}
@@ -98,7 +77,7 @@ export class CoachPersona implements IPersona {
     **YOUR PROTOCOLS:**
     
     1.  **DATA-FIRST APPROACH:**
-        - Start by referencing specific metrics (e.g., "Your Physics average is low...").
+        - Start by referencing specific metrics from the history (e.g., "Your Physics average is low...").
         - Be direct but constructive.
         
     2.  **ACTIONABLE STRATEGY:**

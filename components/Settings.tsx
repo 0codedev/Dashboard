@@ -7,6 +7,13 @@ import Modal from './common/Modal';
 import { Button } from './common/Button';
 import { Input } from './common/Input';
 import { Select } from './common/Select';
+import { googleDriveService, DriveFile } from '../services/googleDriveService';
+import { 
+    exportReportsToCsv, 
+    exportLogsToCsv, 
+    parseReportsFromCsv, 
+    parseLogsFromCsv 
+} from '../services/sheetParser';
 
 interface SettingsProps {
     apiKey: string;
@@ -58,6 +65,7 @@ const ToggleSwitch: React.FC<{ checked: boolean; onChange: (checked: boolean) =>
     </div>
 );
 
+// ... (ProfileSettings, AppearanceSettings, AiSettings, ConnectivitySettings, DriveBackupModal remain unchanged)
 // --- 1. PROFILE & STRATEGY SETTINGS ---
 const ProfileSettings: React.FC<Pick<SettingsProps, 'userProfile' | 'setUserProfile' | 'longTermGoals' | 'setLongTermGoals'>> = ({ userProfile, setUserProfile, longTermGoals, setLongTermGoals }) => {
     const [newGoal, setNewGoal] = useState('');
@@ -246,7 +254,6 @@ const ProfileSettings: React.FC<Pick<SettingsProps, 'userProfile' | 'setUserProf
     );
 };
 
-// --- 2. APPEARANCE SETTINGS ---
 const AppearanceSettings: React.FC<Pick<SettingsProps, 'theme' | 'setTheme' | 'appearancePreferences' | 'setAppearancePreferences'>> = ({ theme, setTheme, appearancePreferences, setAppearancePreferences }) => {
     const themes: { id: Theme; name: string; color: string; desc: string }[] = [
         { id: 'cyan', name: 'Cyber Cyan', color: '#22d3ee', desc: 'High energy, focus-oriented.' },
@@ -329,7 +336,7 @@ const AppearanceSettings: React.FC<Pick<SettingsProps, 'theme' | 'setTheme' | 'a
     );
 };
 
-// --- 3. AI SETTINGS (ENHANCED) ---
+// ... (AiSettings, ConnectivitySettings, DriveBackupModal remain unchanged)
 const TASK_USAGE_DESC: Record<LlmTaskCategory, string> = {
     chat: "General Chat Assistant, Contextual Explanations",
     analysis: "Deep Performance Analysis, Root Cause 5-Whys, Executive Briefing",
@@ -584,7 +591,6 @@ const AiSettings: React.FC<Pick<SettingsProps, 'aiPreferences' | 'setAiPreferenc
     );
 };
 
-// --- 4. CONNECTIVITY SETTINGS (PRESERVED) ---
 const ConnectivitySettings: React.FC<Pick<SettingsProps, 'onClearKey' | 'apiKey' | 'addToast' | 'aiPreferences' | 'setAiPreferences'>> = ({ onClearKey, apiKey, addToast, aiPreferences, setAiPreferences }) => {
     const [isTesting, setIsTesting] = useState(false);
 
@@ -651,18 +657,98 @@ const ConnectivitySettings: React.FC<Pick<SettingsProps, 'onClearKey' | 'apiKey'
                             className="bg-slate-900 border-slate-700 focus:border-purple-500 focus:ring-purple-500/20"
                         />
                     </div>
+
+                    {/* Google Drive Client ID */}
+                    <div>
+                        <label className="text-xs font-bold text-green-400 uppercase mb-2 flex justify-between items-center tracking-wider">
+                            <span>Google Drive Client ID (For Backup)</span>
+                            <a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="text-[10px] text-slate-500 hover:text-green-400 underline flex items-center gap-1">Get ID <span className="text-[8px]">↗</span></a>
+                        </label>
+                        <Input 
+                            type="text" 
+                            value={aiPreferences.googleDriveClientId || ''} 
+                            onChange={e => setAiPreferences(prev => ({...prev, googleDriveClientId: e.target.value}))}
+                            placeholder="Your Client ID from Google Cloud Console"
+                            className="bg-slate-900 border-slate-700 focus:border-green-500 focus:ring-green-500/20"
+                        />
+                        <div className="mt-2 p-2 bg-yellow-900/20 border border-yellow-700/50 rounded text-yellow-200/80 text-[10px] leading-relaxed">
+                            <strong>⚠️ Important:</strong> Authentication will fail with "Error 400" if run inside the AI Studio Preview window. 
+                            To use Drive Sync, you MUST download the code and run it locally (e.g. <code>http://localhost:5173</code>), 
+                            and ensure that URL is added to "Authorized JavaScript origins" in your Google Cloud Console.
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     );
 };
 
+const DriveBackupModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    onRestore: (data: any) => void;
+    addToast: (toast: any) => void;
+}> = ({ isOpen, onClose, onRestore, addToast }) => {
+    const [files, setFiles] = useState<DriveFile[]>([]);
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if (isOpen) {
+            setLoading(true);
+            googleDriveService.listBackups()
+                .then(files => setFiles(files))
+                .catch(err => addToast({ title: 'Error', message: 'Failed to list backups: ' + err.message, icon: '❌' }))
+                .finally(() => setLoading(false));
+        }
+    }, [isOpen, addToast]);
+
+    const handleDownload = async (fileId: string) => {
+        try {
+            setLoading(true);
+            const data = await googleDriveService.downloadBackup(fileId);
+            onRestore(data);
+            onClose();
+        } catch (err: any) {
+            addToast({ title: 'Error', message: 'Failed to download backup: ' + err.message, icon: '❌' });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Restore from Google Drive">
+            <div className="p-4">
+                {loading ? (
+                    <div className="flex justify-center p-8"><div className="animate-spin h-8 w-8 border-4 border-cyan-500 border-t-transparent rounded-full"></div></div>
+                ) : files.length === 0 ? (
+                    <p className="text-center text-gray-400">No backup files found.</p>
+                ) : (
+                    <div className="space-y-2 max-h-[400px] overflow-y-auto custom-scrollbar">
+                        {files.map(file => (
+                            <div key={file.id} className="flex justify-between items-center p-3 bg-slate-800 rounded border border-slate-700 hover:border-slate-600">
+                                <div>
+                                    <p className="text-sm font-medium text-white">{file.name}</p>
+                                    <p className="text-xs text-gray-400">{new Date(file.createdTime).toLocaleString()}</p>
+                                </div>
+                                <Button size="sm" onClick={() => handleDownload(file.id)}>Restore</Button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </Modal>
+    );
+};
+
 // --- 5. DATA SETTINGS ---
-const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleReportsReset' | 'handleChatReset' | 'handleGamificationReset' | 'onSyncData' | 'reports' | 'logs' | 'userProfile' | 'aiPreferences' | 'notificationPreferences' | 'appearancePreferences' | 'gamificationState' | 'studyGoals' | 'longTermGoals' | 'chatHistory'>> = ({ 
+const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleReportsReset' | 'handleChatReset' | 'handleGamificationReset' | 'onSyncData' | 'reports' | 'logs' | 'userProfile' | 'aiPreferences' | 'notificationPreferences' | 'appearancePreferences' | 'gamificationState' | 'studyGoals' | 'longTermGoals' | 'chatHistory' | 'addToast'>> = ({ 
     handleFullReset, handleReportsReset, handleChatReset, handleGamificationReset, onSyncData,
-    reports, logs, userProfile, aiPreferences, notificationPreferences, appearancePreferences, gamificationState, studyGoals, longTermGoals, chatHistory
+    reports, logs, userProfile, aiPreferences, notificationPreferences, appearancePreferences, gamificationState, studyGoals, longTermGoals, chatHistory, addToast
 }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const reportsCsvRef = useRef<HTMLInputElement>(null);
+    const logsCsvRef = useRef<HTMLInputElement>(null);
+    
     const [confirmModal, setConfirmModal] = useState<{
         isOpen: boolean;
         title: string;
@@ -670,17 +756,28 @@ const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleRepo
         action: () => void;
         dangerLevel: 'high' | 'critical';
     }>({ isOpen: false, title: '', message: '', action: () => {}, dangerLevel: 'high' });
+    const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
+    const [isUploading, setIsUploading] = useState(false);
+    const [syncTab, setSyncTab] = useState<'json' | 'csv' | 'drive'>('json');
+
+    useEffect(() => {
+        if (aiPreferences.googleDriveClientId) {
+            googleDriveService.init(aiPreferences.googleDriveClientId);
+        }
+    }, [aiPreferences.googleDriveClientId]);
 
     const openConfirm = (title: string, message: string, action: () => void, dangerLevel: 'high' | 'critical' = 'high') => {
         setConfirmModal({ isOpen: true, title, message, action, dangerLevel });
     };
 
+    const getExportData = () => ({
+        version: 1,
+        date: new Date().toISOString(),
+        reports, logs, userProfile, aiPreferences, notificationPreferences, appearancePreferences, gamificationState, studyGoals, longTermGoals, chatHistory
+    });
+
     const handleBackup = () => {
-        const data = {
-            version: 1,
-            date: new Date().toISOString(),
-            reports, logs, userProfile, aiPreferences, notificationPreferences, appearancePreferences, gamificationState, studyGoals, longTermGoals, chatHistory
-        };
+        const data = getExportData();
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -707,6 +804,89 @@ const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleRepo
         }
     };
 
+    const handleDriveUpload = async () => {
+        if (!aiPreferences.googleDriveClientId) return;
+        setIsUploading(true);
+        try {
+            const data = getExportData();
+            const filename = `jee-backup-${new Date().toISOString().split('T')[0]}.json`;
+            await googleDriveService.uploadBackup(data, filename);
+            addToast({ title: 'Success', message: 'Backup uploaded to Google Drive', icon: '✅' });
+        } catch (err: any) {
+            addToast({ title: 'Error', message: 'Upload failed: ' + err.message, icon: '❌' });
+        } finally {
+            setIsUploading(false);
+        }
+    };
+
+    const handleCsvExportReports = () => {
+        exportReportsToCsv(reports);
+        addToast({ title: 'Exported', message: 'Reports CSV downloaded.', icon: 'dowload' });
+    };
+
+    const handleCsvExportLogs = () => {
+        exportLogsToCsv(logs, reports);
+        addToast({ title: 'Exported', message: 'Question Logs CSV downloaded.', icon: 'download' });
+    };
+
+    const handleCsvImport = async () => {
+        const reportsFile = reportsCsvRef.current?.files?.[0];
+        const logsFile = logsCsvRef.current?.files?.[0];
+
+        if (!reportsFile && !logsFile) {
+            addToast({ title: 'No Files', message: 'Please select at least one file.', icon: '⚠️' });
+            return;
+        }
+
+        try {
+            let newReports = [...reports];
+            let newLogs = [...logs];
+
+            if (reportsFile) {
+                const text = await reportsFile.text();
+                const parsedReports = parseReportsFromCsv(text);
+                if (parsedReports.length > 0) {
+                    newReports = [...reports, ...parsedReports];
+                }
+            }
+
+            if (logsFile) {
+                const text = await logsFile.text();
+                const parsedLogs = parseLogsFromCsv(text, newReports);
+                newLogs = [...logs, ...parsedLogs];
+            }
+
+            onSyncData({
+                reports: newReports,
+                logs: newLogs,
+            });
+            
+            addToast({ title: 'Import Successful', message: `Processed CSV files.`, icon: '✅' });
+            
+            if (reportsCsvRef.current) reportsCsvRef.current.value = '';
+            if (logsCsvRef.current) logsCsvRef.current.value = '';
+
+        } catch (err: any) {
+            addToast({ title: 'Import Failed', message: err.message, icon: '❌' });
+        }
+    };
+
+    const handleRunHealthScan = () => {
+        const reportIds = new Set(reports.map(r => r.id));
+        const orphanedLogs = logs.filter(l => !reportIds.has(l.testId));
+        const emptyReports = reports.filter(r => r.total.marks === 0 && r.total.correct === 0 && r.total.wrong === 0);
+        
+        if (orphanedLogs.length === 0 && emptyReports.length === 0) {
+            addToast({ title: 'Data Healthy', message: 'No integrity issues found.', icon: '💚' });
+        } else {
+            addToast({ 
+                title: 'Issues Found', 
+                message: `Found ${orphanedLogs.length} orphaned logs and ${emptyReports.length} empty reports.`, 
+                icon: '⚠️' 
+            });
+        }
+    };
+
     return (
         <div className="space-y-8 animate-fade-in">
              <Modal isOpen={confirmModal.isOpen} onClose={() => setConfirmModal({...confirmModal, isOpen: false})} title={confirmModal.title} isInfo>
@@ -721,25 +901,117 @@ const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleRepo
                 </div>
             </Modal>
 
+            <DriveBackupModal 
+                isOpen={isDriveModalOpen} 
+                onClose={() => setIsDriveModalOpen(false)} 
+                onRestore={onSyncData}
+                addToast={addToast}
+            />
+
             <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
                  <h3 className="text-lg font-bold text-[rgb(var(--color-primary-rgb))] mb-2 flex items-center gap-2">
-                    <span className="text-xl">💾</span> Data & Privacy
+                    <span className="text-xl">Sync & Backup</span>
                 </h3>
-                 <p className="text-xs text-slate-400 mb-6">You own your data. Manage imports, exports, and sanitation.</p>
-
-                <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700 mb-8">
-                    <h4 className="text-sm font-bold text-white mb-4">Sync & Backup</h4>
-                    <div className="flex gap-4">
-                        <Button onClick={handleBackup} variant="secondary" className="flex-1 flex items-center justify-center gap-2 py-3 border-slate-600 hover:border-cyan-500">
-                            <span>⬇️</span> Download Full Backup
-                        </Button>
-                        <Button onClick={() => fileInputRef.current?.click()} variant="secondary" className="flex-1 flex items-center justify-center gap-2 py-3 border-slate-600 hover:border-cyan-500">
-                            <span>⬆️</span> Restore from File
-                        </Button>
-                        <input type="file" ref={fileInputRef} onChange={handleRestore} accept=".json" className="hidden" />
-                    </div>
+                
+                <div className="flex border-b border-slate-700 mb-6">
+                    <button 
+                        onClick={() => setSyncTab('json')}
+                        className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${syncTab === 'json' ? 'border-cyan-500 text-cyan-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                    >
+                        Local JSON
+                    </button>
+                    <button 
+                        onClick={() => setSyncTab('csv')}
+                        className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${syncTab === 'csv' ? 'border-cyan-500 text-cyan-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                    >
+                        CSV
+                    </button>
+                    <button 
+                        onClick={() => setSyncTab('drive')}
+                        className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${syncTab === 'drive' ? 'border-cyan-500 text-cyan-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                    >
+                        Google Drive
+                    </button>
                 </div>
+
+                <div className="min-h-[150px]">
+                    {syncTab === 'json' && (
+                        <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700">
+                            <h4 className="text-sm font-bold text-white mb-4">Local JSON Backup</h4>
+                            <p className="text-xs text-slate-400 mb-4">Full data backup including profile, logs, and settings.</p>
+                            <div className="flex gap-4">
+                                <Button onClick={handleBackup} variant="secondary" className="flex-1 flex items-center justify-center gap-2 py-3 border-slate-600 hover:border-cyan-500">
+                                    <span>⬇️</span> Download JSON
+                                </Button>
+                                <Button onClick={() => fileInputRef.current?.click()} variant="secondary" className="flex-1 flex items-center justify-center gap-2 py-3 border-slate-600 hover:border-cyan-500">
+                                    <span>⬆️</span> Restore from JSON
+                                </Button>
+                                <input type="file" ref={fileInputRef} onChange={handleRestore} accept=".json" className="hidden" />
+                            </div>
+                        </div>
+                    )}
+
+                    {syncTab === 'csv' && (
+                        <div className="space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700">
+                                    <h4 className="text-sm font-bold text-white mb-4">Import</h4>
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="text-xs text-gray-400 block mb-1">Reports CSV (Required)</label>
+                                            <input type="file" ref={reportsCsvRef} accept=".csv" className="text-xs text-slate-300 w-full file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-slate-700 file:text-cyan-400 hover:file:bg-slate-600"/>
+                                        </div>
+                                        <div>
+                                            <label className="text-xs text-gray-400 block mb-1">Logs CSV (Optional)</label>
+                                            <input type="file" ref={logsCsvRef} accept=".csv" className="text-xs text-slate-300 w-full file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-slate-700 file:text-cyan-400 hover:file:bg-slate-600"/>
+                                        </div>
+                                        <Button onClick={handleCsvImport} className="w-full mt-2">Import Files</Button>
+                                    </div>
+                                </div>
+                                <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700">
+                                    <h4 className="text-sm font-bold text-white mb-4">Export</h4>
+                                    <div className="space-y-3">
+                                        <Button onClick={handleCsvExportReports} variant="secondary" className="w-full">Download Reports CSV</Button>
+                                        <Button onClick={handleCsvExportLogs} variant="secondary" className="w-full">Download Logs CSV</Button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {syncTab === 'drive' && (
+                        <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700">
+                            <h4 className="text-sm font-bold text-white mb-4 flex items-center gap-2"><span>☁️</span> Cloud Sync (Google Drive)</h4>
+                            {aiPreferences.googleDriveClientId ? (
+                                <div className="flex gap-4">
+                                    <Button onClick={handleDriveUpload} disabled={isUploading} variant="secondary" className="flex-1 flex items-center justify-center gap-2 py-3 border-slate-600 hover:border-green-500">
+                                        {isUploading ? <span className="animate-spin">⟳</span> : <span>⬆️</span>} Upload to Drive
+                                    </Button>
+                                    <Button onClick={() => setIsDriveModalOpen(true)} variant="secondary" className="flex-1 flex items-center justify-center gap-2 py-3 border-slate-600 hover:border-green-500">
+                                        <span>⬇️</span> Restore from Drive
+                                    </Button>
+                                </div>
+                            ) : (
+                                <div className="text-sm text-gray-400 bg-slate-800/50 p-3 rounded border border-slate-700 border-dashed text-center">
+                                    Configure <strong>Google Drive Client ID</strong> in <span className="text-cyan-400">Connectivity</span> settings to enable cloud sync.
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm mt-6">
+                 <div className="flex justify-between items-center mb-2">
+                    <h3 className="text-lg font-bold text-[rgb(var(--color-primary-rgb))] flex items-center gap-2">
+                        <span className="text-xl">🩺</span> Data Health Monitor
+                    </h3>
+                    <Button size="sm" onClick={handleRunHealthScan}>Run Scan</Button>
+                </div>
+                <p className="text-xs text-slate-400">Click 'Run Scan' to check for data integrity issues like orphaned question logs.</p>
+            </div>
             
+            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm mt-6">
                 <div className="bg-red-900/10 p-6 rounded-xl border border-red-900/30">
                     <h4 className="text-sm font-bold text-red-400 mb-4 flex items-center gap-2"><span className="text-lg">☢️</span> Danger Zone</h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

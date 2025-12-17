@@ -435,16 +435,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
             if (savedLayoutString) {
                 const parsedLayout = JSON.parse(savedLayoutString);
                 if (Array.isArray(parsedLayout)) {
-                    // Create a map of saved widgets
-                    const savedMap = new Map(parsedLayout.map((w: any) => [w.id, w]));
+                    const savedIds = new Set(parsedLayout.map((w: any) => w.id));
                     
-                    // Merge saved state with defaults (preserving order from saved if possible, adding new defaults)
-                    const merged = DEFAULT_DASHBOARD_LAYOUT.map(defaultWidget => {
-                        const savedWidget = savedMap.get(defaultWidget.id);
-                        return savedWidget ? { ...defaultWidget, ...savedWidget } : defaultWidget;
-                    });
+                    // 1. Keep saved items in their saved order (respecting user customization)
+                    const mergedSaved = parsedLayout.map((savedW: any) => {
+                        const defaultW = DEFAULT_DASHBOARD_LAYOUT.find(d => d.id === savedW.id);
+                        // If default exists, merge to ensure structure, otherwise use saved (legacy handling)
+                        return defaultW ? { ...defaultW, ...savedW } : savedW;
+                    }).filter((w: any) => DEFAULT_DASHBOARD_LAYOUT.some(d => d.id === w.id)); // Remove obsolete saved widgets
+
+                    // 2. Append new default items that weren't in saved state
+                    const newItems = DEFAULT_DASHBOARD_LAYOUT.filter(d => !savedIds.has(d.id));
                     
-                    return merged;
+                    return [...mergedSaved, ...newItems];
                 }
             }
         } catch (e) { 
