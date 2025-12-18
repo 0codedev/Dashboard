@@ -1,4 +1,4 @@
-import React, { type ReactNode, type ErrorInfo } from 'react';
+import React, { Component, type ReactNode, type ErrorInfo } from 'react';
 import { Button } from './Button';
 
 interface Props {
@@ -11,7 +11,7 @@ interface State {
   error: Error | null;
 }
 
-export class ErrorBoundary extends React.Component<Props, State> {
+export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
     this.state = {

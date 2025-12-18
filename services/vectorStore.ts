@@ -8,9 +8,9 @@ const pendingRequests = new Map<string, { resolve: (val: any) => void, reject: (
 
 const getWorker = () => {
     if (!worker) {
-        // Use absolute path for worker to avoid 'Invalid URL' errors with import.meta.url in some envs
-        // and ensure module type is set.
-        worker = new Worker('/workers/vector.worker.ts', { type: 'module' });
+        // UPDATED: Use `new URL` with `import.meta.url`. 
+        // This tells Vite/Webpack to bundle this file and replace it with the correct production URL.
+        worker = new Worker(new URL('../workers/vector.worker.ts', import.meta.url), { type: 'module' });
         
         worker.onmessage = (e) => {
             const { id, type, vector, error } = e.data;
