@@ -243,7 +243,7 @@ const FeatureSandbox: React.FC<{
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             
             const sessionPromise = ai.live.connect({
-                model: "gemini-2.5-flash-native-audio-preview-09-2025",
+                model: "gemini-3.1-flash-lite-preview",
                 callbacks: {
                     onopen: () => {
                         setIsLiveConnected(true);

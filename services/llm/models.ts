@@ -50,8 +50,8 @@ export const MODEL_REGISTRY: AIModel[] = [
 export const TASK_DEFAULTS: Record<LlmTaskCategory, string[]> = {
     // 1. General Chat
     chat_general: [
+        'gemini-3.1-flash-lite-preview',
         'gemini-3-flash-preview',
-        'gemini-2.5-flash-lite',
         'llama-3.1-8b-instant', 
         'gemma-3-27b',
         'meta-llama/llama-4-maverick-17b-128e-instruct'
@@ -60,7 +60,7 @@ export const TASK_DEFAULTS: Record<LlmTaskCategory, string[]> = {
     // 2. Deep Analysis (Dashboard Reports)
     analysis_deep: [
         'gemini-3-flash-preview',
-        'gemini-2.5-flash',
+        'gemini-3.1-flash-lite-preview',
         'llama-3.3-70b-versatile', 
         'deepseek-r1-distill-llama-70b',
         'deepseek/deepseek-r1:free' 
@@ -70,40 +70,40 @@ export const TASK_DEFAULTS: Record<LlmTaskCategory, string[]> = {
     analysis_root_cause: [
         'gemini-3-flash-preview',
         'deepseek-r1-distill-llama-70b', // R1 is excellent for causal reasoning
-        'gemini-2.5-flash',
+        'gemini-3.1-flash-lite-preview',
         'llama-3.3-70b-versatile'
     ],
 
     // 4. Executive Briefing
     analysis_briefing: [
-        'gemini-3-flash-preview',
-        'gemini-2.5-flash', // Good formatting and summarization
+        'gemini-3.1-flash-lite-preview',
+        'gemini-3-flash-preview', // Good formatting and summarization
         'llama-3.3-70b-versatile',
         'qwen/qwen3-32b'
     ],
 
     // 5. Routine Planning (Daily Schedule)
     planning_routine: [
-        'gemini-3-flash-preview',
+        'gemini-3.1-flash-lite-preview',
         'qwen/qwen-2.5-coder-32b-instruct:free', // Structured output
-        'gemini-2.5-flash', 
+        'gemini-3-flash-preview', 
         'llama-3.3-70b-versatile'
     ],
 
     // 6. Sorting & Optimization (Smart Sort)
     planning_sorting: [
-        'gemini-3-flash-preview',
-        'gemini-2.5-flash-lite', // Speed is key here
+        'gemma-3-27b',
+        'gemini-3.1-flash-lite-preview', // Speed is key here
         'llama-3.1-8b-instant',
         'qwen/qwen-2.5-coder-32b-instruct:free'
     ],
 
     // 7. Creative Writing (Quotes, Persona)
     creative_writing: [
-        'gemini-3-flash-preview',
+        'gemini-3.1-flash-lite-preview',
         'mistralai/mistral-nemo:free',
         'gemma-3-27b',
-        'gemini-2.5-flash-lite',
+        'gemini-3-flash-preview',
         'moonshotai/kimi-k2-instruct'
     ],
 
@@ -111,22 +111,22 @@ export const TASK_DEFAULTS: Record<LlmTaskCategory, string[]> = {
     stem_core: [
         'gemini-3-flash-preview',
         'deepseek-r1-distill-llama-70b', // Math powerhouse
-        'gemini-2.5-flash', 
+        'gemini-3.1-flash-lite-preview', 
         'qwen/qwen3-32b'
     ],
 
     // 9. Flashcard Generation (Error Vaccinator)
     flashcard_gen: [
         'gemini-3-flash-preview',
-        'gemini-2.5-flash',
+        'gemini-3.1-flash-lite-preview',
         'llama-3.3-70b-versatile',
         'deepseek-r1-distill-llama-70b'
     ],
 
     // 10. Technical Ops (Data Cleaning, OCR Parsing)
     technical_ops: [
-        'gemini-3-flash-preview',
-        'gemini-2.5-flash', // Multimodal needs
+        'gemma-3-27b',
+        'gemini-3-flash-preview', // Multimodal needs
         'qwen/qwen-2.5-coder-32b-instruct:free', 
         'llama-3.3-70b-versatile'
     ]

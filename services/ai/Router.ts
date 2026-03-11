@@ -59,7 +59,7 @@ export const classifyIntent = async (query: string, apiKey: string): Promise<Use
         
         // Use Flash Lite for lowest latency routing
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash-lite',
+            model: 'gemini-3.1-flash-lite-preview',
             contents: {
                 role: 'user',
                 parts: [{

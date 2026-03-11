@@ -162,7 +162,7 @@ const getMockPrefs = (apiKey: string): AiAssistantPreferences => {
         const stored = localStorage.getItem('aiAssistantPreferences_v1');
         if (stored) return JSON.parse(stored);
     } catch {}
-    return { model: 'gemini-2.5-flash', responseLength: 'medium', tone: 'neutral' };
+    return { model: 'gemini-3.1-flash-lite-preview', responseLength: 'medium', tone: 'neutral' };
 }
 
 // ... (Other exports: validateOCRData, inferTestMetadata, getAIAnalysis, generateStudyPlan...)
@@ -399,15 +399,17 @@ export const GENUI_TOOLS = [
 
 export const getAvailableModels = async (apiKey: string): Promise<ModelInfo[]> => {
     return [
-        { id: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', description: 'Main Model' },
-        { id: 'gemini-2.5-flash-lite', displayName: 'Gemini 2.5 Flash-Lite', description: 'Budget Friendly' }
+        { id: 'gemini-3.1-flash-lite-preview', displayName: 'Gemini 3.1 Flash Lite', description: 'Main Model (Fast & Efficient)' },
+        { id: 'gemini-3-flash-preview', displayName: 'Gemini 3 Flash', description: 'Complex Reasoning' },
+        { id: 'gemini-3.1-pro-preview', displayName: 'Gemini 3.1 Pro', description: 'Advanced Analysis' },
+        { id: 'gemma-3-27b', displayName: 'Gemma 3 27B', description: 'Background Processing' }
     ];
 };
 
 export const extractDataFromImage = async (
     scoreSheetFile: File,
     apiKey: string,
-    modelName: string = "gemini-2.5-flash", 
+    modelName: string = "gemini-3.1-flash-lite-preview", 
     instructionSheetFile?: File
 ): Promise<{ report: Partial<TestReport>, questions: Partial<QuestionLog>[], confidence: Record<string, 'high'|'medium'|'low'> }> => {
   try {
@@ -470,7 +472,7 @@ export const extractDataFromImage = async (
     parts.push({ text: prompt });
 
     const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash', 
+        model: 'gemini-3.1-flash-lite-preview', 
         contents: { parts: parts },
         config: {
             responseMimeType: "application/json",

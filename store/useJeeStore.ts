@@ -13,13 +13,14 @@ import {
     GlobalFilter,
     AiAssistantPreferences,
     NotificationPreferences,
-    AppearancePreferences,
-    Toast
+    AppearancePreferences
 } from '../types';
 import { dbService } from '../services/dbService';
 import { MOCK_TEST_REPORTS, MOCK_QUESTION_LOGS } from '../constants';
 
-// --- Types ---
+import { useAppStore } from './useAppStore';
+import { useDataStore } from './useDataStore';
+import { useAIStore } from './useAIStore';
 
 interface JeeState {
     // Session State (Flashcards)
@@ -92,92 +93,35 @@ interface JeeActions {
     clearGamification: () => Promise<void>;
 }
 
-// --- Initial Values ---
-
-const initialFlashcardSession: FlashcardSession = {
-    currentCardIndex: 0,
-    streak: 0,
-    masteredCards: 0,
-    deck: [],
-    startTime: 0
-};
-
-const initialGamificationState: GamificationState = {
-    level: 1,
-    xp: 0,
-    unlockedAchievements: {} as any,
-    completedTasks: 0,
-    streakData: { count: 0, date: '' },
-    events: {},
-};
-
-const defaultUserProfile: UserProfile = { 
-    name: '', 
-    targetExams: [], 
-    studyTimes: { morning: "7 AM - 10 AM", afternoon: "2 PM - 5 PM", evening: "8 PM - 11 PM" }, 
-    syllabus: {}, 
-    cohortSizes: { 'JEE Mains': 10000, 'JEE Advanced': 2500 }, 
-    targetTimePerQuestion: { physics: 120, chemistry: 60, maths: 150 } 
-};
-
-// --- SM-2 Logic (unchanged) ---
-const calculateNextReview = (card: Flashcard, quality: number) => {
-    let interval = card.interval;
-    let easeFactor = card.easeFactor;
-    let reviews = card.reviews;
-
-    if (quality < 3) {
-        reviews = 0;
-        interval = 1; 
-        easeFactor = Math.max(1.3, easeFactor - 0.2); 
-    } else {
-        reviews += 1;
-        if (interval === 0) interval = 1;
-        else if (interval === 1) interval = 3;
-        else interval = Math.round(interval * easeFactor);
-
-        easeFactor = easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
-        if (easeFactor < 1.3) easeFactor = 1.3;
-    }
-    
-    const nextReviewDate = new Date();
-    nextReviewDate.setDate(nextReviewDate.getDate() + interval);
-
-    return {
-        ...card,
-        interval,
-        easeFactor,
-        reviews,
-        nextReview: nextReviewDate.toISOString()
-    };
-};
-
 export const useJeeStore = create<JeeState & JeeActions>((set, get) => ({
-    // --- State ---
-    flashcardSession: initialFlashcardSession,
-    isFlashcardModalOpen: false,
+    // --- Initial State (Derived from micro-stores) ---
+    flashcardSession: useDataStore.getState().flashcardSession,
+    isFlashcardModalOpen: useAppStore.getState().isFlashcardModalOpen,
     
-    isInitialized: false,
-    apiKey: null,
-    userProfile: defaultUserProfile,
-    testReports: [],
-    questionLogs: [],
-    studyGoals: [],
-    longTermGoals: [],
-    dailyTasks: [],
-    chatHistory: [],
-    gamificationState: initialGamificationState,
-    globalFilter: { type: 'all', subType: 'all', startDate: '', endDate: '' },
+    isInitialized: useAppStore.getState().isInitialized,
+    apiKey: useAppStore.getState().apiKey,
+    userProfile: useAppStore.getState().userProfile,
     
-    aiPreferences: { model: 'gemini-2.5-flash', responseLength: 'medium', tone: 'encouraging' },
-    notificationPreferences: { achievements: true, proactiveInsights: true, proactiveInsightSensitivity: 'medium' },
-    appearancePreferences: { disableParticles: true, reduceMotion: false, highContrast: false },
-    theme: 'cyan',
+    testReports: useDataStore.getState().testReports,
+    questionLogs: useDataStore.getState().questionLogs,
+    studyGoals: useDataStore.getState().studyGoals,
+    longTermGoals: useDataStore.getState().longTermGoals,
+    dailyTasks: useDataStore.getState().dailyTasks,
+    chatHistory: useAIStore.getState().chatHistory,
+    
+    gamificationState: useAppStore.getState().gamificationState,
+    globalFilter: useAppStore.getState().globalFilter,
+    
+    aiPreferences: useAppStore.getState().aiPreferences,
+    notificationPreferences: useAppStore.getState().notificationPreferences,
+    appearancePreferences: useAppStore.getState().appearancePreferences,
+    theme: useAppStore.getState().theme,
 
-    // --- Actions ---
+    // --- Actions (Proxying to micro-stores) ---
 
     initialize: async () => {
-        if (get().isInitialized) return;
+        const appState = useAppStore.getState();
+        if (appState.isInitialized) return;
 
         // 1. Load LocalStorage Items (Sync)
         const apiKey = localStorage.getItem('gemini-api-key');
@@ -197,6 +141,15 @@ export const useJeeStore = create<JeeState & JeeActions>((set, get) => ({
             await dbService.putBulk('testReports', MOCK_TEST_REPORTS);
             await dbService.putBulk('questionLogs', MOCK_QUESTION_LOGS);
             await dbService.putBulk('chatHistory', [{ role: 'model', content: "Hello! I'm your AI performance coach. Ask me anything about your test reports, or generate a study plan." }]);
+            
+            const initialGamificationState: GamificationState = {
+                level: 1,
+                xp: 0,
+                unlockedAchievements: {} as any,
+                completedTasks: 0,
+                streakData: { count: 0, date: '' },
+                events: {},
+            };
             await dbService.putBulk('gamificationState', [initialGamificationState]);
         }
 
@@ -216,153 +169,57 @@ export const useJeeStore = create<JeeState & JeeActions>((set, get) => ({
         const currentTasks = savedDate === today ? tasks : [];
 
         // Apply visual preferences immediately
-        const appearance = savedAppearPrefs ? JSON.parse(savedAppearPrefs) : get().appearancePreferences;
+        const appearance = savedAppearPrefs ? JSON.parse(savedAppearPrefs) : appState.appearancePreferences;
         const themeVal = savedTheme ? JSON.parse(savedTheme) : 'cyan';
         document.body.classList.toggle('reduce-motion', appearance.reduceMotion);
         document.body.classList.toggle('high-contrast', appearance.highContrast);
         document.documentElement.className = `theme-${themeVal}`;
 
-        set({
+        // Hydrate micro-stores
+        useAppStore.getState().hydrateApp({
             isInitialized: true,
             apiKey,
-            userProfile: savedProfile ? JSON.parse(savedProfile) : defaultUserProfile,
-            aiPreferences: savedAiPrefs ? JSON.parse(savedAiPrefs) : get().aiPreferences,
-            notificationPreferences: savedNotifPrefs ? JSON.parse(savedNotifPrefs) : get().notificationPreferences,
+            userProfile: savedProfile ? JSON.parse(savedProfile) : appState.userProfile,
+            aiPreferences: savedAiPrefs ? JSON.parse(savedAiPrefs) : appState.aiPreferences,
+            notificationPreferences: savedNotifPrefs ? JSON.parse(savedNotifPrefs) : appState.notificationPreferences,
             appearancePreferences: appearance,
             theme: themeVal,
-            globalFilter: savedFilter ? JSON.parse(savedFilter) : get().globalFilter,
+            globalFilter: savedFilter ? JSON.parse(savedFilter) : appState.globalFilter,
+            gamificationState: gStateArray[0] || appState.gamificationState,
+        });
+
+        useDataStore.getState().hydrateData({
             testReports: reports,
             questionLogs: logs,
             studyGoals: goals,
             longTermGoals: longGoals,
-            chatHistory: history.length > 0 ? history : [{ role: 'model', content: "Hello! I'm your AI performance coach." }],
-            gamificationState: gStateArray[0] || initialGamificationState,
             dailyTasks: currentTasks
         });
-    },
 
-    setApiKey: (key) => {
-        if (key) localStorage.setItem('gemini-api-key', key);
-        else localStorage.removeItem('gemini-api-key');
-        set({ apiKey: key });
-    },
-
-    updateUserProfile: (profileOrFn) => {
-        set(state => {
-            const newProfile = typeof profileOrFn === 'function' ? profileOrFn(state.userProfile) : profileOrFn;
-            localStorage.setItem('userProfile_v2', JSON.stringify(newProfile));
-            return { userProfile: newProfile };
+        useAIStore.getState().hydrateAI({
+            chatHistory: history.length > 0 ? history : [{ role: 'model', content: "Hello! I'm your AI performance coach." }],
         });
     },
 
-    setGlobalFilter: (filter) => {
-        localStorage.setItem('jeeGlobalFilter_v2', JSON.stringify(filter));
-        set({ globalFilter: filter });
-    },
-
-    addTestReport: (report, logs) => {
-        set(state => {
-            const newReports = [...state.testReports, report];
-            const newLogs = [...state.questionLogs, ...logs];
-            
-            // Side Effects
-            dbService.put('testReports', report);
-            dbService.putBulk('questionLogs', logs);
-            
-            return { testReports: newReports, questionLogs: newLogs };
-        });
-    },
-
-    setTestReports: (reportsOrFn) => {
-        set(state => {
-            const newReports = typeof reportsOrFn === 'function' ? reportsOrFn(state.testReports) : reportsOrFn;
-            dbService.syncStore('testReports', newReports);
-            return { testReports: newReports };
-        });
-    },
-
-    setQuestionLogs: (logsOrFn) => {
-        set(state => {
-            const newLogs = typeof logsOrFn === 'function' ? logsOrFn(state.questionLogs) : logsOrFn;
-            dbService.syncStore('questionLogs', newLogs);
-            return { questionLogs: newLogs };
-        });
-    },
-
-    setDailyTasks: (tasksOrFn) => {
-        set(state => {
-            const newTasks = typeof tasksOrFn === 'function' ? tasksOrFn(state.dailyTasks) : tasksOrFn;
-            dbService.syncStore('dailyTasks', newTasks);
-            dbService.put('appState', new Date().toISOString().split('T')[0], 'dailyTasksDate');
-            return { dailyTasks: newTasks };
-        });
-    },
-
-    setStudyGoals: (goalsOrFn) => {
-        set(state => {
-            const newGoals = typeof goalsOrFn === 'function' ? goalsOrFn(state.studyGoals) : goalsOrFn;
-            dbService.syncStore('studyGoals', newGoals);
-            return { studyGoals: newGoals };
-        });
-    },
-
-    setLongTermGoals: (goalsOrFn) => {
-        set(state => {
-            const newGoals = typeof goalsOrFn === 'function' ? goalsOrFn(state.longTermGoals) : goalsOrFn;
-            dbService.syncStore('longTermGoals', newGoals);
-            return { longTermGoals: newGoals };
-        });
-    },
-
-    setChatHistory: (historyOrFn) => {
-        set(state => {
-            const newHistory = typeof historyOrFn === 'function' ? historyOrFn(state.chatHistory) : historyOrFn;
-            dbService.syncStore('chatHistory', newHistory);
-            return { chatHistory: newHistory };
-        });
-    },
-
-    setGamificationState: (stateOrFn) => {
-        set(current => {
-            const newState = typeof stateOrFn === 'function' ? stateOrFn(current.gamificationState) : stateOrFn;
-            dbService.syncStore('gamificationState', [newState]);
-            return { gamificationState: newState };
-        });
-    },
-
-    setAiPreferences: (prefsOrFn) => {
-        set(state => {
-            const newPrefs = typeof prefsOrFn === 'function' ? prefsOrFn(state.aiPreferences) : prefsOrFn;
-            localStorage.setItem('aiAssistantPreferences_v1', JSON.stringify(newPrefs));
-            return { aiPreferences: newPrefs };
-        });
-    },
-
-    setNotificationPreferences: (prefsOrFn) => {
-        set(state => {
-            const newPrefs = typeof prefsOrFn === 'function' ? prefsOrFn(state.notificationPreferences) : prefsOrFn;
-            localStorage.setItem('notificationPreferences_v1', JSON.stringify(newPrefs));
-            return { notificationPreferences: newPrefs };
-        });
-    },
-
-    setAppearancePreferences: (prefsOrFn) => {
-        set(state => {
-            const newPrefs = typeof prefsOrFn === 'function' ? prefsOrFn(state.appearancePreferences) : prefsOrFn;
-            localStorage.setItem('appearancePreferences_v1', JSON.stringify(newPrefs));
-            document.body.classList.toggle('reduce-motion', newPrefs.reduceMotion);
-            document.body.classList.toggle('high-contrast', newPrefs.highContrast);
-            return { appearancePreferences: newPrefs };
-        });
-    },
-
-    setTheme: (theme) => {
-        localStorage.setItem('theme_v1', JSON.stringify(theme));
-        document.documentElement.className = `theme-${theme}`;
-        set({ theme });
-    },
-
-    // --- Reset Actions ---
+    setApiKey: (key) => useAppStore.getState().setApiKey(key),
+    updateUserProfile: (profileOrFn) => useAppStore.getState().updateUserProfile(profileOrFn),
+    setGlobalFilter: (filter) => useAppStore.getState().setGlobalFilter(filter),
+    
+    addTestReport: (report, logs) => useDataStore.getState().addTestReport(report, logs),
+    setTestReports: (reportsOrFn) => useDataStore.getState().setTestReports(reportsOrFn),
+    setQuestionLogs: (logsOrFn) => useDataStore.getState().setQuestionLogs(logsOrFn),
+    
+    setDailyTasks: (tasksOrFn) => useDataStore.getState().setDailyTasks(tasksOrFn),
+    setStudyGoals: (goalsOrFn) => useDataStore.getState().setStudyGoals(goalsOrFn),
+    setLongTermGoals: (goalsOrFn) => useDataStore.getState().setLongTermGoals(goalsOrFn),
+    
+    setChatHistory: (historyOrFn) => useAIStore.getState().setChatHistory(historyOrFn),
+    setGamificationState: (stateOrFn) => useAppStore.getState().setGamificationState(stateOrFn),
+    
+    setAiPreferences: (prefsOrFn) => useAppStore.getState().setAiPreferences(prefsOrFn),
+    setNotificationPreferences: (prefsOrFn) => useAppStore.getState().setNotificationPreferences(prefsOrFn),
+    setAppearancePreferences: (prefsOrFn) => useAppStore.getState().setAppearancePreferences(prefsOrFn),
+    setTheme: (theme) => useAppStore.getState().setTheme(theme),
 
     fullReset: async () => {
         await dbService.clearAllStores();
@@ -370,56 +227,48 @@ export const useJeeStore = create<JeeState & JeeActions>((set, get) => ({
         window.location.reload();
     },
 
-    clearReportsAndLogs: async () => {
-        await dbService.clearStore('testReports');
-        await dbService.clearStore('questionLogs');
-        set({ testReports: [], questionLogs: [] });
+    clearReportsAndLogs: async () => useDataStore.getState().clearReportsAndLogs(),
+    clearChatHistory: async () => useAIStore.getState().clearChatHistory(),
+    clearGamification: async () => useAppStore.getState().clearGamification(),
+
+    startFlashcardSession: (cards) => {
+        useDataStore.getState().startFlashcardSession(cards);
+        useAppStore.getState().setFlashcardModalOpen(true);
     },
-
-    clearChatHistory: async () => {
-        await dbService.clearStore('chatHistory');
-        set({ chatHistory: [{ role: 'model', content: "Chat history cleared." }] });
-    },
-
-    clearGamification: async () => {
-        await dbService.clearStore('gamificationState');
-        set({ gamificationState: initialGamificationState });
-    },
-
-    // --- Flashcard Actions ---
-    startFlashcardSession: (cards) => set({
-        flashcardSession: {
-            currentCardIndex: 0,
-            streak: 0,
-            masteredCards: 0,
-            deck: cards,
-            startTime: Date.now()
-        },
-        isFlashcardModalOpen: true
-    }),
-
-    rateCurrentCard: (quality) => set((state) => {
-        const session = state.flashcardSession;
-        const currentCard = session.deck[session.currentCardIndex];
-        
-        if (!currentCard) return state;
-
-        const updatedCard = calculateNextReview(currentCard, quality);
-        const newDeck = [...session.deck];
-        newDeck[session.currentCardIndex] = updatedCard;
-        const isCorrect = quality >= 3;
-
-        return {
-            flashcardSession: {
-                ...session,
-                deck: newDeck,
-                currentCardIndex: session.currentCardIndex + 1,
-                streak: isCorrect ? session.streak + 1 : 0,
-                masteredCards: isCorrect ? session.masteredCards + 1 : session.masteredCards
-            }
-        };
-    }),
-
-    closeFlashcardSession: () => set({ isFlashcardModalOpen: false }),
-    getSessionResults: () => get().flashcardSession.deck
+    rateCurrentCard: (quality) => useDataStore.getState().rateCurrentCard(quality),
+    closeFlashcardSession: () => useAppStore.getState().setFlashcardModalOpen(false),
+    getSessionResults: () => useDataStore.getState().getSessionResults()
 }));
+
+// Sync micro-stores to proxy store to ensure reactivity for components still using useJeeStore
+useAppStore.subscribe((state) => {
+    useJeeStore.setState({
+        isInitialized: state.isInitialized,
+        apiKey: state.apiKey,
+        userProfile: state.userProfile,
+        gamificationState: state.gamificationState,
+        globalFilter: state.globalFilter,
+        aiPreferences: state.aiPreferences,
+        notificationPreferences: state.notificationPreferences,
+        appearancePreferences: state.appearancePreferences,
+        theme: state.theme,
+        isFlashcardModalOpen: state.isFlashcardModalOpen
+    });
+});
+
+useDataStore.subscribe((state) => {
+    useJeeStore.setState({
+        testReports: state.testReports,
+        questionLogs: state.questionLogs,
+        studyGoals: state.studyGoals,
+        longTermGoals: state.longTermGoals,
+        dailyTasks: state.dailyTasks,
+        flashcardSession: state.flashcardSession
+    });
+});
+
+useAIStore.subscribe((state) => {
+    useJeeStore.setState({
+        chatHistory: state.chatHistory
+    });
+});

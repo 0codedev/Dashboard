@@ -32,9 +32,9 @@ export const llmPipeline = async (options: GenerationOptions): Promise<string> =
     });
 
     // C. Ultimate Fallback Strategy (The "Safety Net")
-    // Fallback to Gemini Flash as it is the most reliable generalist
-    if (!candidates.includes('gemini-2.5-flash')) {
-        candidates.push('gemini-2.5-flash');
+    // Fallback to Gemini 3.1 Flash Lite as it is the most reliable generalist
+    if (!candidates.includes('gemini-3.1-flash-lite-preview')) {
+        candidates.push('gemini-3.1-flash-lite-preview');
     }
 
     const primaryModel = candidates[0];
