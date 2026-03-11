@@ -65,7 +65,6 @@ const ToggleSwitch: React.FC<{ checked: boolean; onChange: (checked: boolean) =>
     </div>
 );
 
-// ... (ProfileSettings, AppearanceSettings, AiSettings, ConnectivitySettings, DriveBackupModal remain unchanged)
 // --- 1. PROFILE & STRATEGY SETTINGS ---
 const ProfileSettings: React.FC<Pick<SettingsProps, 'userProfile' | 'setUserProfile' | 'longTermGoals' | 'setLongTermGoals'>> = ({ userProfile, setUserProfile, longTermGoals, setLongTermGoals }) => {
     const [newGoal, setNewGoal] = useState('');
@@ -338,12 +337,16 @@ const AppearanceSettings: React.FC<Pick<SettingsProps, 'theme' | 'setTheme' | 'a
 
 // ... (AiSettings, ConnectivitySettings, DriveBackupModal remain unchanged)
 const TASK_USAGE_DESC: Record<LlmTaskCategory, string> = {
-    chat: "General Chat Assistant, Contextual Explanations",
-    analysis: "Deep Performance Analysis, Root Cause 5-Whys, Executive Briefing",
-    planning: "Daily Planner Generation, Study Plan Creation, Smart Sorting",
-    creative: "Motivational Quotes, Persona-based Coaching, Insights",
-    math: "Gatekeeper Quizzes, Numerical Problem Solving",
-    coding: "Data Formatting, Structural Parsing (Internal Logic)"
+    chat_general: "Used in: AI Coach Tab -> Standard conversation handling.",
+    analysis_deep: "Used in: Dashboard -> 'AI Performance Analysis' widget generation.",
+    analysis_root_cause: "Used in: Root Cause Tab -> '5-Whys Investigator' logic.",
+    analysis_briefing: "Used in: Root Cause Tab -> 'Executive Briefing' summary generation.",
+    planning_routine: "Used in: Daily Planner -> 'Generate Study Plan' for goals.",
+    planning_sorting: "Used in: Daily Planner -> 'Smart Sort' task reordering.",
+    creative_writing: "Used in: Dashboard -> Daily Quotes & Motivational persona responses.",
+    stem_core: "Used in: Syllabus -> 'Gatekeeper Quizzes' & Math/Physics problem solving.",
+    flashcard_gen: "Used in: Error Vaccinator -> Synthesizing 'Vaccines' (Solutions).",
+    technical_ops: "Used in: Data Entry -> OCR validation & CSV parsing logic."
 };
 
 // Custom Professional Dropdown Item
@@ -386,12 +389,16 @@ const AdvancedModelConfig: React.FC<{
 }> = ({ isOpen, onClose, preferences, onUpdate }) => {
     
     const taskCategories: { id: LlmTaskCategory; label: string; icon: string }[] = [
-        { id: 'chat', label: 'General Chat', icon: '💬' },
-        { id: 'analysis', label: 'Deep Analysis', icon: '🧠' },
-        { id: 'planning', label: 'Planning', icon: '📅' },
-        { id: 'creative', label: 'Creative', icon: '✨' },
-        { id: 'math', label: 'Math & STEM', icon: '📐' },
-        { id: 'coding', label: 'Technical Ops', icon: '💻' }
+        { id: 'chat_general', label: 'General Chat', icon: '💬' },
+        { id: 'analysis_deep', label: 'Deep Analysis Reports', icon: '📊' },
+        { id: 'analysis_root_cause', label: 'Root Cause (5-Whys)', icon: '🕵️' },
+        { id: 'analysis_briefing', label: 'Executive Briefing', icon: '📑' },
+        { id: 'planning_routine', label: 'Study Planner', icon: '📅' },
+        { id: 'planning_sorting', label: 'Task Optimization', icon: '⚡' },
+        { id: 'creative_writing', label: 'Motivation & Persona', icon: '✨' },
+        { id: 'stem_core', label: 'Math & Quizzes', icon: '📐' },
+        { id: 'flashcard_gen', label: 'Flashcard Synthesis', icon: '🎴' },
+        { id: 'technical_ops', label: 'Data Operations', icon: '💻' }
     ];
 
     const [openDropdown, setOpenDropdown] = useState<string | null>(null);
@@ -420,7 +427,7 @@ const AdvancedModelConfig: React.FC<{
                     </div>
                 </div>
                 
-                <div className="space-y-3">
+                <div className="space-y-3 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
                     {taskCategories.map(task => {
                         const currentModelId = preferences.modelOverrides?.[task.id] || TASK_DEFAULTS[task.id][0];
                         const currentModelDef = MODEL_REGISTRY.find(m => m.id === currentModelId);

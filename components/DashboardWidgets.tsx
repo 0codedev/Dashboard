@@ -8,6 +8,7 @@ import { SUBJECT_CONFIG } from '../constants';
 import CustomTooltip from './common/CustomTooltip';
 import { LongTermGoal, QuestionLog, ExamStrategy } from '../types';
 import { CalibrationMatrix } from './visualizations/CalibrationMatrix';
+import { formatNumber, formatPercent, formatRank } from '../utils/formatters';
 
 // --- Tooltips ---
 const CustomRadarTooltip = ({ active, payload }: any) => {
@@ -17,7 +18,7 @@ const CustomRadarTooltip = ({ active, payload }: any) => {
             <div className="p-3 bg-slate-800/80 backdrop-blur-sm border border-slate-600/50 rounded-lg shadow-xl text-sm z-50">
                 <p className="font-bold text-white mb-2">{data.subject}</p>
                 <div className="space-y-1">
-                    <p className="text-cyan-400 flex justify-between gap-4"><span>Avg Marks:</span> <span>{data.A}</span></p>
+                    <p className="text-cyan-400 flex justify-between gap-4"><span>Avg Marks:</span> <span>{formatNumber(data.A)}</span></p>
                 </div>
             </div>
         );
@@ -37,8 +38,8 @@ const CustomScatterTooltip = ({ active, payload }: any) => {
                     }`}>{data.quadrant}</span>
 
                 <div className="space-y-1">
-                    <p className="text-gray-400 flex justify-between"><span>Impact:</span> <span className="text-white">{data.impact.toFixed(0)}</span></p>
-                    <p className="text-gray-400 flex justify-between"><span>Effort:</span> <span className="text-white">{data.effort.toFixed(1)}</span></p>
+                    <p className="text-gray-400 flex justify-between"><span>Impact:</span> <span className="text-white">{formatNumber(data.impact, 0)}</span></p>
+                    <p className="text-gray-400 flex justify-between"><span>Effort:</span> <span className="text-white">{formatNumber(data.effort, 1)}</span></p>
                     <p className="text-gray-500 italic mt-1">Click to focus on this topic</p>
                 </div>
             </div>
@@ -106,9 +107,6 @@ export const PaperStrategyWidget: React.FC<{
     const [confidence, setConfidence] = useState(savedStrategy?.confidence || { physics: 50, chemistry: 50, maths: 50 });
 
     useEffect(() => {
-        // Only reset targets if we switch types and NO saved strategy exists for that type, 
-        // or simplistic logic: just reset on type switch if user hasn't explicitly saved.
-        // For now, simpler behavior: Reset defaults on switch if it differs from initial state
         if (examType === 'mains' && !savedStrategy) {
             setAttemptTarget({ physics: 20, chemistry: 20, maths: 15 });
         } else if (examType === 'advanced' && !savedStrategy) {
@@ -121,7 +119,7 @@ export const PaperStrategyWidget: React.FC<{
     const stats = useMemo(() => {
         let totalScore = 0;
         let maxPotential = 0;
-        let riskScore = 0; // 0 to 100
+        let riskScore = 0;
         
         const safeTargetTimes: { physics: number; chemistry: number, maths: number } = userTargetTimes || { physics: 120, chemistry: 60, maths: 150 }; 
 
@@ -129,30 +127,19 @@ export const PaperStrategyWidget: React.FC<{
             const time = timeAlloc[sub];
             const attempts = attemptTarget[sub];
             const conf = confidence[sub] / 100;
-            const timePerQ = attempts > 0 ? time / attempts : 0; // minutes
+            const timePerQ = attempts > 0 ? time / attempts : 0;
             
             const idealTimePerQ = safeTargetTimes[sub] / 60; 
-            
-            // Non-linear Panic Factor: Exponential decay if time is compressed
-            // Adjusted by confidence: Higher confidence mitigates panic
             
             let panicFactor = 1;
             if (timePerQ < idealTimePerQ) {
                 const ratio = timePerQ / idealTimePerQ;
-                // Steep drop off below 70% of ideal time, mitigated by confidence
-                // If confidence is 1.0, exponent is smaller -> less drop
                 const panicExponent = 1.5 * (1 - (conf * 0.5)); 
                 panicFactor = Math.pow(ratio, panicExponent); 
             }
 
-            // Fatigue Factor based on order
-            // 1st subject: 1.0, 2nd: 0.95, 3rd: 0.90 (Simple decay)
             const fatigueFactor = 1 - (index * 0.05);
-
             const baseAcc = (historicalAccuracy[sub] || 50) / 100;
-            
-            // Effective accuracy heavily influenced by panic and fatigue
-            // Confidence slightly boosts base accuracy interpretation (better mindset)
             const effectiveAcc = Math.min(1, (baseAcc + (conf * 0.05)) * panicFactor * fatigueFactor);
             
             const expectedCorrect = attempts * effectiveAcc;
@@ -166,10 +153,9 @@ export const PaperStrategyWidget: React.FC<{
             totalScore += score;
             maxPotential += attempts * marksPerCorrect;
 
-            // Risk Calc: High attempts with low time contributes massively to risk
             if (attempts > 0) {
                 const subjectRisk = (idealTimePerQ - timePerQ) > 0 ? (idealTimePerQ - timePerQ) / idealTimePerQ : 0;
-                riskScore += subjectRisk * (attempts / maxAttempts) * 33 * (1 - conf); // High confidence reduces risk perception
+                riskScore += subjectRisk * (attempts / maxAttempts) * 33 * (1 - conf);
             }
 
             return {
@@ -348,7 +334,7 @@ export const RankPredictorWidget: React.FC<{ rankPrediction: any, goalProbabilit
         <div className="flex justify-between items-start mb-2 px-2">
             <div className="text-xs space-y-1">
                 <p className="text-gray-400">Likely Range</p>
-                <p className="text-white font-mono tabular-nums">{rankPrediction.bestCase.toLocaleString()} - {rankPrediction.worstCase.toLocaleString()}</p>
+                <p className="text-white font-mono tabular-nums">{formatRank(rankPrediction.bestCase)} - {formatRank(rankPrediction.worstCase)}</p>
             </div>
             {goalProbability && (
                 <div className="flex items-center gap-2 bg-slate-800/80 rounded-full px-3 py-1 border border-slate-700">
@@ -386,9 +372,8 @@ export const RankPredictorWidget: React.FC<{ rankPrediction: any, goalProbabilit
                     tickCount={7}
                 />
                 <YAxis hide />
-                <Tooltip content={<CustomTooltip label="Predicted Rank" />} />
+                <Tooltip content={<CustomTooltip label="Predicted Rank" formatter={(val: number) => formatRank(val)} />} />
                 <ReferenceLine x={rankPrediction.likely} stroke="#ffffff" strokeDasharray="3 3" strokeOpacity={0.5} label={{ value: 'Likely', position: 'top', fill: '#fff', fontSize: 10 }} />
-                {/* Smoothed curve using type="basis" */}
                 <Area type="basis" dataKey="probability" stroke="#22d3ee" fill="url(#rankGradient)" strokeWidth={2} />
             </AreaChart>
         </ResponsiveContainer>
@@ -608,9 +593,6 @@ export const RankSimulatorWidget: React.FC<{ rankModel: { slope: number, interce
         const improvementScore = improvements.physics + improvements.chemistry + improvements.maths;
         const totalSimScore = baseScore + improvementScore;
         
-        // Log-linear regression: ln(Rank) = slope * Score + intercept
-        // Rank = exp(slope * Score + intercept)
-        
         const baseLogRank = rankModel.slope * baseScore + rankModel.intercept;
         const simLogRank = rankModel.slope * totalSimScore + rankModel.intercept;
         
@@ -632,14 +614,14 @@ export const RankSimulatorWidget: React.FC<{ rankModel: { slope: number, interce
             <div className="flex justify-between items-center bg-slate-900/50 p-3 rounded-lg border border-slate-700 mb-4">
                 <div>
                     <p className="text-xs text-gray-400">Current Rank Est.</p>
-                    <p className="text-lg font-bold text-white tabular-nums">#{simulatedData?.baseRank.toLocaleString()}</p>
+                    <p className="text-lg font-bold text-white tabular-nums">#{simulatedData?.baseRank ? formatRank(simulatedData.baseRank) : 'N/A'}</p>
                 </div>
                 <div className="text-2xl text-gray-600">➔</div>
                 <div className="text-right">
                     <p className="text-xs text-cyan-400">Simulated Rank</p>
-                    <p className="text-2xl font-bold text-cyan-300 tabular-nums">#{simulatedData?.simRank.toLocaleString()}</p>
+                    <p className="text-2xl font-bold text-cyan-300 tabular-nums">#{simulatedData?.simRank ? formatRank(simulatedData.simRank) : 'N/A'}</p>
                     {simulatedData && simulatedData.rankImprovement > 0 && (
-                        <p className="text-[10px] text-green-400 font-bold">▲ {simulatedData.rankImprovement.toLocaleString()} spots</p>
+                        <p className="text-[10px] text-green-400 font-bold">▲ {formatRank(simulatedData.rankImprovement)} spots</p>
                     )}
                 </div>
             </div>
@@ -688,11 +670,10 @@ export const GoalProgressWidget: React.FC<{ goals: LongTermGoal[] }> = ({ goals 
                             <p className={`text-sm font-medium ${goal.completed ? 'text-green-100 line-through' : 'text-white'}`}>{goal.text}</p>
                         </div>
                         
-                        {/* Visual 'Progress' Placeholder - Could be linked to data if parsed */}
                         {!goal.completed && (
                             <div className="mt-3 pl-8">
                                 <div className="h-1.5 w-full bg-slate-700 rounded-full overflow-hidden">
-                                    <div className="h-full bg-cyan-500 w-1/3 rounded-full opacity-50"></div> {/* Placeholder progress */}
+                                    <div className="h-full bg-cyan-500 w-1/3 rounded-full opacity-50"></div>
                                 </div>
                                 <p className="text-[10px] text-gray-500 mt-1 text-right">In Progress</p>
                             </div>

@@ -16,10 +16,14 @@ export interface AIModel {
 
 export const MODEL_REGISTRY: AIModel[] = [
     // --- TIER 1: GOOGLE NATIVE (Primary - High Reliability) ---
-    // Updated to 2.5 as requested
+    { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro', provider: 'google', description: 'Complex reasoning, coding, math, STEM.', contextWindow: 2000000, isFree: true, supportsVision: true, supportsJson: true, costCategory: 'free', icon: '🧠' },
+    { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', provider: 'google', description: 'Next-gen multimodal reasoning & speed.', contextWindow: 1000000, isFree: true, supportsVision: true, supportsJson: true, costCategory: 'free', icon: '⚡' },
+    { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash Lite', provider: 'google', description: 'Ultra-fast, lightweight, low latency.', contextWindow: 1000000, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '🐇' },
+    { id: 'gemini-3.1-flash-image-preview', name: 'Gemini 3.1 Flash Image', provider: 'google', description: 'High-quality image generation.', contextWindow: 1000000, isFree: true, supportsVision: true, supportsJson: false, costCategory: 'free', icon: '🖼️' },
+    { id: 'gemini-3-pro-image-preview', name: 'Gemini 3 Pro Image', provider: 'google', description: 'High-quality image generation.', contextWindow: 1000000, isFree: true, supportsVision: true, supportsJson: false, costCategory: 'free', icon: '🖼️' },
+    { id: 'gemini-2.5-flash-preview-tts', name: 'Gemini 2.5 Flash TTS', provider: 'google', description: 'Text-to-speech generation.', contextWindow: 1000000, isFree: true, supportsVision: false, supportsJson: false, costCategory: 'free', icon: '🗣️' },
     { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'google', description: 'Latest reasoning & multimodal workhorse.', contextWindow: 1000000, isFree: true, supportsVision: true, supportsJson: true, costCategory: 'free', icon: '⚡' },
     { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', provider: 'google', description: 'Ultra-fast, lightweight, low latency.', contextWindow: 1000000, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '🐇' },
-    // Updated to Gemma 3-27b
     { id: 'gemma-3-27b', name: 'Gemma 3 27B', provider: 'google', description: 'Latest open weights model from Google.', contextWindow: 8192, isFree: true, supportsVision: true, supportsJson: true, costCategory: 'free', icon: '💎' },
 
     // --- TIER 2: GROQ (Ultra-Fast Inference) ---
@@ -42,54 +46,90 @@ export const MODEL_REGISTRY: AIModel[] = [
     { id: 'qwen/qwen-2.5-coder-32b-instruct:free', name: 'Qwen 2.5 Coder 32B', provider: 'openrouter', description: 'Excellent for structured output/JSON.', contextWindow: 32000, isFree: true, supportsVision: false, supportsJson: true, costCategory: 'free', icon: '💻' },
 ];
 
-// Optimized Fallback Chains
-// STRATEGY: Put Gemini 2.5 and Llama 3.3 (Stable) higher than DeepSeek/Free models to reduce error rates.
+// Optimized Fallback Chains for Granular Tasks
 export const TASK_DEFAULTS: Record<LlmTaskCategory, string[]> = {
-    // Deep Analysis: Llama 3.3 -> Gemini 2.5 -> DeepSeek (Fallback)
-    analysis: [
-        'gemini-2.5-flash',
-        'llama-3.3-70b-versatile', 
-        'deepseek-r1-distill-llama-70b',
-        'deepseek/deepseek-r1:free' 
-    ], 
-    
-    // Math/STEM: DeepSeek (Groq) -> Gemini 2.5 -> Qwen
-    math: [
-        'deepseek-r1-distill-llama-70b',
-        'gemini-2.5-flash', 
-        'llama-3.3-70b-versatile',
-        'qwen/qwen3-32b'
-    ], 
-    
-    // Planning: Qwen Coder (Best JSON) -> Gemini -> Llama
-    planning: [
-        'qwen/qwen-2.5-coder-32b-instruct:free',
-        'gemini-2.5-flash', 
-        'llama-3.3-70b-versatile'
-    ], 
-    
-    // Creative/Persona: Mistral Nemo -> Gemma 3 -> Gemini Lite
-    creative: [
-        'mistralai/mistral-nemo:free',
-        'gemma-3-27b',
-        'gemini-2.5-flash-lite',
-        'moonshotai/kimi-k2-instruct'
-    ], 
-    
-    // General Chat: Gemini Lite -> Llama Instant
-    chat: [
+    // 1. General Chat
+    chat_general: [
+        'gemini-3-flash-preview',
         'gemini-2.5-flash-lite',
         'llama-3.1-8b-instant', 
         'gemma-3-27b',
         'meta-llama/llama-4-maverick-17b-128e-instruct'
     ], 
-    
-    // Coding/JSON: Qwen -> Gemini -> Llama
-    coding: [
-        'qwen/qwen-2.5-coder-32b-instruct:free',
+
+    // 2. Deep Analysis (Dashboard Reports)
+    analysis_deep: [
+        'gemini-3-flash-preview',
+        'gemini-2.5-flash',
+        'llama-3.3-70b-versatile', 
+        'deepseek-r1-distill-llama-70b',
+        'deepseek/deepseek-r1:free' 
+    ],
+
+    // 3. Root Cause Analysis (5-Whys)
+    analysis_root_cause: [
+        'gemini-3-flash-preview',
+        'deepseek-r1-distill-llama-70b', // R1 is excellent for causal reasoning
+        'gemini-2.5-flash',
+        'llama-3.3-70b-versatile'
+    ],
+
+    // 4. Executive Briefing
+    analysis_briefing: [
+        'gemini-3-flash-preview',
+        'gemini-2.5-flash', // Good formatting and summarization
+        'llama-3.3-70b-versatile',
+        'qwen/qwen3-32b'
+    ],
+
+    // 5. Routine Planning (Daily Schedule)
+    planning_routine: [
+        'gemini-3-flash-preview',
+        'qwen/qwen-2.5-coder-32b-instruct:free', // Structured output
         'gemini-2.5-flash', 
         'llama-3.3-70b-versatile'
-    ], 
+    ],
+
+    // 6. Sorting & Optimization (Smart Sort)
+    planning_sorting: [
+        'gemini-3-flash-preview',
+        'gemini-2.5-flash-lite', // Speed is key here
+        'llama-3.1-8b-instant',
+        'qwen/qwen-2.5-coder-32b-instruct:free'
+    ],
+
+    // 7. Creative Writing (Quotes, Persona)
+    creative_writing: [
+        'gemini-3-flash-preview',
+        'mistralai/mistral-nemo:free',
+        'gemma-3-27b',
+        'gemini-2.5-flash-lite',
+        'moonshotai/kimi-k2-instruct'
+    ],
+
+    // 8. STEM Core (Math/Physics Solving)
+    stem_core: [
+        'gemini-3-flash-preview',
+        'deepseek-r1-distill-llama-70b', // Math powerhouse
+        'gemini-2.5-flash', 
+        'qwen/qwen3-32b'
+    ],
+
+    // 9. Flashcard Generation (Error Vaccinator)
+    flashcard_gen: [
+        'gemini-3-flash-preview',
+        'gemini-2.5-flash',
+        'llama-3.3-70b-versatile',
+        'deepseek-r1-distill-llama-70b'
+    ],
+
+    // 10. Technical Ops (Data Cleaning, OCR Parsing)
+    technical_ops: [
+        'gemini-3-flash-preview',
+        'gemini-2.5-flash', // Multimodal needs
+        'qwen/qwen-2.5-coder-32b-instruct:free', 
+        'llama-3.3-70b-versatile'
+    ]
 };
 
 export const getModelById = (id: string): AIModel | undefined => {

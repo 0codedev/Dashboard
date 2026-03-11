@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useCallback, Suspense, useMemo } from 'react';
 import type { AiFilter, RootCauseFilter, Toast, DailyTask, View, TestReport, QuestionLog } from './types';
 import { TaskType, QuestionStatus, TaskEffort } from './types';
@@ -21,6 +22,7 @@ const Achievements = React.lazy(() => import('./components/Achievements').then(m
 const Settings = React.lazy(() => import('./components/Settings').then(module => ({ default: module.Settings })));
 const Syllabus = React.lazy(() => import('./components/Syllabus').then(module => ({ default: module.Syllabus })));
 const ErrorVaccinator = React.lazy(() => import('./components/flashcards/ErrorVaccinator').then(module => ({ default: module.ErrorVaccinator })));
+const NewAIFeatures = React.lazy(() => import('./components/NewAIFeatures').then(module => ({ default: module.NewAIFeatures })));
 
 // --- Loading Component ---
 const PageLoader = () => (
@@ -294,10 +296,11 @@ const App: React.FC = () => {
                     {view === 'deep-analysis' && <DeepAnalysis reports={filteredReports} />}
                     {view === 'root-cause' && <RootCause logs={filteredLogs} reports={filteredReports} rootCauseFilter={rootCauseFilter} setRootCauseFilter={setRootCauseFilter} apiKey={apiKey} onAddTask={(task) => addTasksToPlanner([task])} modelName={aiPreferences.model} />}
                     {view === 'ai-assistant' && <AiAssistant reports={filteredReports} questionLogs={questionLogs} setView={setView} setActiveLogFilter={setActiveLogFilter} apiKey={apiKey} chatHistory={chatHistory} setChatHistory={setChatHistory} studyGoals={studyGoals} setStudyGoals={setStudyGoals} preferences={aiPreferences} onUpdatePreferences={setAiPreferences} userProfile={userProfile} onAddTasksToPlanner={addTasksToPlanner} />}
-                    {view === 'flashcards' && <ErrorVaccinator logs={questionLogs} apiKey={apiKey} />}
+                    {view === 'flashcards' && <ErrorVaccinator logs={questionLogs} reports={testReports} apiKey={apiKey} />}
                     {view === 'question-log-editor' && <QuestionLogEditor logs={questionLogs} reports={testReports} setLogs={setQuestionLogs} activeLogFilter={activeLogFilter} setActiveLogFilter={setActiveLogFilter} />}
                     {view === 'data-entry' && <OcrProcessor onAddData={addData} apiKey={apiKey} modelName={aiPreferences.model} />}
                     {view === 'achievements' && <Achievements gamificationState={gamificationState} achievements={achievements} levelInfo={levelInfo} />}
+                    {view === 'new-ai-features' && <NewAIFeatures />}
                     {view === 'settings' && (
                         <Settings 
                             apiKey={apiKey!} 

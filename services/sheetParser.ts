@@ -1,4 +1,5 @@
-import { TestReport, QuestionLog, SubjectData, QuestionType, QuestionStatus, ErrorReason, TestType, TestSubType } from '../types';
+
+import { TestReport, QuestionLog, SubjectData, QuestionType, QuestionStatus, ErrorReason, TestType, TestSubType, Flashcard } from '../types';
 
 const parseCSV = (csv: string): { headers: string[], rows: string[][] } => {
     const lines = csv.replace(/\r/g, '').split('\n').filter(line => line.trim() !== '');
@@ -168,7 +169,7 @@ const createCsvContent = (headers: string[], rows: (string|number|undefined)[][]
     const dataRows = rows.map(row => 
         row.map(cell => {
             const strCell = String(cell ?? '');
-            if (strCell.includes(',')) {
+            if (strCell.includes(',') || strCell.includes('\n') || strCell.includes('"')) {
                 return `"${strCell.replace(/"/g, '""')}"`;
             }
             return strCell;
@@ -376,4 +377,41 @@ export const downloadReportsForSheet = (reports: TestReport[]) => {
 export const downloadLogsForSheet = (logs: QuestionLog[], reports: TestReport[]) => {
     const csvContent = exportLogsForSheetImport(logs, reports);
     triggerDownload('logs_for_google_sheets.csv', csvContent);
+};
+
+// --- NEW: Anki Export Utility ---
+export const exportFlashcardsToAnkiCsv = (cards: Flashcard[]) => {
+    // Anki expects text/html content
+    // Format: Front, Back, Tags
+    // We will convert newlines to <br> for HTML compatibility in Anki
+    
+    const headers = ['Front', 'Back', 'Tags'];
+    
+    const rows = cards.map(card => {
+        // Front: The Context/Question
+        // Replace markdown bold with HTML bold, etc. (Simple regex, Anki handles basic HTML)
+        const frontHtml = (card.front || '')
+            .replace(/\n/g, '<br>')
+            .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+
+        // Back: Solution + Visual Aid
+        let backHtml = (card.back || '')
+            .replace(/\n/g, '<br>')
+            .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+            
+        if (card.visual_aid) {
+             // Embed SVG if present. 
+             // Note: Direct SVG embedding in Anki CSV might be tricky depending on the deck settings, 
+             // but HTML standard allows it. We strip newlines from SVG to keep it on one line in CSV.
+             const svgClean = card.visual_aid.svg.replace(/\n/g, '');
+             backHtml += `<br><br><div class="visual-aid">${svgClean}<br><i>${card.visual_aid.description}</i></div>`;
+        }
+
+        const tags = `JEE_Vaccine ${card.topic.replace(/\s+/g, '_')}`;
+
+        return [frontHtml, backHtml, tags];
+    });
+
+    const csvContent = createCsvContent(headers, rows);
+    triggerDownload('anki_vaccines_export.csv', csvContent);
 };

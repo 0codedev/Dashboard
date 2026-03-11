@@ -24,13 +24,13 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     if (!content) return null;
 
     const renderInline = (text: string) => {
-        // Regex Breakdown:
+        // Updated Regex for better matching:
         // 1. Code: `...`
         // 2. Block Math: $$...$$
-        // 3. Inline Math: $...$ (non-greedy)
-        // 4. Bold: **...**
+        // 3. Inline Math: $...$
+        // 4. Bold: **...** (Using .*? for non-greedy match allowing internal characters)
         // 5. Italic: *...*
-        const parts = text.split(/(`[^`]+`|\$\$[^$]+\$\$|\$[^$]+\$|\*\*[^*]+\*\*|\*[^*]+\*)/g).filter(Boolean);
+        const parts = text.split(/(`[^`]+`|\$\$[^$]+\$\$|\$[^$]+\$|\*\*.*?\*\*|\*[^*]+\*)/g).filter(Boolean);
         
         return parts.map((part, index) => {
             // Code
@@ -70,11 +70,11 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                 return <span key={index} className="font-mono text-cyan-200">{part}</span>; // Fallback
             }
             // Bold
-            if (part.startsWith('**') && part.endsWith('**')) {
+            if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
                 return <strong key={index} className="text-white font-bold tracking-wide">{part.slice(2, -2)}</strong>;
             }
             // Italic
-            if (part.startsWith('*') && part.endsWith('*')) {
+            if (part.startsWith('*') && part.endsWith('*') && part.length >= 2) {
                 return <em key={index} className="text-indigo-200 italic font-medium">{part.slice(1, -1)}</em>;
             }
             // Regular Text
@@ -219,18 +219,9 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         }
         // Paragraphs
         else if (trimmed.length > 0) {
-            // Check if it's a key-value pair line (e.g., "Label: Value") for special formatting
-            if (/^(\*\*.*?\*\*|[^:]+):/.test(trimmed) && trimmed.length < 100 && !trimmed.includes('\n')) {
-                 const [key, ...rest] = trimmed.split(':');
-                 elements.push(
-                    <p key={i} className={`${baseTextColor} ${baseTextSize} leading-relaxed my-1`}>
-                        <span className="text-cyan-100 font-semibold">{renderInline(key)}:</span>
-                        <span className="ml-1 opacity-90">{renderInline(rest.join(':'))}</span>
-                    </p>
-                 );
-            } else {
-                elements.push(<p key={i} className={`${baseTextColor} ${baseTextSize} leading-relaxed my-2 font-normal tracking-wide`}>{renderInline(trimmed)}</p>);
-            }
+            // Simplified paragraph rendering to handle markdown keys correctly.
+            // Previous key-value split logic was breaking bold tags like **Key:**
+            elements.push(<p key={i} className={`${baseTextColor} ${baseTextSize} leading-relaxed my-2 font-normal tracking-wide`}>{renderInline(trimmed)}</p>);
         } else {
             // Empty line spacing
             elements.push(<div key={i} className="h-2"></div>);

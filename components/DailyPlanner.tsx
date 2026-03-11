@@ -6,6 +6,8 @@ import { getDailyQuote, generateEndOfDaySummary, generateTasksFromGoal, generate
 import { JEE_SYLLABUS } from '../constants';
 import Modal from './common/Modal';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { audioEngine } from '../services/audioEngine';
+import { formatDateFull, formatDuration } from '../utils/formatters';
 
 interface DailyPlannerProps {
   goals: StudyGoal[];
@@ -19,7 +21,6 @@ interface DailyPlannerProps {
   userProfile: UserProfile;
   prefilledTask: Partial<DailyTask> | null;
   setPrefilledTask: (task: Partial<DailyTask> | null) => void;
-  // NEW: Receive tasks from central store
   dailyTasks: DailyTask[];
   setDailyTasks: React.Dispatch<React.SetStateAction<DailyTask[]>>;
   modelName?: string;
@@ -89,141 +90,6 @@ const BioCheckModal: React.FC<{
         </Modal>
     );
 };
-
-// --- Advanced Audio Engine for Focus Sounds & Binaural Beats ---
-class AudioEngine {
-    private ctx: AudioContext | null = null;
-    private source: AudioBufferSourceNode | null = null;
-    private oscillators: AudioNode[] = [];
-    private gainNode: GainNode | null = null;
-    private isPlaying: boolean = false;
-    private buffers: Map<string, AudioBuffer> = new Map();
-
-    public init() {
-        if (!this.ctx && typeof window !== 'undefined') {
-            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-            if (AudioContextClass) {
-                this.ctx = new AudioContextClass();
-            }
-        }
-        // Ensure we try to resume if it was suspended (browser policy)
-        if (this.ctx && this.ctx.state === 'suspended') {
-            this.ctx.resume().catch(() => {});
-        }
-    }
-
-    private createNoiseBuffer(type: 'brown' | 'pink' | 'white') {
-        if (!this.ctx) return null;
-        if (this.buffers.has(type)) return this.buffers.get(type);
-
-        const bufferSize = this.ctx.sampleRate * 2; 
-        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-        const data = buffer.getChannelData(0);
-
-        if (type === 'white') {
-            for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
-        } else if (type === 'pink') {
-            let b0=0, b1=0, b2=0, b3=0, b4=0, b5=0, b6=0;
-            for (let i = 0; i < bufferSize; i++) {
-                const white = Math.random() * 2 - 1;
-                b0 = 0.99886 * b0 + white * 0.0555179;
-                b1 = 0.99332 * b1 + white * 0.0750759;
-                b2 = 0.96900 * b2 + white * 0.1538520;
-                b3 = 0.86650 * b3 + white * 0.3104856;
-                b4 = 0.55000 * b4 + white * 0.5329522;
-                b5 = -0.7616 * b5 - white * 0.0168980;
-                data[i] = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362;
-                data[i] *= 0.11; 
-                b6 = white * 0.115926;
-            }
-        } else { 
-            let lastOut = 0;
-            for (let i = 0; i < bufferSize; i++) {
-                const white = Math.random() * 2 - 1;
-                data[i] = (lastOut + (0.02 * white)) / 1.02;
-                lastOut = data[i];
-                data[i] *= 3.5; 
-            }
-        }
-        this.buffers.set(type, buffer);
-        return buffer;
-    }
-
-    playNoise(type: 'brown' | 'pink' | 'white', volume: number = 0.1) {
-        // Only proceed if context exists (explicit init required via user gesture)
-        if (!this.ctx) return;
-        
-        if (this.isPlaying) this.stop();
-
-        const buffer = this.createNoiseBuffer(type);
-        if (!buffer) return;
-
-        this.source = this.ctx.createBufferSource();
-        this.source.buffer = buffer;
-        this.source.loop = true;
-
-        this.gainNode = this.ctx.createGain();
-        this.gainNode.gain.value = volume;
-
-        this.source.connect(this.gainNode);
-        this.gainNode.connect(this.ctx.destination);
-        this.source.start();
-        this.isPlaying = true;
-    }
-
-    playBinaural(baseFreq: number, beatFreq: number, volume: number = 0.1) {
-        if (!this.ctx) return;
-        
-        if (this.isPlaying) this.stop();
-
-        this.gainNode = this.ctx.createGain();
-        this.gainNode.gain.value = volume;
-        this.gainNode.connect(this.ctx.destination);
-
-        // Left Oscillator (Base Freq)
-        const oscL = this.ctx.createOscillator();
-        oscL.type = 'sine';
-        oscL.frequency.value = baseFreq;
-        const panL = this.ctx.createStereoPanner();
-        panL.pan.value = -1; // Pan Left
-        oscL.connect(panL).connect(this.gainNode);
-
-        // Right Oscillator (Base + Beat)
-        const oscR = this.ctx.createOscillator();
-        oscR.type = 'sine';
-        oscR.frequency.value = baseFreq + beatFreq;
-        const panR = this.ctx.createStereoPanner();
-        panR.pan.value = 1; // Pan Right
-        oscR.connect(panR).connect(this.gainNode);
-
-        oscL.start();
-        oscR.start();
-        this.oscillators = [oscL, oscR];
-        this.isPlaying = true;
-    }
-
-    stop() {
-        if (this.source) {
-            try { this.source.stop(); this.source.disconnect(); } catch (e) { }
-            this.source = null;
-        }
-        this.oscillators.forEach(osc => {
-             try { (osc as any).stop(); osc.disconnect(); } catch(e){}
-        });
-        this.oscillators = [];
-
-        if (this.gainNode) { this.gainNode.disconnect(); this.gainNode = null; }
-        this.isPlaying = false;
-    }
-
-    setVolume(val: number) {
-        if (this.gainNode && this.ctx) {
-            this.gainNode.gain.setTargetAtTime(val, this.ctx.currentTime, 0.1);
-        }
-    }
-}
-
-const audioEngine = new AudioEngine();
 
 const taskTypeConfig: Record<TaskType, { name: string, color: string, icon: string }> = {
     [TaskType.StudySession]: { name: "Study Session", color: "border-l-blue-400", icon: "📚" },
@@ -439,8 +305,6 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
     const [currentTime, setCurrentTime] = useState(new Date());
     const [activeTab, setActiveTab] = useState<'tasks' | 'weekly'>('tasks');
     
-    // Removed local state definition. Now using props: dailyTasks, setDailyTasks.
-
     const [suggestedTasks, setSuggestedTasks] = useState<{task: string, time: number}[] | null>(null);
     const [isSuggestingTasks, setIsSuggestingTasks] = useState(false);
     const [smartTasks, setSmartTasks] = useState<{ task: string; time: number; topic: string; }[] | null>(null);
@@ -628,8 +492,6 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
     
     useEffect(() => { const timerId = setInterval(() => setCurrentTime(new Date()), 1000); return () => clearInterval(timerId); }, []);
     
-    // Removed redundant useEffect to save tasks to localstorage, now handled by parent via useJeeData
-
     useEffect(() => {
         if (!isTimerActive) { if (timerIntervalRef.current) { clearInterval(timerIntervalRef.current); timerIntervalRef.current = null; } return; }
         const tick = () => {
@@ -700,7 +562,6 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
         } catch (e) { console.error(e); } finally { setIsSorting(false); }
     };
 
-    // --- Scheduling Handlers ---
     const handleScheduleDrop = (taskId: string, hour: number) => {
         const newTime = `${hour.toString().padStart(2, '0')}:00`;
         setDailyTasks(prev => prev.map(t => t.id === taskId ? { ...t, scheduledTime: newTime } : t));
@@ -712,21 +573,17 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
     const handleTimerModeChange = (mode: 'focus' | 'short' | 'long' | 'custom') => { setIsTimerActive(false); setTimerMode(mode); setIsCompleted(false); endTimeRef.current = null; setActiveTask(null); if (mode === 'custom') { setShowCustomInput(true); setTimeLeft(customTime * 60); } else { setShowCustomInput(false); setTimeLeft(timerModes[mode]); } };
     
     const handleTimerToggle = () => { 
-        audioEngine.init(); // Explicit init on user interaction to handle browser policy
+        audioEngine.init(); 
         setIsCompleted(false); 
         if (!isTimerActive) { 
-            // Resuming or Starting
             if (!endTimeRef.current) {
                  endTimeRef.current = Date.now() + timeLeft * 1000;
             } else {
-                 // Recalculate end time based on remaining time when resuming
                  endTimeRef.current = Date.now() + timeLeft * 1000;
             }
             if (timerMode === 'focus' || activeTask) setIsHyperFocusMode(true); 
         } else { 
-            // Pausing
             setIsHyperFocusMode(false); 
-            // Context Switching Tax
             setInterruptionCount(prev => prev + 1);
         } 
         setIsTimerActive(prev => !prev); 
@@ -735,7 +592,7 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
     const handleTimerReset = () => { setIsTimerActive(false); setIsHyperFocusMode(false); setIsCompleted(false); endTimeRef.current = null; setActiveTask(null); setInterruptionCount(0); if(timerMode === 'custom') { setTimeLeft(customTime * 60); } else { setTimeLeft(timerModes[timerMode]); } };
     
     const handleStartFocus = (task: DailyTask) => { 
-        audioEngine.init(); // Explicit init on user interaction
+        audioEngine.init(); 
         setActiveTask(task); setIsTimerActive(false); setTimerMode('focus'); setShowCustomInput(false); setIsCompleted(false); setInterruptionCount(0); endTimeRef.current = null; setTimeLeft(task.estimatedTime > 0 ? task.estimatedTime * 60 : timerModes.focus); setTimeout(() => { endTimeRef.current = Date.now() + (task.estimatedTime > 0 ? task.estimatedTime * 60 : timerModes.focus) * 1000; setIsTimerActive(true); setIsHyperFocusMode(true); }, 100); 
     };
     
@@ -748,7 +605,6 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
     const addSmartTask = (task: { task: string; time: number; topic: string }) => { const newTask = { id: `smart-${Date.now()}`, text: task.task, completed: false, taskType: TaskType.ProblemPractice, estimatedTime: task.time, linkedTopic: task.topic, effort: TaskEffort.High }; setDailyTasks(p => [newTask, ...p]); setSmartTasks(p => p?.filter(t => t.task !== task.task) || null); };
     
     const handleSaveAccomplishment = (taskId: string, accomplishment: string) => { 
-        // Apply "Fragmented Focus" tag if interruptions were high
         const taxLabel = interruptionCount > 3 ? " (Fragmented Focus ⚠️)" : "";
         const finalAccomplishment = accomplishment + taxLabel;
 
@@ -760,7 +616,7 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
     };
 
     const totalPlannedTime = useMemo(() => dailyTasks.reduce((sum, task) => sum + (task.estimatedTime || 0), 0), [dailyTasks]);
-    const formatTotalTime = (minutes: number) => { if (minutes < 60) return `${minutes} min`; const hours = Math.floor(minutes / 60); const mins = minutes % 60; return `${hours}h ${mins}m`; };
+    
     const totalDuration = timerMode === 'custom' ? customTime * 60 : (activeTask && activeTask.estimatedTime > 0 ? activeTask.estimatedTime * 60 : timerModes[timerMode]);
     const progress = totalDuration > 0 ? ((totalDuration - timeLeft) / totalDuration) : 0;
     const TabButton: React.FC<{tabName: 'tasks' | 'weekly', label: string}> = ({tabName, label}) => (<button onClick={() => setActiveTab(tabName)} className={`py-2 px-4 font-semibold transition-colors text-sm rounded-t-md ${activeTab === tabName ? 'bg-slate-800 text-cyan-400' : 'bg-slate-900/50 text-gray-400 hover:bg-slate-800/80 hover:text-white'}`}>{label}</button>);
@@ -826,7 +682,7 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
                     <div className="flex justify-between items-start flex-wrap gap-4">
                         <div>
                             <h2 className="text-2xl font-bold text-cyan-300">Daily Planner</h2>
-                            <p className="text-gray-400 mt-1">{currentTime.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                            <p className="text-gray-400 mt-1">{formatDateFull(currentTime.toISOString())}</p>
                         </div>
                         <div className="text-right">
                             <p className="text-4xl font-bold text-white">{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
@@ -863,7 +719,7 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
                 <div>
                     <div className="flex justify-between items-center border-b border-slate-700 mb-4">
                         <div className="flex">
-                            <TabButton tabName="tasks" label={`Today's Plan (${formatTotalTime(totalPlannedTime)})`} />
+                            <TabButton tabName="tasks" label={`Today's Plan (${formatDuration(totalPlannedTime)})`} />
                             <TabButton tabName="weekly" label={`Weekly Goals (${goals.length})`} />
                         </div>
                          <button onClick={() => setShowSchedule(p => !p)} className={`text-xs text-white font-semibold py-1 px-3 rounded-full transition-colors mb-1 flex items-center gap-2 ${showSchedule ? 'bg-indigo-600' : 'bg-slate-700 hover:bg-slate-600'}`}>
@@ -928,27 +784,10 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
                                             </div>
                                         </div>
                                     ))}
-                                    
-                                    {dailyTasks.length === 0 && !smartTasks && (
-                                        <div className="text-center py-10 border-2 border-dashed border-slate-700 rounded-xl bg-slate-800/30">
-                                            <p className="text-gray-500 mb-4">No tasks yet. Start by adding one above or...</p>
-                                            <button onClick={handleGenerateSmartTasks} disabled={isGeneratingTasks} className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold py-2 px-5 rounded-full shadow-lg transition-transform hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 flex items-center gap-2 mx-auto">
-                                                {isGeneratingTasks ? <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>Thinking...</> : 'Generate AI Suggestions'}
-                                            </button>
-                                        </div>
-                                    )}
-                                    {dailyTasks.length > 0 && !showSchedule && (
-                                         <div className="flex justify-center pt-4">
-                                            <button onClick={handleSmartReschedule} className="text-xs text-gray-400 hover:text-white flex items-center gap-1 hover:underline">
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                                                Smart Reschedule Remaining
-                                            </button>
-                                        </div>
-                                    )}
                                 </div>
                             </div>
 
-                            {/* Right Column: Schedule (Only visible when showSchedule is true) */}
+                            {/* Right Column: Schedule */}
                             {showSchedule && (
                                 <TimeBlockSchedule 
                                     tasks={dailyTasks} 

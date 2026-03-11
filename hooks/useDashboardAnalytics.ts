@@ -340,7 +340,7 @@ export const useDashboardKpis = (
     }
     
     // --- Radar Data Logic (Average of Last 3 Tests) ---
-    const radarData = useMemo(() => {
+    const radarData = (() => {
          const subjects = ['physics', 'chemistry', 'maths'] as const;
          const recentReports = processedReports.slice(-3); // Get last 3 reports (or fewer)
          
@@ -360,7 +360,7 @@ export const useDashboardKpis = (
                  fullMark: maxMark
              };
          });
-    }, [processedReports]);
+    })();
 
 
     return {

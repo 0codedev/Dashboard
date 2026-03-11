@@ -364,19 +364,6 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
                 <h2 className="text-2xl font-bold text-[rgb(var(--color-primary-accent-rgb))]">Syllabus Tracker</h2>
                 
                 <div className="flex items-center gap-4">
-                    <button
-                        onClick={handleStartRevision}
-                        disabled={isGeneratingFlashcards}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-lg flex items-center gap-2 text-sm hover:scale-105 transition-transform disabled:opacity-70 disabled:cursor-not-allowed"
-                        title="Start AI-Powered Flashcard Revision"
-                    >
-                        {isGeneratingFlashcards ? (
-                            <><span className="animate-spin text-lg">⚡</span> Generating Neural Pathways...</>
-                        ) : (
-                            <><span>⚡</span> Start Revision</>
-                        )}
-                    </button>
-
                     <button 
                         onClick={handleGenerateRevisionStack}
                         className="bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-4 rounded-lg shadow-lg flex items-center gap-2 text-sm hover:scale-105 transition-transform"

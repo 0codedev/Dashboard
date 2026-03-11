@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { GoogleGenAI, LiveServerMessage, Blob as GenAiBlob, Modality, HarmBlockThreshold, HarmCategory } from "@google/genai";
 import { QuestionStatus, type TestReport, type QuestionLog, type AiFilter, type ChatMessage, type StudyGoal, type AiAssistantPreferences, type GenUIToolType, type GenUIComponentData, type UserProfile, type LlmTaskCategory } from '../types';
-import { retrieveRelevantContext, GENUI_TOOLS, decodeAudioData, encodeAudio, decodeAudio, fileToGenerativePart } from '../services/geminiService';
+import { retrieveRelevantContext, formatFullHistoryContext, GENUI_TOOLS, decodeAudioData, encodeAudio, decodeAudio, fileToGenerativePart } from '../services/geminiService';
 import { MODEL_REGISTRY, AIModel } from '../services/llm/models';
 import { generateTextOpenAI } from '../services/llm/providers';
 import { llmPipeline } from '../services/llm'; 
@@ -110,6 +110,9 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
     const [isSecondarySelectorOpen, setIsSecondarySelectorOpen] = useState(false);
     const [secondaryModelId, setSecondaryModelId] = useState<string>('none');
     
+    // NEW: Context Scope State
+    const [contextScope, setContextScope] = useState<'recent' | 'full'>('recent');
+    
     const chatContainerRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -203,8 +206,20 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
         setIsSecondarySelectorOpen(false);
     };
 
-    const currentModel = PRIMARY_MODELS.find(m => m.id === preferences.model) || PRIMARY_MODELS[0];
+    // FIXED: Use MODEL_REGISTRY to find the model so providers other than Google are correctly identified
+    const currentModel = MODEL_REGISTRY.find(m => m.id === preferences.model) || PRIMARY_MODELS[0];
     const currentSecondary = SECONDARY_MODELS.find(m => m.id === secondaryModelId);
+
+    const handleScopeChange = (scope: 'recent' | 'full') => {
+        if (scope === 'full') {
+            const isHighContext = currentModel.contextWindow >= 100000;
+            if (!isHighContext) {
+                alert(`Full History requires a high-context model like Gemini 1.5/2.5 Flash. Current model (${currentModel.name}) context is too small.`);
+                return;
+            }
+        }
+        setContextScope(scope);
+    };
 
     const handleSendMessage = useCallback(async (e?: React.FormEvent) => {
         if(e) e.preventDefault();
@@ -232,9 +247,19 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
             // 2. Get Persona
             const persona = getPersona(intent);
             
-            // 2.5 RAG Retrieval
+            // 2.5 Retrieval (RAG or Full History)
             let ragContext = "";
-            if (intent !== 'GENERAL' && intent !== 'EMOTIONAL') {
+            let effectiveScope = contextScope;
+            
+            // Safety Check for Context Window if user switched model after setting scope
+            const activeModelDef = MODEL_REGISTRY.find(m => m.id === modelId) || currentModel;
+            if (contextScope === 'full' && activeModelDef.contextWindow < 100000) {
+                effectiveScope = 'recent';
+            }
+
+            if (effectiveScope === 'full') {
+                ragContext = formatFullHistoryContext(reports, questionLogs);
+            } else if (intent !== 'GENERAL' && intent !== 'EMOTIONAL') {
                  ragContext = await retrieveRelevantContext(currentInput, questionLogs, apiKey);
             }
 
@@ -358,11 +383,12 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
                 // We do NOT manually append the footer here, because llmPipeline will do it, ensuring the footer accurately reflects
                 // which model was *actually* used after any internal fallbacks.
                 
-                let taskCategory: LlmTaskCategory = 'chat';
-                if (intent === 'ANALYSIS') taskCategory = 'analysis';
-                if (intent === 'PLANNING') taskCategory = 'planning';
-                if (intent === 'CONCEPT') taskCategory = 'math';
-                if (intent === 'EMOTIONAL') taskCategory = 'creative';
+                // Map Broad Intent to Granular Task Category for External Routing
+                let taskCategory: LlmTaskCategory = 'chat_general';
+                if (intent === 'ANALYSIS') taskCategory = 'analysis_deep';
+                if (intent === 'PLANNING') taskCategory = 'planning_routine';
+                if (intent === 'CONCEPT') taskCategory = 'stem_core';
+                if (intent === 'EMOTIONAL') taskCategory = 'creative_writing';
 
                 const responseText = await llmPipeline({
                     task: taskCategory,
@@ -384,22 +410,23 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
         // --- EXECUTION WITH OUTER FALLBACK ---
         // If the *entire* execution block fails (e.g. Google SDK limit), we catch it here.
         
-        const targetModelId = secondaryModelId !== 'none' ? secondaryModelId : preferences.model;
-        
+        const primaryModelId = preferences.model;
+        const backupModelId = secondaryModelId;
+
         try {
-            await executeGeneration(targetModelId);
+            // 1. Always attempt the Primary model first
+            await executeGeneration(primaryModelId);
         } catch (err) {
-            console.warn(`Attempt with ${targetModelId} failed.`, err);
+            console.warn(`Primary model ${primaryModelId} failed.`, err);
             
-            // 2. Fallback Logic (Outer Safety Net)
-            // If the failed model was the secondary one, fall back to primary
-            if (targetModelId !== preferences.model) {
-                // Pass targetModelId as 'fallbackFrom' to generate the correct footer
+            // 2. Fallback to Secondary if configured
+            if (backupModelId !== 'none' && backupModelId !== primaryModelId) {
                 try {
-                    await executeGeneration(preferences.model, targetModelId);
+                    // Pass primaryModelId as 'fallbackFrom' to generate the correct UI message
+                    await executeGeneration(backupModelId, primaryModelId);
                 } catch (fallbackErr) {
                     console.error("Fallback generation error:", fallbackErr);
-                    setChatHistory(prev => [...prev, { role: 'model', content: `Error generating response (Primary & Secondary failed).\nDetails: ${(fallbackErr as Error).message}` }]);
+                    setChatHistory(prev => [...prev, { role: 'model', content: `Error generating response.\nPrimary (${primaryModelId}) failed: ${(err as Error).message}\nFallback (${backupModelId}) failed: ${(fallbackErr as Error).message}` }]);
                 }
             } else {
                 setChatHistory(prev => [...prev, { role: 'model', content: `Error generating response.\nDetails: ${(err as Error).message}` }]);
@@ -408,7 +435,7 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
         
         setIsStreamingResponse(false);
 
-    }, [userInput, attachedImage, isStreamingResponse, ai, questionLogs, reports, preferences, apiKey, secondaryModelId, userProfile]);
+    }, [userInput, attachedImage, isStreamingResponse, ai, questionLogs, reports, preferences, apiKey, secondaryModelId, userProfile, contextScope]);
 
     // ... [startLiveSession, stopLiveSession... UNCHANGED]
     const startLiveSession = async () => { if (!apiKey) return; try { audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 }); const inputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 }); const stream = await navigator.mediaDevices.getUserMedia({ audio: true }); const source = inputCtx.createMediaStreamSource(stream); const processor = inputCtx.createScriptProcessor(4096, 1, 1); audioWorkletRef.current = processor; const sessionPromise = ai.live.connect({ model: 'gemini-2.5-flash-native-audio-preview-09-2025', config: { responseModalities: [Modality.AUDIO], systemInstruction: `You are an AI Coach.` }, callbacks: { onopen: () => { setIsLiveConnected(true); setLiveStatus('listening'); processor.onaudioprocess = (e) => { const inputData = e.inputBuffer.getChannelData(0); let sum = 0; for(let i=0; i<inputData.length; i++) sum += inputData[i]*inputData[i]; setAudioVolume(Math.sqrt(sum / inputData.length)); const blob = createBlob(inputData); sessionPromise.then(session => session.sendRealtimeInput({ media: blob })); }; source.connect(processor); processor.connect(inputCtx.destination); }, onmessage: async (msg: LiveServerMessage) => { const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data; if (audioData) { setLiveStatus('speaking'); const buffer = await decodeAudioData( decodeAudio(audioData), audioContextRef.current!, 24000, 1 ); const source = audioContextRef.current!.createBufferSource(); source.buffer = buffer; source.connect(audioContextRef.current!.destination); const now = audioContextRef.current!.currentTime; nextStartTimeRef.current = Math.max(nextStartTimeRef.current, now); source.start(nextStartTimeRef.current); nextStartTimeRef.current += buffer.duration; source.onended = () => setLiveStatus('listening'); } if (msg.serverContent?.interrupted) { nextStartTimeRef.current = audioContextRef.current!.currentTime; setLiveStatus('listening'); } }, onclose: () => { setIsLiveConnected(false); }, onerror: (e) => { console.error(e); setIsLiveConnected(false); } } }); liveSessionRef.current = await sessionPromise; } catch (e) { console.error("Failed to start live session", e); alert("Microphone access denied or API error."); } };
@@ -471,6 +498,7 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
                             </div>
                         )}
                     </div>
+                    
                     <div className="h-6 w-px bg-slate-700"></div>
                     <div className="relative" ref={secondarySelectorRef}>
                         <button onClick={() => setIsSecondarySelectorOpen(!isSecondarySelectorOpen)} className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors text-sm font-medium text-gray-200 border border-slate-700">
@@ -492,7 +520,31 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({ reports, questionLogs,
                         )}
                     </div>
                 </div>
-                <div className="flex bg-slate-800/50 rounded-lg p-1 border border-slate-700"><button onClick={() => setActiveTab('chat')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activeTab === 'chat' ? 'bg-slate-700 text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}>Chat</button><button onClick={() => setActiveTab('voice')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activeTab === 'voice' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}>Live</button></div>
+
+                <div className="flex items-center gap-3">
+                    {/* Scope Toggle Moved to Right */}
+                    <div className="flex bg-slate-900/50 rounded-lg p-1 border border-slate-700 h-9">
+                        <button 
+                            onClick={() => setContextScope('recent')} 
+                            className={`px-3 flex items-center gap-2 text-xs font-bold rounded-md transition-all ${contextScope === 'recent' ? 'bg-slate-700 text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}
+                            title="Fast. Sends only relevant recent data."
+                        >
+                            <span>⚡</span> Recent
+                        </button>
+                        <button 
+                            onClick={() => handleScopeChange('full')} 
+                            className={`px-3 flex items-center gap-2 text-xs font-bold rounded-md transition-all ${contextScope === 'full' ? 'bg-purple-900/50 text-purple-200 shadow-sm border border-purple-500/30' : 'text-gray-400 hover:text-gray-200'}`}
+                            title="Deep. Sends entire history. Requires Gemini Flash."
+                        >
+                            <span>🧠</span> Full History
+                        </button>
+                    </div>
+
+                    <div className="flex bg-slate-800/50 rounded-lg p-1 border border-slate-700">
+                        <button onClick={() => setActiveTab('chat')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activeTab === 'chat' ? 'bg-slate-700 text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}>Chat</button>
+                        <button onClick={() => setActiveTab('voice')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activeTab === 'voice' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}>Live</button>
+                    </div>
+                </div>
             </div>
             {activeTab === 'chat' ? (
                 <div className="flex-grow relative flex flex-col overflow-hidden">

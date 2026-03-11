@@ -1,12 +1,12 @@
 
-// ... [Previous imports]
+// ... (Previous imports)
 import { GoogleGenAI, Type } from "@google/genai";
 import { QuestionStatus, type TestReport, type QuestionLog, QuizQuestion, DailyTask, UserProfile, TestType, TestSubType, ModelInfo, AiAssistantPreferences, Flashcard } from "../types";
 import { getMarkingScheme } from "../utils/metrics";
 import { llmPipeline } from "./llm";
 import { semanticSearch } from "./vectorStore";
 
-// ... [Existing helper functions: fileToGenerativePart, encodeAudio, decodeAudio, decodeAudioData - NO CHANGES]
+// ... (Existing helper functions like fileToGenerativePart, encodeAudio... - NO CHANGES)
 
 export const fileToGenerativePart = async (file: File) => {
   const base64EncodedDataPromise = new Promise<string>((resolve) => {
@@ -63,26 +63,16 @@ export async function decodeAudioData(
   return buffer;
 }
 
-// --- NEW: Token Optimization Helper ---
+// ... (summarizeTestHistory, formatFullHistoryContext... - UNCHANGED)
 export const summarizeTestHistory = (reports: TestReport[]): string => {
     if (!reports || reports.length === 0) return "No test history available.";
-
-    // Sort by date (oldest first) to ensure trend is linear
     const sortedReports = [...reports].sort((a, b) => new Date(a.testDate).getTime() - new Date(b.testDate).getTime());
     const totalTests = sortedReports.length;
-    
-    // 1. Full History Trace (Low Token Cost, High Trend Value)
-    // Format: [100, 110, 105, 120]
     const scoreTrace = sortedReports.map(r => r.total.marks).join(', ');
-    
-    // 2. Aggregate Stats
     const totalScoreSum = sortedReports.reduce((s, r) => s + r.total.marks, 0);
     const avgScore = (totalScoreSum / totalTests).toFixed(1);
     const maxScore = Math.max(...sortedReports.map(r => r.total.marks));
-
-    // 3. High Resolution Recent Context (Last 3 Tests)
-    // We provide breakdown for the most recent tests only
-    const recentReports = sortedReports.slice(-3).reverse(); // Newest first
+    const recentReports = sortedReports.slice(-3).reverse();
     const recentDetails = recentReports.map(r => {
         const p = r.physics.marks;
         const c = r.chemistry.marks;
@@ -90,7 +80,6 @@ export const summarizeTestHistory = (reports: TestReport[]): string => {
         const acc = r.totalMetrics?.accuracy.toFixed(0) || 'N/A';
         return `[${r.testDate}] ${r.testName}: Total ${r.total.marks} (P:${p}/C:${c}/M:${m}) Acc:${acc}%`;
     }).join('\n');
-
     return `
 **Test History Summary:**
 - Count: ${totalTests} tests
@@ -101,57 +90,86 @@ ${recentDetails}
     `.trim();
 };
 
+export const formatFullHistoryContext = (reports: TestReport[], logs: QuestionLog[]): string => {
+    const sortedReports = [...reports].sort((a, b) => new Date(a.testDate).getTime() - new Date(b.testDate).getTime());
+    let context = "**FULL ACADEMIC HISTORY:**\n\n";
+    context += "**TEST REPORTS (Chronological):**\n";
+    context += sortedReports.map(r => 
+        `- ${r.testName} (${r.testDate}): Total ${r.total.marks} (Rank ${r.total.rank}) | P:${r.physics.marks} C:${r.chemistry.marks} M:${r.maths.marks}`
+    ).join('\n');
+    context += "\n\n";
+    context += "**ALL QUESTION LOGS (Format: Test:Q# | Subj | Topic | Status | Marks | Error):**\n";
+    const reportMap = new Map(reports.map(r => [r.id, r.testName]));
+    context += logs.map(l => {
+        const testName = reportMap.get(l.testId) || 'Unknown';
+        const statusShort = l.status === 'Fully Correct' ? '✅' : l.status === 'Wrong' ? '❌' : l.status === 'Partially Correct' ? '⚠️' : '⚪';
+        const subjShort = l.subject.substring(0,3).toUpperCase();
+        const error = l.reasonForError ? ` [${l.reasonForError}]` : '';
+        return `${testName}:Q${l.questionNumber} | ${subjShort} | ${l.topic} | ${statusShort} | ${l.marksAwarded}${error}`;
+    }).join('\n');
+    return context;
+};
 
-// ... [RAG Service - NO CHANGES]
-
-export const retrieveRelevantContext = async (
-    query: string, 
-    logs: QuestionLog[], 
-    apiKey: string
-): Promise<string> => {
+// --- UPDATED RETRIEVAL LOGIC ---
+export const retrieveRelevantContext = async (query: string, logs: QuestionLog[], apiKey: string): Promise<string> => {
     try {
-        const semanticResults = await semanticSearch(query, 5);
+        // 1. Try Semantic Search (Vector Store) first
+        const semanticResults = await semanticSearch(query, 10);
+        
         if (semanticResults.length > 0) {
-            return `Relevant Past Performance History:\n${semanticResults.map(r => r.content).join('\n---\n')}`;
+            console.log(`[RAG] Found ${semanticResults.length} semantic matches for "${query}"`);
+            const contextStr = semanticResults.map(r => `- ${r.content} (Relevance: ${(r.score * 100).toFixed(0)}%)`).join('\n');
+            return `**Relevant Past Mistakes (Semantic Search):**\n${contextStr}`;
         }
-        const keywords = query.toLowerCase().split(' ').filter(w => w.length > 3);
-        const relevantLogs = logs.filter(l => {
-            const content = `${l.topic} ${l.reasonForError} ${l.subject}`.toLowerCase();
-            return keywords.some(k => content.includes(k));
-        }).slice(-10);
 
-        if (relevantLogs.length === 0) {
-             const recentErrors = logs.filter(l => l.status === QuestionStatus.Wrong).slice(-5);
-             return recentErrors.length ? `Recent Errors:\n${recentErrors.map(l => `${l.topic}: ${l.reasonForError}`).join('\n')}` : "";
+        // 2. Fallback to Keyword Matching if Semantic fails (e.g., model not loaded yet)
+        console.log("[RAG] Falling back to keyword search.");
+        const lowerQuery = query.toLowerCase();
+        let relevantLogs = logs;
+        
+        // Basic filtering
+        if (lowerQuery.includes('physics')) relevantLogs = logs.filter(l => l.subject === 'physics');
+        else if (lowerQuery.includes('chemistry')) relevantLogs = logs.filter(l => l.subject === 'chemistry');
+        else if (lowerQuery.includes('math')) relevantLogs = logs.filter(l => l.subject === 'maths');
+        
+        const keywords = lowerQuery.split(/[\s,?.!]+/).filter(w => w.length > 3 && !['what','when','where','which','this','that','explain','analyze'].includes(w));
+        
+        if (keywords.length > 0) {
+            const keywordMatches = relevantLogs.filter(l => {
+                const content = `${l.topic} ${l.reasonForError || ''}`.toLowerCase();
+                return keywords.some(k => content.includes(k));
+            });
+            if (keywordMatches.length > 0) {
+                relevantLogs = keywordMatches;
+            }
         }
-        return `Context based on keywords:\n${relevantLogs.map(l => `${l.topic} (${l.subject}): ${l.reasonForError || 'Error'}`).join('\n')}`;
+        
+        const errors = relevantLogs.filter(l => l.status === QuestionStatus.Wrong || l.status === QuestionStatus.PartiallyCorrect);
+        const set = errors.length > 0 ? errors : relevantLogs;
+        const finalSet = set.slice(-15);
+        
+        if (finalSet.length === 0) return "";
+        return `**Relevant Question Logs (Keyword Match):**\n${finalSet.map(l => `- [${l.subject}] ${l.topic}: ${l.status} (${l.reasonForError || 'No Reason'})`).join('\n')}`;
+        
     } catch (e) {
-        console.error("RAG Retrieval failed:", e);
+        console.error("Context retrieval failed:", e);
         return "";
     }
 };
 
-// ... [LLM Helper functions like validateOCRData, inferTestMetadata, etc.]
-// Helper to get dummy prefs for internal calls if not passed
 const getMockPrefs = (apiKey: string): AiAssistantPreferences => {
     try {
         const stored = localStorage.getItem('aiAssistantPreferences_v1');
         if (stored) return JSON.parse(stored);
     } catch {}
-    // Updated default to 2.5
     return { model: 'gemini-2.5-flash', responseLength: 'medium', tone: 'neutral' };
 }
 
+// ... (Other exports: validateOCRData, inferTestMetadata, getAIAnalysis, generateStudyPlan...)
 export const validateOCRData = async (report: Partial<TestReport>, logs: Partial<QuestionLog>[], apiKey: string): Promise<string[]> => {
     const prompt = `Perform a sanity check on JEE test data. Report: ${JSON.stringify(report)}. Logs count: ${logs.length}. Check for mark mismatches and logic errors. Return JSON with 'warnings' array of strings.`;
     try {
-        const res = await llmPipeline({
-            task: 'analysis',
-            prompt,
-            expectJson: true,
-            userPreferences: getMockPrefs(apiKey),
-            googleApiKey: apiKey
-        });
+        const res = await llmPipeline({ task: 'technical_ops', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
         return JSON.parse(res).warnings || [];
     } catch { return []; }
 };
@@ -159,155 +177,70 @@ export const validateOCRData = async (report: Partial<TestReport>, logs: Partial
 export const inferTestMetadata = async (testName: string, apiKey: string): Promise<{ type: TestType, subType: TestSubType }> => {
     const prompt = `Infer JEE Test Type/SubType from name "${testName}". Return JSON {type: string, subType: string}.`;
     try {
-        const res = await llmPipeline({
-            task: 'planning', 
-            prompt,
-            expectJson: true,
-            userPreferences: getMockPrefs(apiKey),
-            googleApiKey: apiKey
-        });
+        const res = await llmPipeline({ task: 'technical_ops', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
         const json = JSON.parse(res);
-        return { 
-            type: json.type as TestType || TestType.ChapterTest, 
-            subType: json.subType as TestSubType || TestSubType.JEEMains 
-        };
+        return { type: json.type as TestType || TestType.ChapterTest, subType: json.subType as TestSubType || TestSubType.JEEMains };
     } catch { return { type: TestType.ChapterTest, subType: TestSubType.JEEMains }; }
 };
 
 export const getAIAnalysis = async (reports: TestReport[], logs: QuestionLog[], apiKey: string, modelName?: string): Promise<string> => {
-    // Use summarizer for efficiency
     const historySummary = summarizeTestHistory(reports);
-    const prompt = `Analyze this JEE student performance. 
-    ${historySummary}
-    Weak Topics Sample: ${JSON.stringify(logs.slice(-20))}. 
-    Provide comprehensive Markdown report with strategy.`;
-    
-    return await llmPipeline({
-        task: 'analysis',
-        prompt,
-        userPreferences: getMockPrefs(apiKey),
-        googleApiKey: apiKey,
-        includeFooter: true
-    });
+    const prompt = `Analyze this JEE student performance. ${historySummary} Weak Topics Sample: ${JSON.stringify(logs.slice(-20))}. Provide comprehensive Markdown report with strategy.`;
+    return await llmPipeline({ task: 'analysis_deep', prompt, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey, includeFooter: true });
 };
 
 export const generateStudyPlan = async (reports: TestReport[], logs: QuestionLog[], apiKey: string, modelName?: string): Promise<string> => {
-    // Use summarizer for efficiency
     const historySummary = summarizeTestHistory(reports);
-    const prompt = `Create a 7-day JEE study plan based on this data. Output Markdown. 
-    ${historySummary}`;
-    
-    return await llmPipeline({
-        task: 'planning',
-        prompt,
-        userPreferences: getMockPrefs(apiKey),
-        googleApiKey: apiKey,
-        includeFooter: true
-    });
+    const prompt = `Create a 7-day JEE study plan based on this data. Output Markdown. ${historySummary}`;
+    return await llmPipeline({ task: 'planning_routine', prompt, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey, includeFooter: true });
 };
 
 export const generateContextualInsight = async (promptData: string, apiKey: string): Promise<string> => {
-    return await llmPipeline({
-        task: 'chat',
-        prompt: `Analyze data and give 1 sentence insight: ${promptData}`,
-        userPreferences: getMockPrefs(apiKey),
-        googleApiKey: apiKey
-    });
+    return await llmPipeline({ task: 'chat_general', prompt: `Analyze data and give 1 sentence insight: ${promptData}`, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
 };
 
 export const generateDashboardInsight = async (reports: TestReport[], apiKey: string): Promise<string> => {
-    // Use summarizer for efficiency
     const historySummary = summarizeTestHistory(reports);
-    return await llmPipeline({
-        task: 'creative',
-        prompt: `Review this performance data: ${historySummary}. Give 1 motivating sentence.`,
-        userPreferences: getMockPrefs(apiKey),
-        googleApiKey: apiKey
-    });
+    return await llmPipeline({ task: 'creative_writing', prompt: `Review this performance data: ${historySummary}. Give 1 motivating sentence.`, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
 };
 
 export const generateChartAnalysis = async (chartTitle: string, dataSummary: string, apiKey: string): Promise<string> => {
-    return await llmPipeline({
-        task: 'chat',
-        prompt: `Analyze chart "${chartTitle}": ${dataSummary}. 1 sentence summary.`,
-        userPreferences: getMockPrefs(apiKey),
-        googleApiKey: apiKey
-    });
+    return await llmPipeline({ task: 'analysis_deep', prompt: `Analyze chart "${chartTitle}": ${dataSummary}. 1 sentence summary.`, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
 };
 
 export const getDailyQuote = async (apiKey: string): Promise<string> => {
-    return await llmPipeline({
-        task: 'creative',
-        prompt: "Give me a short, powerful motivation quote for a student. No author name.",
-        userPreferences: getMockPrefs(apiKey),
-        googleApiKey: apiKey
-    });
+    return await llmPipeline({ task: 'creative_writing', prompt: "Give me a short, powerful motivation quote for a student. No author name.", userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
 };
 
 export const generateChecklistFromPlan = async (weakTopics: string[], apiKey: string): Promise<string[]> => {
     const prompt = `Create 5 checklist items for these weak topics: ${weakTopics.join(', ')}. Return JSON { checklist: string[] }`;
     try {
-        const res = await llmPipeline({
-            task: 'planning',
-            prompt,
-            expectJson: true,
-            userPreferences: getMockPrefs(apiKey),
-            googleApiKey: apiKey
-        });
+        const res = await llmPipeline({ task: 'planning_routine', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
         return JSON.parse(res).checklist || [];
     } catch { return ["Review notes", "Solve problems"]; }
 };
 
 export const generateEndOfDaySummary = async (goals: any[], checklist: any[], apiKey: string): Promise<string> => {
-    return await llmPipeline({
-        task: 'creative',
-        prompt: `Summarize my study day. Goals: ${JSON.stringify(goals)}. Checklist: ${JSON.stringify(checklist)}. Be encouraging.`,
-        userPreferences: getMockPrefs(apiKey),
-        googleApiKey: apiKey
-    });
+    return await llmPipeline({ task: 'creative_writing', prompt: `Summarize my study day. Goals: ${JSON.stringify(goals)}. Checklist: ${JSON.stringify(checklist)}. Be encouraging.`, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
 };
 
 export const getAIChiefAnalystSummary = async (weakTopics: any, errorReasons: any, correlations: any, apiKey: string, improvise: boolean, model?: string): Promise<string> => {
     const prompt = `Act as Chief Analyst. Data: Weakness ${JSON.stringify(weakTopics)}, Errors ${JSON.stringify(errorReasons)}. ${improvise ? 'Provide a counter-intuitive insight.' : 'Provide executive summary.'}`;
-    return await llmPipeline({
-        task: 'analysis', 
-        prompt,
-        userPreferences: getMockPrefs(apiKey),
-        googleApiKey: apiKey,
-        includeFooter: true
-    });
+    return await llmPipeline({ task: 'analysis_briefing', prompt, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey, includeFooter: true });
 };
 
 export const generateFocusedStudyPlan = async (subject: string, weakTopics: string[], apiKey: string, model?: string): Promise<string> => {
-    return await llmPipeline({
-        task: 'planning',
-        prompt: `Create 3-day recovery plan for ${subject}. Weakness: ${weakTopics.join(', ')}. Markdown format.`,
-        userPreferences: getMockPrefs(apiKey),
-        googleApiKey: apiKey,
-        includeFooter: true
-    });
+    return await llmPipeline({ task: 'planning_routine', prompt: `Create 3-day recovery plan for ${subject}. Weakness: ${weakTopics.join(', ')}. Markdown format.`, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey, includeFooter: true });
 };
 
 export const explainTopic = async (topic: string, apiKey: string, complexity: 'standard'|'simple', model?: string): Promise<string> => {
-    return await llmPipeline({
-        task: 'chat',
-        prompt: `Explain '${topic}' for JEE student. Complexity: ${complexity}. Markdown.`,
-        userPreferences: getMockPrefs(apiKey),
-        googleApiKey: apiKey,
-        includeFooter: true
-    });
+    return await llmPipeline({ task: 'stem_core', prompt: `Explain '${topic}' for JEE student. Complexity: ${complexity}. Markdown.`, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey, includeFooter: true });
 };
 
 export const generateGatekeeperQuiz = async (topic: string, apiKey: string, model?: string): Promise<QuizQuestion[]> => {
     const prompt = `Generate 3 conceptual MCQ for '${topic}' JEE level. Return JSON { quiz: [{question, options:{A,B,C,D}, answer: "A", explanation}] }`;
     try {
-        const res = await llmPipeline({
-            task: 'math',
-            prompt,
-            expectJson: true,
-            userPreferences: getMockPrefs(apiKey),
-            googleApiKey: apiKey
-        });
+        const res = await llmPipeline({ task: 'stem_core', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
         return JSON.parse(res).quiz || [];
     } catch { return []; }
 };
@@ -315,13 +248,7 @@ export const generateGatekeeperQuiz = async (topic: string, apiKey: string, mode
 export const generateTasksFromGoal = async (goalText: string, apiKey: string, model?: string): Promise<{ task: string, time: number }[]> => {
     const prompt = `Break goal '${goalText}' into 3 tasks with time. Return JSON { tasks: [{task, time}] }`;
     try {
-        const res = await llmPipeline({
-            task: 'planning',
-            prompt,
-            expectJson: true,
-            userPreferences: getMockPrefs(apiKey),
-            googleApiKey: apiKey
-        });
+        const res = await llmPipeline({ task: 'planning_routine', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
         return JSON.parse(res).tasks || [];
     } catch { return []; }
 };
@@ -329,13 +256,7 @@ export const generateTasksFromGoal = async (goalText: string, apiKey: string, mo
 export const generateSmartTasks = async (weakTopics: string[], apiKey: string, model?: string): Promise<{ task: string; time: number; topic: string; }[]> => {
     const prompt = `Suggest 3 tasks for weak topics: ${weakTopics.join(', ')}. Return JSON { tasks: [{task, time, topic}] }`;
     try {
-        const res = await llmPipeline({
-            task: 'planning',
-            prompt,
-            expectJson: true,
-            userPreferences: getMockPrefs(apiKey),
-            googleApiKey: apiKey
-        });
+        const res = await llmPipeline({ task: 'planning_routine', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
         return JSON.parse(res).tasks || [];
     } catch { return []; }
 };
@@ -343,13 +264,7 @@ export const generateSmartTasks = async (weakTopics: string[], apiKey: string, m
 export const generateSmartTaskOrder = async (tasks: DailyTask[], userProfile: UserProfile, logs: QuestionLog[], apiKey: string, model?: string): Promise<string[]> => {
     const prompt = `Reorder tasks for max efficiency. Profile: ${JSON.stringify(userProfile.studyTimes)}. Tasks: ${JSON.stringify(tasks)}. Return JSON { orderedIds: string[] }`;
     try {
-        const res = await llmPipeline({
-            task: 'planning',
-            prompt,
-            expectJson: true,
-            userPreferences: getMockPrefs(apiKey),
-            googleApiKey: apiKey
-        });
+        const res = await llmPipeline({ task: 'planning_sorting', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
         return JSON.parse(res).orderedIds || tasks.map(t => t.id);
     } catch { return tasks.map(t => t.id); }
 };
@@ -357,13 +272,7 @@ export const generateSmartTaskOrder = async (tasks: DailyTask[], userProfile: Us
 export const generateLearningPath = async (topic: string, weaknesses: string[], apiKey: string, model?: string): Promise<{ task: string; time: number; topic: string; }[]> => {
     const prompt = `Create learning path for '${topic}'. Weak prerequisites: ${weaknesses.join(', ')}. Return JSON { path: [{task, time, topic}] }`;
     try {
-        const res = await llmPipeline({
-            task: 'planning',
-            prompt,
-            expectJson: true,
-            userPreferences: getMockPrefs(apiKey),
-            googleApiKey: apiKey
-        });
+        const res = await llmPipeline({ task: 'planning_routine', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
         return JSON.parse(res).path || [];
     } catch { return []; }
 };
@@ -371,71 +280,29 @@ export const generateLearningPath = async (topic: string, weaknesses: string[], 
 export const generateNextWhy = async (context: string, prevAnswer: string, step: number, apiKey: string, model?: string): Promise<{ question: string; isFinal: boolean; solution?: string }> => {
     const prompt = `Socratic 5 Whys. Context: ${context}. Prev: ${prevAnswer}. Step ${step}/5. Return JSON { question, isFinal, solution? }`;
     try {
-        const res = await llmPipeline({
-            task: 'analysis',
-            prompt,
-            expectJson: true,
-            userPreferences: getMockPrefs(apiKey),
-            googleApiKey: apiKey
-        });
+        const res = await llmPipeline({ task: 'analysis_root_cause', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
         return JSON.parse(res);
     } catch { return { question: "Why?", isFinal: false }; }
 };
 
 export const generatePreMortem = async (topic: string, prereqs: string[], errors: string[], apiKey: string, model?: string): Promise<string> => {
-    return await llmPipeline({
-        task: 'analysis',
-        prompt: `Pre-mortem for '${topic}'. Prereq errors: ${errors.join('; ')}. Predict hurdles.`,
-        userPreferences: getMockPrefs(apiKey),
-        googleApiKey: apiKey,
-        includeFooter: true
-    });
+    return await llmPipeline({ task: 'analysis_deep', prompt: `Pre-mortem for '${topic}'. Prereq errors: ${errors.join('; ')}. Predict hurdles.`, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey, includeFooter: true });
 };
 
-export const generateOracleDrill = async (
-    errorStats: { topic: string; reason: string; count: number }[], 
-    apiKey: string, 
-    model?: string
-): Promise<QuizQuestion[]> => {
+export const generateOracleDrill = async (errorStats: { topic: string; reason: string; count: number }[], apiKey: string, model?: string): Promise<QuizQuestion[]> => {
     const topWeaknesses = errorStats.slice(0, 3);
     const topicsContext = topWeaknesses.map(w => `${w.topic} (Failure Pattern: ${w.reason})`).join(', ');
-    
-    const prompt = `
-    Generate a 'Predictive Drill' of 5 JEE Advanced level Multiple Choice Questions.
-    Focus specifically on these student weaknesses: ${topicsContext}.
-    Design questions that trap the student into making the specific errors listed.
-    Return strictly JSON: { "quiz": [ { "question": "", "options": {"A":"", "B":""...}, "answer": "A", "explanation": "" } ] }
-    `;
-    
+    const prompt = `Generate a 'Predictive Drill' of 5 JEE Advanced level Multiple Choice Questions. Focus specifically on these student weaknesses: ${topicsContext}. Design questions that trap the student into making the specific errors listed. Return strictly JSON: { "quiz": [ { "question": "", "options": {"A":"", "B":""...}, "answer": "A", "explanation": "" } ] }`;
     try {
-        const res = await llmPipeline({
-            task: 'math',
-            prompt,
-            expectJson: true,
-            userPreferences: getMockPrefs(apiKey),
-            googleApiKey: apiKey
-        });
+        const res = await llmPipeline({ task: 'stem_core', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
         return JSON.parse(res).quiz || [];
-    } catch (e) {
-        console.error("Oracle Generation Failed", e);
-        return [];
-    }
+    } catch (e) { console.error("Oracle Generation Failed", e); return []; }
 };
 
 export const generateFlashcards = async (topics: string[], apiKey: string): Promise<Flashcard[]> => {
-    const prompt = `
-    Generate 3 conceptual JEE flashcards for: ${topics.join(', ')}.
-    Return JSON array: [ { "topic": "", "front": "", "back": "", "difficulty": "Medium" } ]
-    `;
-
+    const prompt = `Generate 3 conceptual JEE flashcards for: ${topics.join(', ')}. Return JSON array: [ { "topic": "", "front": "", "back": "", "difficulty": "Medium" } ]`;
     try {
-        const res = await llmPipeline({
-            task: 'math',
-            prompt,
-            expectJson: true,
-            userPreferences: getMockPrefs(apiKey),
-            googleApiKey: apiKey
-        });
+        const res = await llmPipeline({ task: 'flashcard_gen', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
         const parsed = JSON.parse(res);
         return (parsed.flashcards || parsed || []).map((card: any, index: number) => ({
             id: `fc-${Date.now()}-${index}`,
@@ -454,69 +321,79 @@ export const generateFlashcards = async (topics: string[], apiKey: string): Prom
     }
 };
 
-// ... [GENUI_TOOLS, getAvailableModels - NO CHANGES]
+// ... (Rest of file including generateCardSolution and exports remains unchanged)
+export const generateCardSolution = async (cardContext: { topic: string, front: string }, apiKey: string): Promise<{ solution: string; mutation?: any; visual_aid?: any }> => {
+    const prompt = `
+    A JEE student made a mistake.
+    **Topic:** ${cardContext.topic}
+    **Context:** ${cardContext.front}
+    
+    You are an expert JEE Tutor.
+    
+    TASK 1: Provide a "Solution Protocol" (Markdown).
+    - Explain the core concept they likely missed.
+    - Provide the correct mental model or formula.
+    - Give a "Rule of Thumb" to avoid this mistake next time.
+    
+    TASK 2: Generate a "Viral Mutation" - a new, short conceptual or numerical question testing the SAME logic but with different values/setup.
+    
+    TASK 3: **MULTIMODAL CHECK**: Does this concept (Mechanics, Optics, Geometry, Circuits) require a visual? 
+    If yes, provide a 'visual_aid' object with 'svg' (clean SVG code) and 'description'.
+    If no, set 'visual_aid' to null.
+    
+    RETURN JSON:
+    {
+      "solution": "Markdown string...",
+      "mutation": {
+        "question": "If velocity is doubled...",
+        "answer": "Kinetic energy becomes 4x",
+        "options": {"A": "...", "B": "..."} // Optional
+      },
+      "visual_aid": {
+        "svg": "<svg viewBox='0 0 100 100'>...</svg>",
+        "description": "Diagram showing..."
+      } // Or null
+    }
+    `;
+
+    try {
+        const resultText = await llmPipeline({
+            task: 'flashcard_gen', 
+            prompt,
+            expectJson: true,
+            userPreferences: getMockPrefs(apiKey),
+            googleApiKey: apiKey
+        });
+        
+        return JSON.parse(resultText);
+    } catch (e) {
+        console.warn("JSON Parse failed for vaccine synthesis, falling back to text.", e);
+        const fallbackText = await llmPipeline({
+             task: 'flashcard_gen',
+             prompt: `Explain solution for ${cardContext.front} in Markdown.`,
+             userPreferences: getMockPrefs(apiKey),
+             googleApiKey: apiKey
+        });
+        return { solution: fallbackText };
+    }
+};
+
 export const GENUI_TOOLS = [
     {
-        name: "renderChart",
-        description: "Renders a visual chart in the chat.",
-        parameters: {
-            type: Type.OBJECT,
-            properties: {
-                title: { type: Type.STRING },
-                chartType: { type: Type.STRING, enum: ["bar", "line", "pie"] },
-                data: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: { name: { type: Type.STRING }, value: { type: Type.NUMBER }, label: { type: Type.STRING } }
-                    }
-                },
-                xAxisLabel: { type: Type.STRING }
-            },
-            required: ["title", "chartType", "data"]
-        }
+        name: "renderChart", description: "Renders a visual chart in the chat.",
+        parameters: { type: Type.OBJECT, properties: { title: { type: Type.STRING }, chartType: { type: Type.STRING, enum: ["bar", "line", "pie"] }, data: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { name: { type: Type.STRING }, value: { type: Type.NUMBER }, label: { type: Type.STRING } } } }, xAxisLabel: { type: Type.STRING } }, required: ["title", "chartType", "data"] }
     },
     {
-        name: "createActionPlan",
-        description: "Creates an interactive checklist.",
-        parameters: {
-            type: Type.OBJECT,
-            properties: {
-                title: { type: Type.STRING },
-                items: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: { task: { type: Type.STRING }, priority: { type: Type.STRING, enum: ["High", "Medium", "Low"] } }
-                    }
-                }
-            },
-            required: ["title", "items"]
-        }
+        name: "createActionPlan", description: "Creates an interactive checklist.",
+        parameters: { type: Type.OBJECT, properties: { title: { type: Type.STRING }, items: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { task: { type: Type.STRING }, priority: { type: Type.STRING, enum: ["High", "Medium", "Low"] } } } } }, required: ["title", "items"] }
     },
     {
-        name: "renderDiagram",
-        description: "Generates SVG diagram code.",
-        parameters: {
-            type: Type.OBJECT,
-            properties: { title: { type: Type.STRING }, svgContent: { type: Type.STRING }, description: { type: Type.STRING } },
-            required: ["title", "svgContent"]
-        }
+        name: "renderDiagram", description: "Generates SVG diagram code.",
+        parameters: { type: Type.OBJECT, properties: { title: { type: Type.STRING }, svgContent: { type: Type.STRING }, description: { type: Type.STRING } }, required: ["title", "svgContent"] }
     },
     {
-        name: "createMindMap",
-        description: "Creates hierarchical mind map.",
-        parameters: {
-            type: Type.OBJECT,
-            properties: {
-                root: { 
-                    type: Type.OBJECT,
-                    properties: { label: { type: Type.STRING }, children: { type: Type.ARRAY, items: { type: Type.OBJECT } } },
-                    required: ["label"]
-                }
-            },
-            required: ["root"]
-        }
+        name: "createMindMap", description: "Creates hierarchical mind map.",
+        parameters: { type: Type.OBJECT, properties: { root: { type: Type.OBJECT, properties: { label: { type: Type.STRING }, children: { type: Type.ARRAY, items: { type: Type.OBJECT } } }, required: ["label"] } }, required: ["root"] }
     }
 ];
 
@@ -527,7 +404,6 @@ export const getAvailableModels = async (apiKey: string): Promise<ModelInfo[]> =
     ];
 };
 
-// --- OCR Function (UPDATED PROMPT) ---
 export const extractDataFromImage = async (
     scoreSheetFile: File,
     apiKey: string,
@@ -546,9 +422,7 @@ export const extractDataFromImage = async (
 
     const prompt = `
     You are an expert OCR system for JEE Test Reports. Your task is to extract data and fill in the blanks using a single pass logic.
-    
     **INSTRUCTIONS:**
-    
     **1. HEADER & SUMMARY (STEP 2):**
        - **TEST NAME**: Look specifically at the 4th row or the main header for "TEST". Extract the code (e.g., "WTA-22", "CTA-15", "WTA-05").
        - **DATE**: Look for the date in the header section. Format as YYYY-MM-DD.
@@ -563,7 +437,6 @@ export const extractDataFromImage = async (
          - Count the total questions in the grid below.
            - If Total Questions < 75 -> subType = "JEE Advanced"
            - If Total Questions >= 75 -> subType = "JEE Mains"
-    
     **2. QUESTION GRID (STEP 3) - DO NOT CHANGE LOGIC:**
        - If an Instruction Sheet is provided, look at columns: "Section Name" | "Question Type" | "+Ve Marks" | "-Ve Marks".
        - Construct \`questionType\` EXACTLY as: \`[Standard Name] (+[Pos], [Neg])\`.
@@ -571,7 +444,6 @@ export const extractDataFromImage = async (
        - Example: If instructions say "Sec-I: Single Correct, +3, -1", then for every Q in Sec-I, \`questionType\` is "Single Correct (+3, -1)".
        - Also populate \`positiveMarks\`=3 and \`negativeMarks\`=-1.
        - **STATUS**: Map 'U'/- -> 'Unanswered', 'W' -> 'Wrong', 'C'/'R' -> 'Fully Correct'.
-    
     **RETURN JSON:**
     {
       "testName": "string",
@@ -597,7 +469,6 @@ export const extractDataFromImage = async (
     `;
     parts.push({ text: prompt });
 
-    // Explicitly use 2.5 Flash for OCR as requested
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash', 
         contents: { parts: parts },
@@ -608,12 +479,7 @@ export const extractDataFromImage = async (
 
     const jsonText = response.text.trim();
     const parsedJson = JSON.parse(jsonText);
-    
-    return { 
-        report: parsedJson || {}, 
-        questions: parsedJson.questions || [], 
-        confidence: { physics: 'high', chemistry: 'high', maths: 'high', total: 'high' } 
-    };
+    return { report: parsedJson || {}, questions: parsedJson.questions || [], confidence: { physics: 'high', chemistry: 'high', maths: 'high', total: 'high' } };
   } catch (error) {
     console.error("Error extracting data:", error);
     throw new Error(`Failed to process image. API Key or Model might be invalid.`);

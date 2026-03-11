@@ -1,148 +1,142 @@
 
-import { dbService } from './dbService';
+import * as tf from '@tensorflow/tfjs';
+import * as use from '@tensorflow-models/universal-sentence-encoder';
 import { QuestionLog } from '../types';
+import { dbService } from './dbService';
 
-// Worker Interface
-let worker: Worker | null = null;
-const pendingRequests = new Map<string, { resolve: (val: any) => void, reject: (err: any) => void }>();
+// Singleton to hold the model
+let model: use.UniversalSentenceEncoder | null = null;
+let isModelLoading = false;
 
-const getWorker = () => {
-    if (!worker) {
-        // UPDATED: Use `new URL` with `import.meta.url`. 
-        // This tells Vite/Webpack to bundle this file and replace it with the correct production URL.
-        worker = new Worker(new URL('../workers/vector.worker.ts', import.meta.url), { type: 'module' });
-        
-        worker.onmessage = (e) => {
-            const { id, type, vector, error } = e.data;
-            
-            if (type === 'MODEL_LOADED') {
-                console.log("Vector Worker: Model Loaded");
-                return;
-            }
-
-            const request = pendingRequests.get(id);
-            if (request) {
-                if (type === 'ERROR') request.reject(new Error(error));
-                else request.resolve(vector);
-                pendingRequests.delete(id);
-            }
-        };
-        
-        worker.onerror = (e) => {
-            console.error("Vector Worker Error:", e);
-        };
-
-        // Trigger initialization
-        worker.postMessage({ type: 'INIT' });
+// Initialize model lazily
+const loadModel = async () => {
+    if (model) return model;
+    if (isModelLoading) {
+        // Wait for existing load
+        while (isModelLoading) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            if (model) return model;
+        }
     }
-    return worker;
+    
+    isModelLoading = true;
+    try {
+        console.log("Loading Universal Sentence Encoder...");
+        await tf.ready();
+        model = await use.load();
+        console.log("USE Model loaded.");
+        return model;
+    } catch (e) {
+        console.error("Failed to load USE model:", e);
+        return null;
+    } finally {
+        isModelLoading = false;
+    }
 };
 
-export const generateEmbedding = async (text: string): Promise<number[]> => {
-    const worker = getWorker();
-    const id = crypto.randomUUID ? crypto.randomUUID() : `uuid-${Date.now()}-${Math.random()}`;
-    
-    return new Promise((resolve, reject) => {
-        // Add timeout to prevent hanging if worker fails silently
-        const timeout = setTimeout(() => {
-            if (pendingRequests.has(id)) {
-                pendingRequests.delete(id);
-                reject(new Error("Embedding generation timed out"));
-            }
-        }, 30000); // 30s timeout for model load + inference
+const dotProduct = (a: number[], b: number[]) => {
+    let sum = 0;
+    for (let i = 0; i < a.length; i++) sum += a[i] * b[i];
+    return sum;
+};
 
-        pendingRequests.set(id, { 
-            resolve: (val) => { clearTimeout(timeout); resolve(val); }, 
-            reject: (err) => { clearTimeout(timeout); reject(err); } 
-        });
-        
-        worker.postMessage({ id, type: 'EMBED', text });
-    });
+// Generate embedding for a single text string
+export const generateEmbedding = async (text: string): Promise<number[]> => {
+    const m = await loadModel();
+    if (!m) return [];
+    
+    const embeddings = await m.embed(text);
+    const data = await embeddings.data();
+    embeddings.dispose(); // Cleanup tensor
+    return Array.from(data);
 };
 
 // Store embeddings for question logs in IndexedDB
 export const indexQuestionLogs = async (logs: QuestionLog[]) => {
-    // Check which logs are already indexed (optimization)
-    let existingIds: IDBValidKey[] = [];
-    try {
-        existingIds = await dbService.getAllKeys('vectorIndex');
-    } catch {
-        // Store might not be ready, abort
+    const m = await loadModel();
+    if (!m) {
+        console.warn("Skipping vector indexing: Model not available.");
         return;
     }
-    
-    const existingSet = new Set(existingIds);
-    
-    // Filter strictly for new items
-    const newLogs = logs.filter(l => !existingSet.has(`${l.testId}-${l.questionNumber}`));
-    
-    if (newLogs.length === 0) return;
 
-    // Process in batches to avoid overwhelming the worker message queue
-    const BATCH_SIZE = 5; 
+    console.time("Vector Indexing");
     
-    for (let i = 0; i < newLogs.length; i += BATCH_SIZE) {
-        const batch = newLogs.slice(i, i + BATCH_SIZE);
+    // 1. Check which logs are already indexed
+    const existingIds = new Set(await dbService.getAllKeys('vectorIndex'));
+    const newLogs = logs.filter(l => !existingIds.has(`${l.testId}-${l.questionNumber}`));
+
+    if (newLogs.length === 0) {
+        console.timeEnd("Vector Indexing");
+        return;
+    }
+
+    console.log(`Indexing ${newLogs.length} new logs...`);
+
+    // 2. Prepare text batch
+    const itemsToEmbed = newLogs.map(log => ({
+        id: `${log.testId}-${log.questionNumber}`,
+        content: `Subject: ${log.subject}. Topic: ${log.topic}. Error Type: ${log.reasonForError || 'None'}. Question Type: ${log.questionType}. Status: ${log.status}. Marks: ${log.marksAwarded}.`
+    }));
+
+    const texts = itemsToEmbed.map(i => i.content);
+
+    // 3. Batch processing (USE works best with batches, but prevent UI freeze)
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < texts.length; i += BATCH_SIZE) {
+        const batchTexts = texts.slice(i, i + BATCH_SIZE);
+        const batchItems = itemsToEmbed.slice(i, i + BATCH_SIZE);
         
-        // We can run these in parallel
-        await Promise.all(batch.map(async (log) => {
-            const context = `
-                Subject: ${log.subject}
-                Topic: ${log.topic}
-                Type: ${log.questionType}
-                Error Reason: ${log.reasonForError || 'None'}
-                Outcome: ${log.status}
-            `.trim();
-            
-            try {
-                // This now calls the worker
-                const vector = await generateEmbedding(context);
-                
-                await dbService.put('vectorIndex', {
-                    id: `${log.testId}-${log.questionNumber}`,
-                    vector,
-                    logId: `${log.testId}-${log.questionNumber}`,
-                    content: context
-                });
-            } catch (e) {
-                console.warn(`Failed to embed log ${log.testId}-${log.questionNumber}`, e);
-            }
+        const tensor = await m.embed(batchTexts);
+        const embeddingsData = await tensor.array();
+        tensor.dispose();
+
+        const storeItems = batchItems.map((item, idx) => ({
+            id: item.id,
+            content: item.content,
+            vector: embeddingsData[idx]
         }));
+
+        await dbService.putBulk('vectorIndex', storeItems);
+        // Small yield to UI
+        await new Promise(r => setTimeout(r, 0));
     }
+
+    console.timeEnd("Vector Indexing");
 };
 
-// Cosine Similarity
-const cosineSimilarity = (a: number[], b: number[]): number => {
-    let dot = 0;
-    let magA = 0;
-    let magB = 0;
-    for (let i = 0; i < a.length; i++) {
-        dot += a[i] * b[i];
-        magA += a[i] * a[i];
-        magB += b[i] * b[i];
-    }
-    return dot / (Math.sqrt(magA) * Math.sqrt(magB));
-};
+interface SearchResult {
+    id: string;
+    score: number;
+    content: string;
+}
 
 // Semantic Search
-export const semanticSearch = async (query: string, limit: number = 5): Promise<{ id: string, score: number, content: string }[]> => {
-    // We compute the query vector in the worker
-    try {
-        const queryVector = await generateEmbedding(query);
-        
-        // We fetch stored vectors from DB (Main Thread)
-        const allVectors = await dbService.getAll<{ id: string, vector: number[], content: string }>('vectorIndex');
-        
-        const results = allVectors.map(item => ({
-            id: item.id,
-            score: cosineSimilarity(queryVector, item.vector),
-            content: item.content
-        }));
-        
-        // Sort by similarity score descending
-        return results.sort((a, b) => b.score - a.score).slice(0, limit);
-    } catch (e) {
-        console.error("Semantic search failed", e);
-        return [];
-    }
+export const semanticSearch = async (query: string, limit: number = 5): Promise<SearchResult[]> => {
+    const m = await loadModel();
+    if (!m) return [];
+
+    // 1. Embed query
+    const queryTensor = await m.embed(query);
+    const queryVector = await queryTensor.data();
+    queryTensor.dispose();
+    const qVec = Array.from(queryVector) as number[];
+
+    // 2. Fetch all vectors from IDB
+    // Optimization: In a real app, keep these in memory if dataset < 10k. 
+    // Here we load from IDB to respect memory constraints of the tab.
+    const allVectors = await dbService.getAll<{id: string, vector: number[], content: string}>('vectorIndex');
+    
+    if (allVectors.length === 0) return [];
+
+    // 3. Calculate Cosine Similarity
+    const results = allVectors.map(item => {
+        // USE vectors are roughly normalized, so dot product is close to cosine similarity
+        // Ideally we should normalize if strictly needed, but raw dot product works well for ranking here
+        const score = dotProduct(qVec, item.vector);
+        return { id: item.id, score, content: item.content };
+    });
+
+    // 4. Sort and Top-K
+    results.sort((a, b) => b.score - a.score);
+    return results.slice(0, limit);
 };

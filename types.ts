@@ -201,6 +201,18 @@ export interface Flashcard {
     easeFactor: number;
     reviews: number;
     difficulty?: 'Easy' | 'Medium' | 'Hard';
+    // Active Reconstruction Features
+    mutation?: {
+        question: string;
+        answer: string;
+        options?: Record<string, string>;
+    };
+    userDiagnosis?: string;
+    // Multimodal Features
+    visual_aid?: {
+        svg: string;
+        description: string;
+    };
 }
 
 export interface FlashcardSession {
@@ -251,7 +263,18 @@ export interface ModelInfo {
     provider?: 'google' | 'groq' | 'openrouter';
 }
 
-export type LlmTaskCategory = 'analysis' | 'chat' | 'creative' | 'planning' | 'math' | 'coding';
+// Granular Task Categories for Advanced Routing
+export type LlmTaskCategory = 
+  | 'chat_general'          // General Chat
+  | 'analysis_deep'         // Full Performance Report
+  | 'analysis_root_cause'   // 5-Whys Drill Down
+  | 'analysis_briefing'     // Executive Briefing Summary
+  | 'planning_routine'      // Daily Task / Study Plan Gen
+  | 'planning_sorting'      // Smart Task Sorting
+  | 'creative_writing'      // Quotes, Personas
+  | 'stem_core'             // Math, Physics, Chemistry solving
+  | 'flashcard_gen'         // Error Vaccinator Synthesis
+  | 'technical_ops';        // OCR, Data Parsing
 
 export interface AiAssistantPreferences {
   model: string; // The primary model ID (default)
@@ -403,4 +426,4 @@ export interface Toast {
   icon: string;
 }
 
-export type View = 'daily-planner' | 'dashboard' | 'detailed-reports' | 'deep-analysis' | 'root-cause' | 'data-entry' | 'ai-assistant' | 'question-log-editor' | 'settings' | 'achievements' | 'syllabus' | 'competitors' | 'flashcards';
+export type View = 'daily-planner' | 'dashboard' | 'detailed-reports' | 'deep-analysis' | 'root-cause' | 'data-entry' | 'ai-assistant' | 'question-log-editor' | 'settings' | 'achievements' | 'syllabus' | 'competitors' | 'flashcards' | 'new-ai-features';
