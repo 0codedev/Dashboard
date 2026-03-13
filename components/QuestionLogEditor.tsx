@@ -371,7 +371,7 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
     
     const [columnFilters, setColumnFilters] = useState<Record<string, Set<string>>>({});
     const [currentPage, setCurrentPage] = useState(1);
-    const ITEMS_PER_PAGE = 50;
+    const [itemsPerPage, setItemsPerPage] = useState(50);
 
     const [selectedLogs, setSelectedLogs] = useState<Set<string>>(new Set());
     const lastSelectedId = useRef<string | null>(null);
@@ -553,11 +553,11 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
     }, [filteredLogs, sortConfig, getTestInfo]);
     
     const paginatedLogs = useMemo(() => {
-        const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-        return sortedLogs.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-    }, [sortedLogs, currentPage]);
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        return sortedLogs.slice(startIndex, startIndex + itemsPerPage);
+    }, [sortedLogs, currentPage, itemsPerPage]);
     
-    const totalPages = Math.ceil(sortedLogs.length / ITEMS_PER_PAGE);
+    const totalPages = Math.ceil(sortedLogs.length / itemsPerPage);
 
     const requestSort = (key: SortKey) => {
         setSortConfig(prev => {
@@ -679,7 +679,7 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
         { title: 'Question Type', key: 'questionType' },
         { title: 'Status', key: 'status' },
         { title: 'Marks Awarded', key: 'marksAwarded' },
-        { title: 'Confidence', key: 'confidence' as SortKey, width: 'w-24' },
+        { title: 'Confidence', key: 'confidence' as SortKey, width: 'w-20' },
         { title: 'Topic / Chapter', key: 'topic' },
         { title: 'Reason for Error', key: 'reasonForError' },
     ];
@@ -811,7 +811,7 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
                                             <div className="flex-grow max-w-[80px]"><MarksBar marks={log.marksAwarded} type={log.questionType} log={log} /></div>
                                         </div>
                                     </td>
-                                    <td className="p-1 min-w-[100px]">
+                                    <td className="p-1 min-w-[80px]">
                                         <ConfidenceSlider 
                                             value={log.confidence || 0}
                                             onChange={(val) => handleUpdate(log.questionNumber, log.testId, 'confidence', val)}
@@ -850,13 +850,30 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
                 </table>
             </div>
             
-            {totalPages > 1 && (
-                <div className="mt-4 flex justify-between items-center text-sm">
+            <div className="mt-4 flex justify-between items-center text-sm">
+                <div className="flex items-center gap-4">
                     <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded disabled:opacity-50">Previous</button>
-                    <span className="text-gray-400">Page {currentPage} of {totalPages}</span>
-                    <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded disabled:opacity-50">Next</button>
+                    <span className="text-gray-400">Page {currentPage} of {totalPages || 1}</span>
+                    <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages || totalPages === 0} className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded disabled:opacity-50">Next</button>
                 </div>
-            )}
+                <div className="flex items-center gap-2">
+                    <span className="text-gray-400">Rows per page:</span>
+                    <input 
+                        type="number" 
+                        min="1"
+                        max="500"
+                        value={itemsPerPage} 
+                        onChange={e => {
+                            const val = parseInt(e.target.value);
+                            if (val > 0) {
+                                setItemsPerPage(val);
+                                setCurrentPage(1);
+                            }
+                        }}
+                        className="w-16 bg-slate-700 border border-slate-600 rounded p-1 text-center focus:outline-none focus:border-cyan-500 text-white"
+                    />
+                </div>
+            </div>
 
             {/* Floating Bulk Edit Bar (Glassmorphism) */}
             <div className={`fixed bottom-0 left-0 right-0 z-30 transition-transform duration-300 ease-in-out ${selectedLogs.size > 0 ? 'translate-y-0' : 'translate-y-full'}`}>

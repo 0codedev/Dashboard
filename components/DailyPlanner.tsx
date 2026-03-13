@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { StudyGoal, QuestionLog, DailyTask, UserProfile } from '../types';
 import { TaskType, SyllabusStatus, TaskEffort } from '../types';
-import { getDailyQuote, generateEndOfDaySummary, generateTasksFromGoal, generateSmartTasks, generateSmartTaskOrder } from '../services/geminiService';
+import { getDailyQuote, generateEndOfDaySummary, generateTasksFromGoal, generateSmartTasks, generateSmartTaskOrder, generateSpeechFromText } from '../services/geminiService';
 import { JEE_SYLLABUS } from '../constants';
 import Modal from './common/Modal';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
@@ -342,6 +342,8 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
     
     const [summary, setSummary] = useState('');
     const [isSummaryLoading, setIsSummaryLoading] = useState(false);
+    const [isAudioLoading, setIsAudioLoading] = useState(false);
+    const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const animationFrameId = useRef<number | null>(null);
@@ -598,7 +600,28 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
     
     const formatTime = (seconds: number) => { const mins = Math.floor(seconds / 60); const secs = seconds % 60; return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`; };
     
-    const handleGenerateSummary = async () => { setIsSummaryLoading(true); setSummary(''); try { const checklistSummary = dailyTasks.map(t => ({text: t.text, completed: t.completed})); const result = await generateEndOfDaySummary(goals, checklistSummary, apiKey); setSummary(result); } catch (error) { console.error("Failed to generate summary:", error); setSummary("Sorry, I couldn't generate a summary right now."); } finally { setIsSummaryLoading(false); } };
+    const handleGenerateSummary = async () => { setIsSummaryLoading(true); setSummary(''); setAudioUrl(null); try { const checklistSummary = dailyTasks.map(t => ({text: t.text, completed: t.completed})); const result = await generateEndOfDaySummary(goals, checklistSummary, apiKey); setSummary(result); } catch (error) { console.error("Failed to generate summary:", error); setSummary("Sorry, I couldn't generate a summary right now."); } finally { setIsSummaryLoading(false); } };
+    
+    const handlePlaySummaryAudio = async () => {
+        if (!summary || isAudioLoading) return;
+        setIsAudioLoading(true);
+        try {
+            const base64Audio = await generateSpeechFromText(summary, apiKey);
+            if (base64Audio) {
+                const url = `data:audio/mp3;base64,${base64Audio}`;
+                setAudioUrl(url);
+                const audio = new Audio(url);
+                audio.play();
+            } else {
+                alert("Failed to generate audio.");
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Failed to play audio.");
+        } finally {
+            setIsAudioLoading(false);
+        }
+    };
     const handlePlanForGoal = async (goal: StudyGoal) => { setIsSuggestingTasks(true); setSuggestedTasks(null); try { const newTasks = await generateTasksFromGoal(goal.text, apiKey, modelName); setSuggestedTasks(newTasks); } catch(e) { console.error(e); } finally { setIsSuggestingTasks(false); } };
     const addSuggestedTask = (task: {task: string, time: number}) => { setDailyTasks(prev => [...prev, { id: `ai-${Date.now()}-${Math.random()}`, text: task.task, completed: false, taskType: TaskType.StudySession, estimatedTime: task.time, effort: TaskEffort.Medium }]); setSuggestedTasks(prev => prev ? prev.filter(t => t.task !== task.task) : null); };
     const handleGenerateSmartTasks = async () => { setIsGeneratingTasks(true); setSmartTasks(null); try { const newTasks = await generateSmartTasks(prioritizedWeakTopics, apiKey, modelName); setSmartTasks(newTasks); } catch (e) { console.error(e); } finally { setIsGeneratingTasks(false); } };
@@ -834,10 +857,24 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
                 </div>
 
                 <div className="bg-slate-800/50 p-6 rounded-lg shadow-lg border border-slate-700">
-                    <h3 className="text-xl font-bold text-cyan-300 mb-4">End of Day Summary</h3>
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-xl font-bold text-cyan-300">End of Day Summary</h3>
+                        {summary && (
+                            <button 
+                                onClick={handlePlaySummaryAudio} 
+                                disabled={isAudioLoading}
+                                className="bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 hover:text-white text-xs font-bold py-1.5 px-3 rounded transition-colors disabled:opacity-50 flex items-center gap-2"
+                            >
+                                {isAudioLoading ? <span className="animate-pulse">Generating...</span> : <span>🔊 Play Audio</span>}
+                            </button>
+                        )}
+                    </div>
                     {summary ? (
                         <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700">
                              <p className="text-gray-300 leading-relaxed whitespace-pre-line">{summary}</p>
+                             {audioUrl && (
+                                 <audio controls src={audioUrl} className="w-full mt-4 h-8" />
+                             )}
                         </div>
                     ) : (
                         <div className="text-center py-4">

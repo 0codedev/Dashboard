@@ -1,6 +1,6 @@
 
 // ... (Previous imports)
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { QuestionStatus, type TestReport, type QuestionLog, QuizQuestion, DailyTask, UserProfile, TestType, TestSubType, ModelInfo, AiAssistantPreferences, Flashcard } from "../types";
 import { getMarkingScheme } from "../utils/metrics";
 import { llmPipeline } from "./llm";
@@ -321,6 +321,30 @@ export const generateFlashcards = async (topics: string[], apiKey: string): Prom
     }
 };
 
+export const generateSpeechFromText = async (text: string, apiKey: string, voiceName: string = 'Kore'): Promise<string | null> => {
+    try {
+        const ai = new GoogleGenAI({ apiKey });
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash-preview-tts",
+            contents: [{ parts: [{ text }] }],
+            config: {
+                responseModalities: [Modality.AUDIO],
+                speechConfig: {
+                    voiceConfig: {
+                        prebuiltVoiceConfig: { voiceName },
+                    },
+                },
+            },
+        });
+        
+        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        return base64Audio || null;
+    } catch (e) {
+        console.error("TTS Generation Failed:", e);
+        return null;
+    }
+};
+
 // ... (Rest of file including generateCardSolution and exports remains unchanged)
 export const generateCardSolution = async (cardContext: { topic: string, front: string }, apiKey: string): Promise<{ solution: string; mutation?: any; visual_aid?: any }> => {
     const prompt = `
@@ -472,7 +496,7 @@ export const extractDataFromImage = async (
     parts.push({ text: prompt });
 
     const response = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-lite-preview', 
+        model: modelName, 
         contents: { parts: parts },
         config: {
             responseMimeType: "application/json",

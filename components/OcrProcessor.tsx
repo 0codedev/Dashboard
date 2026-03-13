@@ -267,8 +267,8 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey, m
     setWorkflowStep('processing');
     setError(null);
     
-    // FORCE GEMINI FLASH FOR OCR
-    const VISION_MODEL = 'gemini-3.1-flash-image-preview';
+    // Use selected model for OCR as per setting
+    const VISION_MODEL = modelName || 'gemini-3-flash-preview';
     console.debug(`Processing image with dedicated vision model: ${VISION_MODEL}`);
 
     try {

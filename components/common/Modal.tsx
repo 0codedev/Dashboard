@@ -99,7 +99,7 @@ const Modal: React.FC<{
                     <h2 id={titleId} className="text-xl font-bold text-cyan-300">{title}</h2>
                     <button onClick={onClose} aria-label="Close dialog" className="text-gray-400 hover:text-white text-3xl leading-none">&times;</button>
                 </div>
-                <div className="flex-grow h-full w-full overflow-y-auto">{children}</div>
+                <div className="flex flex-col flex-grow w-full overflow-y-auto min-h-0">{children}</div>
             </div>
         </div>
     );

@@ -3,13 +3,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useJeeStore } from '../store/useJeeStore';
 import { MarkdownRenderer } from './common/MarkdownRenderer';
 import { ErrorReason } from '../types';
+import { generateSpeechFromText, decodeAudio, decodeAudioData } from '../services/geminiService';
 
 interface FlashCardModalProps {
     isOpen: boolean;
     onClose: () => void;
+    apiKey: string;
 }
 
-export const FlashCardModal: React.FC<FlashCardModalProps> = ({ isOpen, onClose }) => {
+export const FlashCardModal: React.FC<FlashCardModalProps> = ({ isOpen, onClose, apiKey }) => {
     const { flashcardSession, rateCurrentCard, closeFlashcardSession } = useJeeStore();
     const [isFlipped, setIsFlipped] = useState(false);
     
@@ -17,12 +19,25 @@ export const FlashCardModal: React.FC<FlashCardModalProps> = ({ isOpen, onClose 
     const [diagnosis, setDiagnosis] = useState<string | null>(null);
     const [showMutation, setShowMutation] = useState(false);
     const [revealMutationAnswer, setRevealMutationAnswer] = useState(false);
+    const [isAudioLoading, setIsAudioLoading] = useState(false);
     
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
+
     const cardRef = useRef<HTMLDivElement>(null);
 
     const currentCard = flashcardSession.deck[flashcardSession.currentCardIndex];
     const isFinished = flashcardSession.currentCardIndex >= flashcardSession.deck.length;
     const hasDeck = flashcardSession.deck && flashcardSession.deck.length > 0;
+
+    // Cleanup audio context on unmount
+    useEffect(() => {
+        return () => {
+            if (audioContextRef.current) {
+                audioContextRef.current.close();
+            }
+        };
+    }, []);
 
     useEffect(() => {
         if (isOpen && cardRef.current) {
@@ -34,6 +49,10 @@ export const FlashCardModal: React.FC<FlashCardModalProps> = ({ isOpen, onClose 
             setDiagnosis(null);
             setShowMutation(false);
             setRevealMutationAnswer(false);
+            if (audioSourceRef.current) {
+                audioSourceRef.current.stop();
+                audioSourceRef.current = null;
+            }
         }
     }, [isOpen, flashcardSession.currentCardIndex, isFinished]);
 
@@ -68,6 +87,43 @@ export const FlashCardModal: React.FC<FlashCardModalProps> = ({ isOpen, onClose 
     const handleDiagnosis = (reason: string) => {
         setDiagnosis(reason);
         setIsFlipped(true);
+    };
+
+    const handlePlayAudio = async (text: string) => {
+        if (!text || isAudioLoading) return;
+        
+        if (audioSourceRef.current) {
+            audioSourceRef.current.stop();
+            audioSourceRef.current = null;
+        }
+
+        setIsAudioLoading(true);
+        try {
+            const base64Audio = await generateSpeechFromText(text, apiKey);
+            if (base64Audio) {
+                if (!audioContextRef.current) {
+                    audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+                }
+                const buffer = await decodeAudioData(
+                    decodeAudio(base64Audio),
+                    audioContextRef.current,
+                    24000,
+                    1
+                );
+                const source = audioContextRef.current.createBufferSource();
+                source.buffer = buffer;
+                source.connect(audioContextRef.current.destination);
+                source.start();
+                audioSourceRef.current = source;
+            } else {
+                alert("Failed to generate audio.");
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Failed to play audio.");
+        } finally {
+            setIsAudioLoading(false);
+        }
     };
 
     if (!isOpen) return null;
@@ -144,10 +200,17 @@ export const FlashCardModal: React.FC<FlashCardModalProps> = ({ isOpen, onClose 
                         </div>
                         
                         {/* Scrollable Content Area */}
-                        <div className="flex-grow flex items-center justify-center text-center overflow-y-auto custom-scrollbar p-2">
+                        <div className="flex-grow flex flex-col items-center justify-center text-center overflow-y-auto custom-scrollbar p-2">
                             <div className="prose prose-invert prose-lg max-w-none w-full">
                                 <MarkdownRenderer content={currentCard.front} baseTextSize="text-xl md:text-2xl" baseTextColor="text-white" />
                             </div>
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); handlePlayAudio(currentCard.front); }} 
+                                disabled={isAudioLoading}
+                                className="mt-4 bg-slate-800 hover:bg-slate-700 text-cyan-400 text-xs font-bold py-1.5 px-3 rounded-full transition-colors disabled:opacity-50 flex items-center gap-2"
+                            >
+                                {isAudioLoading ? <span className="animate-pulse">Generating...</span> : <span>🔊 Read Aloud</span>}
+                            </button>
                         </div>
 
                         {/* Symptom Checker (Active Diagnosis) */}
@@ -177,9 +240,18 @@ export const FlashCardModal: React.FC<FlashCardModalProps> = ({ isOpen, onClose 
                         <div className="flex-grow overflow-y-auto custom-scrollbar pr-2 flex flex-col gap-6">
                             {/* Solution Section */}
                             <div>
-                                <h4 className="text-xs uppercase tracking-widest text-cyan-500 mb-2 font-bold border-b border-cyan-900/50 pb-2 shrink-0">
-                                    Solution Protocol
-                                </h4>
+                                <div className="flex justify-between items-center border-b border-cyan-900/50 pb-2 mb-2 shrink-0">
+                                    <h4 className="text-xs uppercase tracking-widest text-cyan-500 font-bold">
+                                        Solution Protocol
+                                    </h4>
+                                    <button 
+                                        onClick={(e) => { e.stopPropagation(); handlePlayAudio(currentCard.back); }} 
+                                        disabled={isAudioLoading}
+                                        className="bg-slate-800 hover:bg-slate-700 text-cyan-400 text-xs font-bold py-1 px-2 rounded transition-colors disabled:opacity-50 flex items-center gap-1"
+                                    >
+                                        {isAudioLoading ? <span className="animate-pulse">...</span> : <span>🔊</span>}
+                                    </button>
+                                </div>
                                 <div className="prose prose-invert prose-sm max-w-none w-full text-left">
                                     <MarkdownRenderer content={currentCard.back} />
                                 </div>

@@ -70,7 +70,7 @@ export const WeakestTopicsChart: React.FC<WeakestTopicsChartProps> = ({ onClick,
     const chartHeight = fitContainer ? '100%' : Math.max(processedData.length * 40, 400);
 
     return (
-        <div className="h-full flex flex-col">
+        <div className="flex-grow h-full flex flex-col">
             <div className="flex justify-between items-center mb-4 px-1 pt-1">
                  {/* Subject Toggle only visible in Modal Mode (when fitContainer is false) */}
                  {!fitContainer ? (

@@ -1,0 +1,10 @@
+{
+  "projectId": "wealth-aggregator",
+  "appId": "1:387782597642:web:f6514605183c28e9a913f3",
+  "apiKey": "AIzaSyArEg1uqUeY3KmegBlp96XjhxtIMQgGaNA",
+  "authDomain": "wealth-aggregator.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-a00958c4-ea02-4f41-9240-17c3df303337",
+  "storageBucket": "wealth-aggregator.firebasestorage.app",
+  "messagingSenderId": "387782597642",
+  "measurementId": ""
+}

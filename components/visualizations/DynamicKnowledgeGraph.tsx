@@ -396,7 +396,7 @@ export const DynamicKnowledgeGraph: React.FC<DynamicKnowledgeGraphProps> = ({ lo
     };
 
     return (
-        <div ref={containerRef} className="w-full h-full bg-[#0f172a] rounded-lg overflow-hidden relative border border-slate-700 shadow-inner">
+        <div ref={containerRef} className="flex-grow w-full h-full bg-[#0f172a] rounded-lg overflow-hidden relative border border-slate-700 shadow-inner">
             <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'linear-gradient(#334155 1px, transparent 1px), linear-gradient(90deg, #334155 1px, transparent 1px)', backgroundSize: '40px 40px' }}></div>
              <div className="absolute top-2 left-2 text-xs text-slate-400 pointer-events-none z-10 bg-slate-900/80 p-1 rounded border border-slate-700">
                 {interactionMode === 'interact' ? 'Drag nodes to wake up simulation.' : 'Click nodes to view details.'}

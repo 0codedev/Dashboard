@@ -491,6 +491,7 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
             <FlashCardModal 
                 isOpen={isFlashcardModalOpen} 
                 onClose={() => closeFlashcardSession()} 
+                apiKey={apiKey}
             />
 
             {/* Unified Chapter Detail Modal */}

@@ -1,0 +1,33 @@
+{
+  "entities": {
+    "BackupData": {
+      "title": "BackupData",
+      "description": "A full backup of the user's local data.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The user ID of the owner."
+        },
+        "data": {
+          "type": "string",
+          "description": "The JSON stringified backup data."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The time the backup was last updated."
+        }
+      },
+      "required": ["uid", "data", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/backups/{userId}": {
+      "schema": {
+        "$ref": "#/entities/BackupData"
+      },
+      "description": "Stores the latest backup for each user."
+    }
+  }
+}

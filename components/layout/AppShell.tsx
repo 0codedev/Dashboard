@@ -204,7 +204,9 @@ export const AppShell: React.FC<AppShellProps> = ({ view, setView, userProfile, 
                 <div className="w-10 h-10 bg-slate-800/50 border border-slate-700 rounded-xl flex items-center justify-center text-cyan-400 font-bold text-lg shadow-lg mb-6 shrink-0">J</div>
                 
                 <nav aria-label="Main Navigation" className="flex-grow flex flex-col gap-y-2 w-full items-center overflow-y-auto md:overflow-visible hide-scrollbar">
-                    {navItems.map(item => (
+                    {navItems
+                        .filter(item => item.id !== 'flashcards' && item.id !== 'new-ai-features')
+                        .map(item => (
                         <NavItem 
                             key={item.id} 
                             viewId={item.id} 

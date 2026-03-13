@@ -3,11 +3,14 @@ import React, { useState, useRef, useEffect, useCallback, Suspense, useMemo } fr
 import type { AiFilter, RootCauseFilter, Toast, DailyTask, View, TestReport, QuestionLog } from './types';
 import { TaskType, QuestionStatus, TaskEffort } from './types';
 import { ApiKeyManager } from './components/ApiKeyManager';
+import { LoginScreen } from './components/LoginScreen';
 import { AppShell } from './components/layout/AppShell';
 import { generateFocusedStudyPlan } from './services/geminiService';
 import { useAchievements } from './hooks/useAchievements';
 import { useJeeStore } from './store/useJeeStore';
 import { calculateMetrics } from './utils/metrics';
+import { auth } from './services/firebase';
+import { onAuthStateChanged, User } from 'firebase/auth';
 
 // --- Lazy Load Heavy Components ---
 const Dashboard = React.lazy(() => import('./components/Dashboard').then(module => ({ default: module.Dashboard })));
@@ -26,7 +29,7 @@ const NewAIFeatures = React.lazy(() => import('./components/NewAIFeatures').then
 
 // --- Loading Component ---
 const PageLoader = () => (
-    <div className="flex h-full w-full items-center justify-center bg-slate-900/50 backdrop-blur-sm rounded-lg">
+    <div className="flex h-screen w-full items-center justify-center bg-slate-900/50 backdrop-blur-sm rounded-lg">
         <div className="flex flex-col items-center gap-4">
             <div className="h-12 w-12 animate-spin rounded-full border-4 border-slate-700 border-t-cyan-500"></div>
             <p className="text-sm font-medium text-slate-400 animate-pulse tracking-widest uppercase">Loading Module...</p>
@@ -45,6 +48,7 @@ const App: React.FC = () => {
         longTermGoals, setLongTermGoals,
         dailyTasks, setDailyTasks,
         chatHistory, setChatHistory,
+        activeSessionId, setActiveSessionId,
         gamificationState, setGamificationState,
         aiPreferences, setAiPreferences,
         notificationPreferences, setNotificationPreferences,
@@ -62,11 +66,23 @@ const App: React.FC = () => {
     const [proactiveInsight, setProactiveInsight] = useState<{ subject: 'physics' | 'chemistry' | 'maths'; visible: boolean; } | null>(null);
     const [toasts, setToasts] = useState<Toast[]>([]);
     const [prefilledTask, setPrefilledTask] = useState<Partial<DailyTask> | null>(null);
+    
+    // --- Auth State ---
+    const [currentUser, setCurrentUser] = useState<User | null>(null);
+    const [isAuthReady, setIsAuthReady] = useState(false);
 
     // --- Init ---
     useEffect(() => {
         initialize();
     }, [initialize]);
+
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, (user) => {
+            setCurrentUser(user);
+            setIsAuthReady(true);
+        });
+        return () => unsubscribe();
+    }, []);
 
     // --- Computed Data (Replaces useJeeData logic) ---
     const reportsWithMetrics = useMemo(() => {
@@ -273,6 +289,10 @@ const App: React.FC = () => {
 
     const handleViewQuestionLogForTest = (testId: string) => { setActiveLogFilter({ testId: testId }); setView('question-log-editor'); };
     
+    if (!isAuthReady) { return <PageLoader />; }
+    
+    if (!currentUser) { return <LoginScreen onLoginSuccess={() => {}} />; }
+
     if (!apiKey) { return <ApiKeyManager onKeySubmit={handleKeySubmit} />; }
 
     return (
@@ -295,10 +315,10 @@ const App: React.FC = () => {
                     {view === 'detailed-reports' && <DetailedReportsView allReports={testReports} filteredReports={filteredReports} setReports={setTestReports} onViewQuestionLog={handleViewQuestionLogForTest} onDeleteReport={handleDeleteReport}/>}
                     {view === 'deep-analysis' && <DeepAnalysis reports={filteredReports} />}
                     {view === 'root-cause' && <RootCause logs={filteredLogs} reports={filteredReports} rootCauseFilter={rootCauseFilter} setRootCauseFilter={setRootCauseFilter} apiKey={apiKey} onAddTask={(task) => addTasksToPlanner([task])} modelName={aiPreferences.model} />}
-                    {view === 'ai-assistant' && <AiAssistant reports={filteredReports} questionLogs={questionLogs} setView={setView} setActiveLogFilter={setActiveLogFilter} apiKey={apiKey} chatHistory={chatHistory} setChatHistory={setChatHistory} studyGoals={studyGoals} setStudyGoals={setStudyGoals} preferences={aiPreferences} onUpdatePreferences={setAiPreferences} userProfile={userProfile} onAddTasksToPlanner={addTasksToPlanner} />}
+                    {view === 'ai-assistant' && <AiAssistant reports={filteredReports} questionLogs={questionLogs} setView={setView} setActiveLogFilter={setActiveLogFilter} apiKey={apiKey} chatHistory={chatHistory} setChatHistory={setChatHistory} activeSessionId={activeSessionId} setActiveSessionId={setActiveSessionId} studyGoals={studyGoals} setStudyGoals={setStudyGoals} preferences={aiPreferences} onUpdatePreferences={setAiPreferences} userProfile={userProfile} onAddTasksToPlanner={addTasksToPlanner} />}
                     {view === 'flashcards' && <ErrorVaccinator logs={questionLogs} reports={testReports} apiKey={apiKey} />}
                     {view === 'question-log-editor' && <QuestionLogEditor logs={questionLogs} reports={testReports} setLogs={setQuestionLogs} activeLogFilter={activeLogFilter} setActiveLogFilter={setActiveLogFilter} />}
-                    {view === 'data-entry' && <OcrProcessor onAddData={addData} apiKey={apiKey} modelName={aiPreferences.model} />}
+                    {view === 'data-entry' && <OcrProcessor onAddData={addData} apiKey={apiKey} modelName={aiPreferences.modelOverrides?.['ocr_extraction'] || aiPreferences.model} />}
                     {view === 'achievements' && <Achievements gamificationState={gamificationState} achievements={achievements} levelInfo={levelInfo} />}
                     {view === 'new-ai-features' && <NewAIFeatures />}
                     {view === 'settings' && (

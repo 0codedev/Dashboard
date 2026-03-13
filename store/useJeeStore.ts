@@ -39,6 +39,7 @@ interface JeeState {
     longTermGoals: LongTermGoal[];
     dailyTasks: DailyTask[];
     chatHistory: ChatMessage[];
+    activeSessionId: string | null;
     
     // State & Config
     gamificationState: GamificationState;
@@ -78,6 +79,7 @@ interface JeeActions {
     
     // Chat & Gamification
     setChatHistory: (history: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => void;
+    setActiveSessionId: (id: string | null) => void;
     setGamificationState: (state: GamificationState | ((prev: GamificationState) => GamificationState)) => void;
     
     // Preferences Actions
@@ -108,6 +110,7 @@ export const useJeeStore = create<JeeState & JeeActions>((set, get) => ({
     longTermGoals: useDataStore.getState().longTermGoals,
     dailyTasks: useDataStore.getState().dailyTasks,
     chatHistory: useAIStore.getState().chatHistory,
+    activeSessionId: useAIStore.getState().activeSessionId,
     
     gamificationState: useAppStore.getState().gamificationState,
     globalFilter: useAppStore.getState().globalFilter,
@@ -214,6 +217,7 @@ export const useJeeStore = create<JeeState & JeeActions>((set, get) => ({
     setLongTermGoals: (goalsOrFn) => useDataStore.getState().setLongTermGoals(goalsOrFn),
     
     setChatHistory: (historyOrFn) => useAIStore.getState().setChatHistory(historyOrFn),
+    setActiveSessionId: (id) => useAIStore.getState().setActiveSessionId(id),
     setGamificationState: (stateOrFn) => useAppStore.getState().setGamificationState(stateOrFn),
     
     setAiPreferences: (prefsOrFn) => useAppStore.getState().setAiPreferences(prefsOrFn),
@@ -269,6 +273,7 @@ useDataStore.subscribe((state) => {
 
 useAIStore.subscribe((state) => {
     useJeeStore.setState({
-        chatHistory: state.chatHistory
+        chatHistory: state.chatHistory,
+        activeSessionId: state.activeSessionId
     });
 });

@@ -413,6 +413,7 @@ export const ErrorVaccinator: React.FC<ErrorVaccinatorProps> = ({ logs, reports,
             <FlashCardModal 
                 isOpen={isFlashcardModalOpen} 
                 onClose={closeFlashcardSession} 
+                apiKey={apiKey}
             />
         </div>
     );

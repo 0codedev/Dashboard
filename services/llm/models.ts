@@ -123,12 +123,20 @@ export const TASK_DEFAULTS: Record<LlmTaskCategory, string[]> = {
         'deepseek-r1-distill-llama-70b'
     ],
 
-    // 10. Technical Ops (Data Cleaning, OCR Parsing)
+    // 10. Technical Ops (Data Cleaning)
     technical_ops: [
         'gemma-3-27b',
-        'gemini-3-flash-preview', // Multimodal needs
+        'gemini-3-flash-preview', 
         'qwen/qwen-2.5-coder-32b-instruct:free', 
         'llama-3.3-70b-versatile'
+    ],
+
+    // 11. OCR Image Processing
+    ocr_extraction: [
+        'gemini-3-flash-preview',
+        'gemini-3.1-pro-preview',
+        'gemini-2.5-flash',
+        'gemma-3-27b'
     ]
 };
 

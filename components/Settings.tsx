@@ -14,6 +14,9 @@ import {
     parseReportsFromCsv, 
     parseLogsFromCsv 
 } from '../services/sheetParser';
+import { auth, db, signInWithGoogle, logout } from '../services/firebase';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { onAuthStateChanged, User } from 'firebase/auth';
 
 interface SettingsProps {
     apiKey: string;
@@ -346,7 +349,8 @@ const TASK_USAGE_DESC: Record<LlmTaskCategory, string> = {
     creative_writing: "Used in: Dashboard -> Daily Quotes & Motivational persona responses.",
     stem_core: "Used in: Syllabus -> 'Gatekeeper Quizzes' & Math/Physics problem solving.",
     flashcard_gen: "Used in: Error Vaccinator -> Synthesizing 'Vaccines' (Solutions).",
-    technical_ops: "Used in: Data Entry -> OCR validation & CSV parsing logic."
+    technical_ops: "Used in: Data Entry -> OCR validation & CSV parsing logic.",
+    ocr_extraction: "Used in: Data Entry -> Extracting text and data from images."
 };
 
 // Custom Professional Dropdown Item
@@ -398,7 +402,8 @@ const AdvancedModelConfig: React.FC<{
         { id: 'creative_writing', label: 'Motivation & Persona', icon: '✨' },
         { id: 'stem_core', label: 'Math & Quizzes', icon: '📐' },
         { id: 'flashcard_gen', label: 'Flashcard Synthesis', icon: '🎴' },
-        { id: 'technical_ops', label: 'Data Operations', icon: '💻' }
+        { id: 'technical_ops', label: 'Data Operations', icon: '💻' },
+        { id: 'ocr_extraction', label: 'OCR Image Processing', icon: '📸' }
     ];
 
     const [openDropdown, setOpenDropdown] = useState<string | null>(null);
@@ -765,7 +770,16 @@ const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleRepo
     }>({ isOpen: false, title: '', message: '', action: () => {}, dangerLevel: 'high' });
     const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
-    const [syncTab, setSyncTab] = useState<'json' | 'csv' | 'drive'>('json');
+    const [syncTab, setSyncTab] = useState<'json' | 'csv' | 'drive' | 'firebase'>('json');
+    const [currentUser, setCurrentUser] = useState<User | null>(null);
+    const [isFirebaseSyncing, setIsFirebaseSyncing] = useState(false);
+
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, (user) => {
+            setCurrentUser(user);
+        });
+        return () => unsubscribe();
+    }, []);
 
     useEffect(() => {
         if (aiPreferences.googleDriveClientId) {
@@ -823,6 +837,44 @@ const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleRepo
             addToast({ title: 'Error', message: 'Upload failed: ' + err.message, icon: '❌' });
         } finally {
             setIsUploading(false);
+        }
+    };
+
+    const handleFirebaseBackup = async () => {
+        if (!currentUser) return;
+        setIsFirebaseSyncing(true);
+        try {
+            const data = getExportData();
+            const stringifiedData = JSON.stringify(data);
+            await setDoc(doc(db, 'backups', currentUser.uid), {
+                uid: currentUser.uid,
+                data: stringifiedData,
+                updatedAt: new Date().toISOString()
+            });
+            addToast({ title: 'Success', message: 'Backup saved to Firebase Cloud', icon: '✅' });
+        } catch (err: any) {
+            addToast({ title: 'Error', message: 'Firebase backup failed: ' + err.message, icon: '❌' });
+        } finally {
+            setIsFirebaseSyncing(false);
+        }
+    };
+
+    const handleFirebaseRestore = async () => {
+        if (!currentUser) return;
+        setIsFirebaseSyncing(true);
+        try {
+            const docSnap = await getDoc(doc(db, 'backups', currentUser.uid));
+            if (docSnap.exists()) {
+                const data = JSON.parse(docSnap.data().data);
+                onSyncData(data);
+                addToast({ title: 'Success', message: 'Data restored from Firebase Cloud', icon: '✅' });
+            } else {
+                addToast({ title: 'Info', message: 'No backup found in Firebase Cloud', icon: 'ℹ️' });
+            }
+        } catch (err: any) {
+            addToast({ title: 'Error', message: 'Firebase restore failed: ' + err.message, icon: '❌' });
+        } finally {
+            setIsFirebaseSyncing(false);
         }
     };
 
@@ -939,6 +991,12 @@ const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleRepo
                     >
                         Google Drive
                     </button>
+                    <button 
+                        onClick={() => setSyncTab('firebase')}
+                        className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${syncTab === 'firebase' ? 'border-cyan-500 text-cyan-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                    >
+                        Firebase Cloud
+                    </button>
                 </div>
 
                 <div className="min-h-[150px]">
@@ -955,6 +1013,40 @@ const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleRepo
                                 </Button>
                                 <input type="file" ref={fileInputRef} onChange={handleRestore} accept=".json" className="hidden" />
                             </div>
+                        </div>
+                    )}
+
+                    {syncTab === 'firebase' && (
+                        <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700">
+                            <div className="flex justify-between items-center mb-4">
+                                <h4 className="text-sm font-bold text-white flex items-center gap-2"><span>🔥</span> Firebase Cloud Sync</h4>
+                                {currentUser ? (
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-xs text-slate-400">{currentUser.email}</span>
+                                        <Button size="sm" variant="secondary" onClick={logout}>Sign Out</Button>
+                                    </div>
+                                ) : (
+                                    <Button size="sm" onClick={signInWithGoogle}>Sign in with Google</Button>
+                                )}
+                            </div>
+                            
+                            {currentUser ? (
+                                <div className="space-y-4">
+                                    <p className="text-xs text-slate-400">Securely backup and restore your data across devices using Firebase.</p>
+                                    <div className="flex gap-4">
+                                        <Button onClick={handleFirebaseBackup} disabled={isFirebaseSyncing} variant="secondary" className="flex-1 flex items-center justify-center gap-2 py-3 border-slate-600 hover:border-orange-500">
+                                            {isFirebaseSyncing ? <span className="animate-spin">⟳</span> : <span>⬆️</span>} Backup to Cloud
+                                        </Button>
+                                        <Button onClick={handleFirebaseRestore} disabled={isFirebaseSyncing} variant="secondary" className="flex-1 flex items-center justify-center gap-2 py-3 border-slate-600 hover:border-orange-500">
+                                            {isFirebaseSyncing ? <span className="animate-spin">⟳</span> : <span>⬇️</span>} Restore from Cloud
+                                        </Button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="text-center py-6 bg-slate-800/50 rounded-lg border border-slate-700/50">
+                                    <p className="text-sm text-slate-400 mb-2">Sign in to enable cross-device cloud sync.</p>
+                                </div>
+                            )}
                         </div>
                     )}
 

@@ -274,7 +274,8 @@ export type LlmTaskCategory =
   | 'creative_writing'      // Quotes, Personas
   | 'stem_core'             // Math, Physics, Chemistry solving
   | 'flashcard_gen'         // Error Vaccinator Synthesis
-  | 'technical_ops';        // OCR, Data Parsing
+  | 'technical_ops'         // Data Parsing
+  | 'ocr_extraction';       // OCR Image Processing
 
 export interface AiAssistantPreferences {
   model: string; // The primary model ID (default)
