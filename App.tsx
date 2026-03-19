@@ -26,6 +26,8 @@ const Settings = React.lazy(() => import('./components/Settings').then(module =>
 const Syllabus = React.lazy(() => import('./components/Syllabus').then(module => ({ default: module.Syllabus })));
 const ErrorVaccinator = React.lazy(() => import('./components/flashcards/ErrorVaccinator').then(module => ({ default: module.ErrorVaccinator })));
 const NewAIFeatures = React.lazy(() => import('./components/NewAIFeatures').then(module => ({ default: module.NewAIFeatures })));
+const ReflectionsTab = React.lazy(() => import('./components/ReflectionsTab').then(module => ({ default: module.ReflectionsTab })));
+const Launchpad = React.lazy(() => import('./components/Launchpad').then(module => ({ default: module.Launchpad })));
 
 // --- Loading Component ---
 const PageLoader = () => (
@@ -55,6 +57,7 @@ const App: React.FC = () => {
         appearancePreferences, setAppearancePreferences,
         theme, setTheme,
         globalFilter, setGlobalFilter,
+        reflections, setReflections,
         fullReset, clearReportsAndLogs, clearChatHistory, clearGamification,
         initialize
     } = useJeeStore();
@@ -312,7 +315,7 @@ const App: React.FC = () => {
                     {view === 'daily-planner' && <DailyPlanner goals={studyGoals} setGoals={setStudyGoals} apiKey={apiKey} logs={questionLogs} proactiveInsight={proactiveInsight} onAcceptPlan={handleAcceptPlan} onDismissInsight={handleDismissInsight} addXp={() => addXp('completeTask')} userProfile={userProfile} prefilledTask={prefilledTask} setPrefilledTask={setPrefilledTask} dailyTasks={dailyTasks} setDailyTasks={setDailyTasks} modelName={aiPreferences.model} />}
                     {view === 'dashboard' && <Dashboard reports={filteredReports} logs={filteredLogs} apiKey={apiKey} setView={setView} setRootCauseFilter={setRootCauseFilter} onStartFocusSession={handleStartFocusSession} longTermGoals={longTermGoals} modelName={aiPreferences.model} userProfile={userProfile} onUpdateProfile={updateUserProfile} />}
                     {view === 'syllabus' && <Syllabus userProfile={userProfile} setUserProfile={updateUserProfile} questionLogs={questionLogs} reports={filteredReports} apiKey={apiKey} onStartFocusSession={handleStartFocusSession} setView={setView} addTasksToPlanner={addTasksToPlanner} modelName={aiPreferences.model} />}
-                    {view === 'detailed-reports' && <DetailedReportsView allReports={testReports} filteredReports={filteredReports} setReports={setTestReports} onViewQuestionLog={handleViewQuestionLogForTest} onDeleteReport={handleDeleteReport}/>}
+                    {view === 'detailed-reports' && <DetailedReportsView allReports={testReports} filteredReports={filteredReports} setReports={setTestReports} onViewQuestionLog={handleViewQuestionLogForTest} onDeleteReport={handleDeleteReport} apiKey={apiKey} logs={questionLogs} />}
                     {view === 'deep-analysis' && <DeepAnalysis reports={filteredReports} />}
                     {view === 'root-cause' && <RootCause logs={filteredLogs} reports={filteredReports} rootCauseFilter={rootCauseFilter} setRootCauseFilter={setRootCauseFilter} apiKey={apiKey} onAddTask={(task) => addTasksToPlanner([task])} modelName={aiPreferences.model} />}
                     {view === 'ai-assistant' && <AiAssistant reports={filteredReports} questionLogs={questionLogs} setView={setView} setActiveLogFilter={setActiveLogFilter} apiKey={apiKey} chatHistory={chatHistory} setChatHistory={setChatHistory} activeSessionId={activeSessionId} setActiveSessionId={setActiveSessionId} studyGoals={studyGoals} setStudyGoals={setStudyGoals} preferences={aiPreferences} onUpdatePreferences={setAiPreferences} userProfile={userProfile} onAddTasksToPlanner={addTasksToPlanner} />}
@@ -321,6 +324,8 @@ const App: React.FC = () => {
                     {view === 'data-entry' && <OcrProcessor onAddData={addData} apiKey={apiKey} modelName={aiPreferences.modelOverrides?.['ocr_extraction'] || aiPreferences.model} />}
                     {view === 'achievements' && <Achievements gamificationState={gamificationState} achievements={achievements} levelInfo={levelInfo} />}
                     {view === 'new-ai-features' && <NewAIFeatures />}
+                    {view === 'reflections' && <ReflectionsTab apiKey={apiKey!} reflections={reflections} setReflections={setReflections} />}
+                    {view === 'launchpad' && <Launchpad />}
                     {view === 'settings' && (
                         <Settings 
                             apiKey={apiKey!} 

@@ -26,7 +26,7 @@ export const useMasteryScores = (userProfile: UserProfile, questionLogs: Questio
 
 export const useRevisionStack = (userProfile: UserProfile, questionLogs: QuestionLog[], reports: TestReport[]) => {
     return useMemo(() => {
-        const topics: { name: string, weight: number, reason: string }[] = [];
+        const topics: { name: string, weight: number, reason: string, lastRevised?: string }[] = [];
         if (!userProfile?.syllabus) return [];
 
         const syllabusChapters = Object.values(JEE_SYLLABUS).flatMap((subject: any) => subject.flatMap((unit: any) => unit.chapters.map((c: any) => c.name)));
@@ -51,9 +51,10 @@ export const useRevisionStack = (userProfile: UserProfile, questionLogs: Questio
                 }
             });
 
+            const lastRevisedStr = hasInteraction ? lastInteractionDate.toISOString() : undefined;
+
             if (hasInteraction) {
                 const today = new Date();
-                // FIXED: Explicit .getTime() to avoid arithmetic on Date objects
                 const diffTime = Math.abs(today.getTime() - lastInteractionDate.getTime());
                 const daysAgo = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
                 
@@ -63,18 +64,18 @@ export const useRevisionStack = (userProfile: UserProfile, questionLogs: Questio
                 
                 if (retention < 0.7) { 
                     const urgency = retention < 0.4 ? 2 : 1;
-                    topics.push({ name: chapter, weight: baseWeight * 5 * urgency, reason: 'Fading Memory' });
+                    topics.push({ name: chapter, weight: baseWeight * 5 * urgency, reason: 'Fading Memory', lastRevised: lastRevisedStr });
                     return; 
                 }
             }
             
             if (progress.strength === 'weakness') { 
-                topics.push({ name: chapter, weight: baseWeight * 4, reason: 'Marked Weakness' }); 
+                topics.push({ name: chapter, weight: baseWeight * 4, reason: 'Marked Weakness', lastRevised: lastRevisedStr }); 
                 return; 
             }
             
             if (progress.status === SyllabusStatus.InProgress) { 
-                topics.push({ name: chapter, weight: baseWeight * 2, reason: 'In Progress' }); 
+                topics.push({ name: chapter, weight: baseWeight * 2, reason: 'In Progress', lastRevised: lastRevisedStr }); 
                 return; 
             }
         });

@@ -2,12 +2,15 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { StudyGoal, QuestionLog, DailyTask, UserProfile } from '../types';
 import { TaskType, SyllabusStatus, TaskEffort } from '../types';
-import { getDailyQuote, generateEndOfDaySummary, generateTasksFromGoal, generateSmartTasks, generateSmartTaskOrder, generateSpeechFromText } from '../services/geminiService';
+import { getDailyQuote, generateEndOfDaySummary, generateTasksFromGoal, generateSmartTasks, generateSmartTaskOrder } from '../services/geminiService';
 import { JEE_SYLLABUS } from '../constants';
 import Modal from './common/Modal';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { audioEngine } from '../services/audioEngine';
+import { audioEngine, playTTS } from '../services/audioEngine';
 import { formatDateFull, formatDuration } from '../utils/formatters';
+import { useAppStore } from '../store/useAppStore';
+
+import { MarkdownRenderer } from './common/MarkdownRenderer';
 
 interface DailyPlannerProps {
   goals: StudyGoal[];
@@ -26,8 +29,8 @@ interface DailyPlannerProps {
   modelName?: string;
 }
 
-// --- NEW COMPONENT: Bio Check Modal ---
-const BioCheckModal: React.FC<{
+// --- NEW COMPONENT: Morning Readiness Widget ---
+const MorningReadinessWidget: React.FC<{
     onSave: (data: { sleep: number; stress: number; energy: number }) => void;
     onSkip: () => void;
     onSnooze: () => void;
@@ -37,57 +40,91 @@ const BioCheckModal: React.FC<{
     const [energy, setEnergy] = useState(7);
 
     return (
-        <Modal isOpen={true} onClose={onSkip} title="🌿 Morning Bio-Check" isInfo={true}>
-            <div className="flex flex-col h-full p-2">
-                <p className="text-slate-400 text-xs mb-6 text-center">Calibrate your day. Honesty maximizes efficiency.</p>
-                
-                <div className="space-y-5 flex-grow">
-                    {/* Sleep */}
-                    <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 flex items-center justify-center bg-blue-900/50 rounded-lg text-xl border border-blue-700/50">🌙</div>
-                        <div className="flex-grow">
-                            <div className="flex justify-between items-baseline mb-1">
-                                <label className="text-sm font-bold text-blue-300">Sleep</label>
-                                <span className="text-sm text-white font-mono">{sleep}h</span>
-                            </div>
-                            <input type="range" min="3" max="12" step="0.5" value={sleep} onChange={e => setSleep(parseFloat(e.target.value))} className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500" />
-                        </div>
-                    </div>
-
-                    {/* Stress */}
-                    <div className="flex items-center gap-4">
-                         <div className="w-10 h-10 flex items-center justify-center bg-red-900/50 rounded-lg text-xl border border-red-700/50">🤯</div>
-                        <div className="flex-grow">
-                            <div className="flex justify-between items-baseline mb-1">
-                                <label className="text-sm font-bold text-red-300">Stress</label>
-                                <span className="text-sm text-white font-mono">{stress}/10</span>
-                            </div>
-                            <input type="range" min="1" max="10" step="1" value={stress} onChange={e => setStress(parseInt(e.target.value))} className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-red-500" />
-                        </div>
-                    </div>
-
-                    {/* Energy */}
-                    <div className="flex items-center gap-4">
-                         <div className="w-10 h-10 flex items-center justify-center bg-yellow-900/50 rounded-lg text-xl border border-yellow-700/50">⚡️</div>
-                        <div className="flex-grow">
-                            <div className="flex justify-between items-baseline mb-1">
-                                <label className="text-sm font-bold text-yellow-300">Energy</label>
-                                <span className="text-sm text-white font-mono">{energy}/10</span>
-                            </div>
-                            <input type="range" min="1" max="10" step="1" value={energy} onChange={e => setEnergy(parseInt(e.target.value))} className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-yellow-500" />
-                        </div>
-                    </div>
+        <div className="bg-slate-800/30 backdrop-blur-md border border-white/10 rounded-2xl p-6 mb-8 animate-fade-in shadow-lg">
+            <div className="flex justify-between items-center mb-6">
+                <div>
+                    <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                        <span className="text-xl">🌿</span> Morning Readiness
+                    </h3>
+                    <p className="text-slate-400 text-sm mt-1">Calibrate your day. Honesty maximizes efficiency.</p>
                 </div>
-                
-                <div className="flex justify-between items-center pt-6 mt-4 border-t border-slate-700/50">
-                    <button onClick={onSnooze} className="text-slate-500 hover:text-slate-300 px-4 py-2 text-xs font-medium transition-colors">Remind Me Later</button>
-                    <div className="flex gap-2">
-                        <button onClick={onSkip} className="text-gray-400 hover:text-white px-4 py-2 text-sm">Skip for Today</button>
-                        <button onClick={() => onSave({ sleep, stress, energy })} className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-6 rounded-lg shadow-lg text-sm">Sync & Plan</button>
+                <button onClick={onSnooze} className="text-slate-500 hover:text-slate-300 text-sm font-medium transition-colors">
+                    Snooze
+                </button>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                {/* Sleep */}
+                <div className="space-y-2">
+                    <div className="flex justify-between items-baseline">
+                        <label className="text-sm font-medium text-blue-300 flex items-center gap-2">
+                            <span>🌙</span> Sleep
+                        </label>
+                        <span className="text-sm text-white font-mono">{sleep}h</span>
                     </div>
+                    <input type="range" min="3" max="12" step="0.5" value={sleep} onChange={e => setSleep(parseFloat(e.target.value))} className="w-full h-1.5 bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+                </div>
+
+                {/* Stress */}
+                <div className="space-y-2">
+                    <div className="flex justify-between items-baseline">
+                        <label className="text-sm font-medium text-red-300 flex items-center gap-2">
+                            <span>🤯</span> Stress
+                        </label>
+                        <span className="text-sm text-white font-mono">{stress}/10</span>
+                    </div>
+                    <input type="range" min="1" max="10" step="1" value={stress} onChange={e => setStress(parseInt(e.target.value))} className="w-full h-1.5 bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg appearance-none cursor-pointer accent-red-500" />
+                </div>
+
+                {/* Energy */}
+                <div className="space-y-2">
+                    <div className="flex justify-between items-baseline">
+                        <label className="text-sm font-medium text-yellow-300 flex items-center gap-2">
+                            <span>⚡️</span> Energy
+                        </label>
+                        <span className="text-sm text-white font-mono">{energy}/10</span>
+                    </div>
+                    <input type="range" min="1" max="10" step="1" value={energy} onChange={e => setEnergy(parseInt(e.target.value))} className="w-full h-1.5 bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg appearance-none cursor-pointer accent-yellow-500" />
                 </div>
             </div>
-        </Modal>
+            
+            <div className="flex justify-end items-center gap-3 mt-8 pt-6 border-t border-white/10">
+                <button onClick={onSkip} className="text-slate-400 hover:text-white px-4 py-2 text-sm transition-colors">
+                    Skip for Today
+                </button>
+                <button onClick={() => onSave({ sleep, stress, energy })} className="bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2 px-6 rounded-lg shadow-sm text-sm transition-colors">
+                    Sync & Plan
+                </button>
+            </div>
+        </div>
+    );
+};
+
+// --- NEW COMPONENT: Morning Readiness Summary Widget ---
+const MorningReadinessSummaryWidget: React.FC<{ stats: { sleep: number; stress: number; energy: number } }> = ({ stats }) => {
+    return (
+        <div className="bg-slate-800/30 backdrop-blur-md p-6 rounded-2xl shadow-lg border border-white/10">
+            <h3 className="text-lg font-bold text-cyan-300 mb-4 text-center flex items-center justify-center gap-2">
+                <span className="text-xl">🌿</span> Morning Readiness
+            </h3>
+            <div className="grid grid-cols-3 gap-2">
+                <div className="bg-slate-900/30 backdrop-blur-md p-3 rounded-xl border border-white/10 text-center flex flex-col items-center justify-center">
+                    <div className="text-2xl mb-1">🌙</div>
+                    <div className="text-xs text-gray-400 uppercase tracking-wider font-bold">Sleep</div>
+                    <div className="text-lg font-bold text-white mt-1">{stats.sleep}h</div>
+                </div>
+                <div className="bg-slate-900/30 backdrop-blur-md p-3 rounded-xl border border-white/10 text-center flex flex-col items-center justify-center">
+                    <div className="text-2xl mb-1">🤯</div>
+                    <div className="text-xs text-gray-400 uppercase tracking-wider font-bold">Stress</div>
+                    <div className="text-lg font-bold text-white mt-1">{stats.stress}/10</div>
+                </div>
+                <div className="bg-slate-900/30 backdrop-blur-md p-3 rounded-xl border border-white/10 text-center flex flex-col items-center justify-center">
+                    <div className="text-2xl mb-1">⚡️</div>
+                    <div className="text-xs text-gray-400 uppercase tracking-wider font-bold">Energy</div>
+                    <div className="text-lg font-bold text-white mt-1">{stats.energy}/10</div>
+                </div>
+            </div>
+        </div>
     );
 };
 
@@ -105,22 +142,27 @@ const effortConfig: Record<TaskEffort, { label: string, icon: string, color: str
     [TaskEffort.High]: { label: "High", icon: "🥵", color: "bg-red-900/30 text-red-300 border-red-700" },
 };
 
-const FocusAnalyticsWidget: React.FC = () => {
+const FocusAnalyticsWidget: React.FC<{ logs: QuestionLog[] }> = ({ logs }) => {
     const [heatmapData, setHeatmapData] = useState<{ hour: string; count: number }[]>([]);
 
     useEffect(() => {
+        const counts = new Array(24).fill(0);
+        logs.forEach(log => {
+            if (log.timestamp) {
+                const hour = new Date(log.timestamp).getHours();
+                counts[hour]++;
+            }
+        });
+
         const data = [];
         for (let i = 6; i <= 23; i++) {
-            let base = 0;
-            if ((i >= 9 && i <= 11) || (i >= 18 && i <= 21)) base = Math.floor(Math.random() * 5) + 3;
-            else base = Math.floor(Math.random() * 3);
-            data.push({ hour: `${i}:00`, count: base });
+            data.push({ hour: `${i}:00`, count: counts[i] });
         }
         setHeatmapData(data);
-    }, []);
+    }, [logs]);
 
     return (
-        <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700">
+        <div className="bg-slate-800/30 backdrop-blur-md p-4 rounded-2xl border border-white/10">
             <h4 className="text-sm font-bold text-gray-300 mb-3 flex items-center gap-2">
                 <span className="text-lg">🔥</span> Focus Heatmap (Best Hours)
             </h4>
@@ -163,7 +205,7 @@ const AccomplishmentModal: React.FC<{ task: DailyTask; onSave: (id: string, acco
                 )}
                 <div>
                     <label htmlFor="accomplishment-input" className="block text-sm text-gray-400 mb-1">What did you accomplish?</label>
-                    <input id="accomplishment-input" ref={inputRef} type="text" value={accomplishment} onChange={(e) => setAccomplishment(e.target.value)} placeholder="e.g. Solved 15 PYQs from Rotational Motion" className="w-full p-2 bg-slate-700 border border-slate-600 rounded-md focus:ring-2 focus:ring-cyan-500 focus:outline-none text-white" />
+                    <input id="accomplishment-input" ref={inputRef} type="text" value={accomplishment} onChange={(e) => setAccomplishment(e.target.value)} placeholder="e.g. Solved 15 PYQs from Rotational Motion" className="w-full p-2 bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-md focus:ring-2 focus:ring-cyan-500 focus:outline-none text-white" />
                 </div>
                 <div className="flex justify-end gap-2">
                     <button type="button" onClick={onClose} className="px-4 py-2 text-gray-400 hover:text-white">Skip</button>
@@ -232,8 +274,8 @@ const TimeBlockSchedule: React.FC<{ tasks: DailyTask[]; onDropTask: (taskId: str
     }, [startHour, endHour]);
 
     return (
-        <div className="bg-slate-900/50 backdrop-blur-sm p-0 rounded-lg border border-slate-700 h-[600px] overflow-y-auto custom-scrollbar animate-fade-in relative">
-            <h3 className="text-sm font-bold text-cyan-300 sticky top-0 bg-slate-900 z-20 px-4 py-3 border-b border-slate-700 flex justify-between items-center">
+        <div className="bg-slate-800/30 backdrop-blur-md p-0 rounded-2xl border border-white/10 h-[600px] overflow-y-auto custom-scrollbar animate-fade-in relative">
+            <h3 className="text-sm font-bold text-cyan-300 sticky top-0 bg-slate-800/50 backdrop-blur-md z-20 px-4 py-3 border-b border-white/10 flex justify-between items-center">
                 <span>Timeline</span>
                 <span className="text-[10px] text-gray-500 font-normal">Drag tasks here</span>
             </h3>
@@ -245,7 +287,7 @@ const TimeBlockSchedule: React.FC<{ tasks: DailyTask[]; onDropTask: (taskId: str
                         style={{ top: `${20 + (currentTimePos / 100) * (timeSlots.length * 64)}px` }} // Approx calculation based on slot height
                     >
                         <div className="w-2 h-2 rounded-full bg-red-500 -ml-1"></div>
-                        <span className="text-[9px] text-red-500 bg-slate-900 px-1 ml-auto">Now</span>
+                        <span className="text-[9px] text-red-500 bg-slate-900/50 backdrop-blur-sm px-1 ml-auto">Now</span>
                     </div>
                 )}
 
@@ -257,7 +299,7 @@ const TimeBlockSchedule: React.FC<{ tasks: DailyTask[]; onDropTask: (taskId: str
                         return (
                             <div 
                                 key={hour} 
-                                className="flex items-start gap-3 group min-h-[4rem] border-b border-slate-800/50 last:border-0"
+                                className="flex items-start gap-3 group min-h-[4rem] border-b border-white/5 last:border-0"
                                 onDragOver={(e) => e.preventDefault()}
                                 onDrop={(e) => {
                                     e.preventDefault();
@@ -271,7 +313,7 @@ const TimeBlockSchedule: React.FC<{ tasks: DailyTask[]; onDropTask: (taskId: str
                                         <div 
                                             draggable={true}
                                             onDragStart={(e) => e.dataTransfer.setData('text/plain', task.id)}
-                                            className={`rounded-md p-2 border border-slate-600 shadow-sm text-sm text-gray-200 flex justify-between items-center group-hover:border-cyan-500/50 transition-all cursor-grab active:cursor-grabbing ${task.completed ? 'bg-slate-800/40 opacity-60' : 'bg-slate-700'}`}
+                                            className={`rounded-md p-2 border border-white/10 shadow-sm text-sm text-gray-200 flex justify-between items-center group-hover:border-cyan-500/50 transition-all cursor-grab active:cursor-grabbing ${task.completed ? 'bg-slate-800/30 backdrop-blur-sm opacity-60' : 'bg-slate-800/50 backdrop-blur-sm'}`}
                                             style={{ height: `${Math.max(3, (task.estimatedTime / 60) * 3.5)}rem` }}
                                         >
                                             <div className="flex flex-col overflow-hidden">
@@ -303,7 +345,7 @@ const TimeBlockSchedule: React.FC<{ tasks: DailyTask[]; onDropTask: (taskId: str
 export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, apiKey, logs, proactiveInsight, onAcceptPlan, onDismissInsight, addXp, userProfile, prefilledTask, setPrefilledTask, dailyTasks, setDailyTasks, modelName }) => {
     const [quote, setQuote] = useState<{ text: string; date: string } | null>(null);
     const [currentTime, setCurrentTime] = useState(new Date());
-    const [activeTab, setActiveTab] = useState<'tasks' | 'weekly'>('tasks');
+    const [activeTab, setActiveTab] = useState<'tasks' | 'weekly' | 'summary' | 'history'>('tasks');
     
     const [suggestedTasks, setSuggestedTasks] = useState<{task: string, time: number}[] | null>(null);
     const [isSuggestingTasks, setIsSuggestingTasks] = useState(false);
@@ -328,17 +370,48 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
     const [newTaskTime, setNewTaskTime] = useState(30);
     const [newTaskTopic, setNewTaskTopic] = useState('');
     const [newWeeklyGoal, setNewWeeklyGoal] = useState('');
+    const [isListening, setIsListening] = useState(false);
+
+    const handleVoiceInput = () => {
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            alert("Speech recognition is not supported in this browser.");
+            return;
+        }
+        const recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.lang = 'en-US';
+
+        recognition.onstart = () => setIsListening(true);
+        
+        recognition.onresult = (event: any) => {
+            const transcript = event.results[0][0].transcript;
+            setNewTaskText(transcript);
+            setIsListening(false);
+        };
+
+        recognition.onerror = (event: any) => {
+            console.error("Speech recognition error", event.error);
+            setIsListening(false);
+        };
+
+        recognition.onend = () => setIsListening(false);
+
+        recognition.start();
+    };
 
     const timerModes = { focus: 25 * 60, short: 5 * 60, long: 15 * 60 };
-    const [timerMode, setTimerMode] = useState<'focus' | 'short' | 'long' | 'custom'>('focus');
-    const [timeLeft, setTimeLeft] = useState(timerModes.focus);
-    const [isTimerActive, setIsTimerActive] = useState(false);
+    const { timerState, setTimerState } = useAppStore();
+    const { mode: timerMode, isActive: isTimerActive, timeLeft, endTime, activeTaskId } = timerState;
+    
     const timerIntervalRef = useRef<number | null>(null);
-    const endTimeRef = useRef<number | null>(null);
     const [showCustomInput, setShowCustomInput] = useState(false);
     const [customTime, setCustomTime] = useState(45);
     const [isCompleted, setIsCompleted] = useState(false);
-    const [activeTask, setActiveTask] = useState<DailyTask | null>(null);
+    
+    // Find active task from dailyTasks based on activeTaskId
+    const activeTask = useMemo(() => dailyTasks.find(t => t.id === activeTaskId) || null, [dailyTasks, activeTaskId]);
     
     const [summary, setSummary] = useState('');
     const [isSummaryLoading, setIsSummaryLoading] = useState(false);
@@ -350,6 +423,33 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
 
     const [streakData, setStreakData] = useState({ count: 0, date: '', animationKey: 0 });
     const [lastCompletedTaskId, setLastCompletedTaskId] = useState<string | null>(null);
+
+    const [summaries, setSummaries] = useState<Record<string, string>>({});
+    const [planHistory, setPlanHistory] = useState<Record<string, DailyTask[]>>({});
+
+    // Load History
+    useEffect(() => {
+        const savedSummaries = localStorage.getItem('endOfDaySummaries_v1');
+        if (savedSummaries) {
+            try { setSummaries(JSON.parse(savedSummaries)); } catch (e) {}
+        }
+        const savedPlans = localStorage.getItem('dailyPlansHistory_v1');
+        if (savedPlans) {
+            try { setPlanHistory(JSON.parse(savedPlans)); } catch (e) {}
+        }
+    }, []);
+
+    // Save Daily Plan to History
+    useEffect(() => {
+        if (dailyTasks.length > 0) {
+            const todayStr = new Date().toISOString().split('T')[0];
+            setPlanHistory(prev => {
+                const updated = { ...prev, [todayStr]: dailyTasks };
+                localStorage.setItem('dailyPlansHistory_v1', JSON.stringify(updated));
+                return updated;
+            });
+        }
+    }, [dailyTasks]);
 
     // Init Bio Check
     useEffect(() => {
@@ -464,16 +564,22 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
 
     useEffect(() => {
         const savedStreak = localStorage.getItem('streakData_v1');
-        const today = new Date();
-        const yesterday = new Date(today);
-        yesterday.setDate(today.getDate() - 1);
+        const todayStr = new Date().toISOString().split('T')[0];
+        const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().split('T')[0];
+        
         if (savedStreak) {
-            const data = JSON.parse(savedStreak);
-            const lastDate = new Date(data.date);
-            if (lastDate.toDateString() !== today.toDateString() && lastDate.toDateString() !== yesterday.toDateString()) {
-                setStreakData({ count: 0, date: '', animationKey: 0 });
-                localStorage.removeItem('streakData_v1');
-            } else { setStreakData({ ...data, animationKey: 0 }); }
+            try {
+                const data = JSON.parse(savedStreak);
+                if (data.date !== todayStr && data.date !== yesterdayStr) {
+                    setStreakData({ count: 0, date: '', animationKey: 0 });
+                    localStorage.removeItem('streakData_v1');
+                } else { 
+                    setStreakData({ ...data, animationKey: 0 }); 
+                }
+            } catch (e) {
+                console.error(e);
+            }
         }
     }, []);
 
@@ -482,10 +588,13 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
         if (allComplete) {
             const todayStr = new Date().toISOString().split('T')[0];
             if (streakData.date === todayStr) return;
+            
             const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
             const yesterdayStr = yesterday.toISOString().split('T')[0];
+            
             let newCount = 1;
             if (streakData.date === yesterdayStr) newCount = streakData.count + 1;
+            
             const newStreakData = { count: newCount, date: todayStr };
             setStreakData(prev => ({ ...newStreakData, animationKey: prev.animationKey + 1 }));
             localStorage.setItem('streakData_v1', JSON.stringify(newStreakData));
@@ -497,18 +606,18 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
     useEffect(() => {
         if (!isTimerActive) { if (timerIntervalRef.current) { clearInterval(timerIntervalRef.current); timerIntervalRef.current = null; } return; }
         const tick = () => {
-            if (endTimeRef.current) {
-                const remaining = endTimeRef.current - Date.now();
+            if (endTime) {
+                const remaining = endTime - Date.now();
                 if (remaining <= 0) {
-                    setTimeLeft(0); setIsTimerActive(false); setIsHyperFocusMode(false);
+                    setTimerState({ timeLeft: 0, isActive: false, endTime: null }); setIsHyperFocusMode(false);
                     if (activeTask) setAccomplishmentModal({ task: activeTask });
                     else { setIsCompleted(true); const ctx = new (window.AudioContext || (window as any).webkitAudioContext)(); const osc = ctx.createOscillator(); osc.connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime + 0.5); }
-                } else setTimeLeft(Math.ceil(remaining / 1000));
+                } else setTimerState({ timeLeft: Math.ceil(remaining / 1000) });
             }
         };
         tick(); timerIntervalRef.current = window.setInterval(tick, 1000);
         return () => { if (timerIntervalRef.current) { clearInterval(timerIntervalRef.current); timerIntervalRef.current = null; } };
-    }, [isTimerActive, activeTask]);
+    }, [isTimerActive, activeTask, endTime, setTimerState]);
 
     useEffect(() => {
         if (isCompleted) {
@@ -555,7 +664,7 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
         if (dailyTasks.length < 2) return;
         setIsSorting(true);
         try {
-            const orderedIds = await generateSmartTaskOrder(dailyTasks, userProfile, logs, apiKey, modelName);
+            const orderedIds = await generateSmartTaskOrder(dailyTasks, userProfile, logs, bioStats, apiKey, modelName);
             const taskMap = new Map(dailyTasks.map(t => [t.id, t]));
             const reorderedTasks = orderedIds.map(id => taskMap.get(id)).filter(Boolean) as DailyTask[];
             const existingIds = new Set(orderedIds);
@@ -572,49 +681,98 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
         setDailyTasks(prev => prev.map(t => t.id === taskId ? { ...t, scheduledTime: undefined } : t));
     };
 
-    const handleTimerModeChange = (mode: 'focus' | 'short' | 'long' | 'custom') => { setIsTimerActive(false); setTimerMode(mode); setIsCompleted(false); endTimeRef.current = null; setActiveTask(null); if (mode === 'custom') { setShowCustomInput(true); setTimeLeft(customTime * 60); } else { setShowCustomInput(false); setTimeLeft(timerModes[mode]); } };
+    const handleTimerModeChange = (mode: 'focus' | 'short' | 'long' | 'custom') => { 
+        setTimerState({ isActive: false, mode, endTime: null, activeTaskId: null }); 
+        setIsCompleted(false); 
+        if (mode === 'custom') { 
+            setShowCustomInput(true); 
+            setTimerState({ timeLeft: customTime * 60 }); 
+        } else { 
+            setShowCustomInput(false); 
+            setTimerState({ timeLeft: timerModes[mode] }); 
+        } 
+    };
     
     const handleTimerToggle = () => { 
         audioEngine.init(); 
         setIsCompleted(false); 
         if (!isTimerActive) { 
-            if (!endTimeRef.current) {
-                 endTimeRef.current = Date.now() + timeLeft * 1000;
+            let newEndTime = endTime;
+            if (!newEndTime) {
+                 newEndTime = Date.now() + timeLeft * 1000;
             } else {
-                 endTimeRef.current = Date.now() + timeLeft * 1000;
+                 newEndTime = Date.now() + timeLeft * 1000;
             }
+            setTimerState({ endTime: newEndTime, isActive: true });
             if (timerMode === 'focus' || activeTask) setIsHyperFocusMode(true); 
         } else { 
             setIsHyperFocusMode(false); 
             setInterruptionCount(prev => prev + 1);
+            setTimerState({ isActive: false });
         } 
-        setIsTimerActive(prev => !prev); 
     };
 
-    const handleTimerReset = () => { setIsTimerActive(false); setIsHyperFocusMode(false); setIsCompleted(false); endTimeRef.current = null; setActiveTask(null); setInterruptionCount(0); if(timerMode === 'custom') { setTimeLeft(customTime * 60); } else { setTimeLeft(timerModes[timerMode]); } };
+    const handleTimerReset = () => { 
+        setTimerState({ isActive: false, endTime: null, activeTaskId: null }); 
+        setIsHyperFocusMode(false); 
+        setIsCompleted(false); 
+        setInterruptionCount(0); 
+        if(timerMode === 'custom') { 
+            setTimerState({ timeLeft: customTime * 60 }); 
+        } else { 
+            setTimerState({ timeLeft: timerModes[timerMode] }); 
+        } 
+    };
     
     const handleStartFocus = (task: DailyTask) => { 
         audioEngine.init(); 
-        setActiveTask(task); setIsTimerActive(false); setTimerMode('focus'); setShowCustomInput(false); setIsCompleted(false); setInterruptionCount(0); endTimeRef.current = null; setTimeLeft(task.estimatedTime > 0 ? task.estimatedTime * 60 : timerModes.focus); setTimeout(() => { endTimeRef.current = Date.now() + (task.estimatedTime > 0 ? task.estimatedTime * 60 : timerModes.focus) * 1000; setIsTimerActive(true); setIsHyperFocusMode(true); }, 100); 
+        setShowCustomInput(false); 
+        setIsCompleted(false); 
+        setInterruptionCount(0); 
+        const newTimeLeft = task.estimatedTime > 0 ? task.estimatedTime * 60 : timerModes.focus;
+        setTimerState({ 
+            activeTaskId: task.id, 
+            isActive: false, 
+            mode: 'focus', 
+            endTime: null, 
+            timeLeft: newTimeLeft 
+        }); 
+        
+        setTimeout(() => { 
+            setTimerState({ 
+                endTime: Date.now() + newTimeLeft * 1000, 
+                isActive: true 
+            }); 
+            setIsHyperFocusMode(true); 
+        }, 100); 
     };
     
     const formatTime = (seconds: number) => { const mins = Math.floor(seconds / 60); const secs = seconds % 60; return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`; };
     
-    const handleGenerateSummary = async () => { setIsSummaryLoading(true); setSummary(''); setAudioUrl(null); try { const checklistSummary = dailyTasks.map(t => ({text: t.text, completed: t.completed})); const result = await generateEndOfDaySummary(goals, checklistSummary, apiKey); setSummary(result); } catch (error) { console.error("Failed to generate summary:", error); setSummary("Sorry, I couldn't generate a summary right now."); } finally { setIsSummaryLoading(false); } };
+    const handleGenerateSummary = async () => { 
+        setIsSummaryLoading(true); 
+        setAudioUrl(null); 
+        try { 
+            const checklistSummary = dailyTasks.map(t => ({text: t.text, completed: t.completed})); 
+            const result = await generateEndOfDaySummary(goals, checklistSummary, apiKey); 
+            const todayStr = new Date().toISOString().split('T')[0];
+            setSummaries(prev => {
+                const updated = { ...prev, [todayStr]: result };
+                localStorage.setItem('endOfDaySummaries_v1', JSON.stringify(updated));
+                return updated;
+            });
+        } catch (error) { 
+            console.error("Failed to generate summary:", error); 
+        } finally { 
+            setIsSummaryLoading(false); 
+        } 
+    };
     
-    const handlePlaySummaryAudio = async () => {
-        if (!summary || isAudioLoading) return;
+    const handlePlaySummaryAudio = async (summaryText: string) => {
+        if (!summaryText || isAudioLoading) return;
         setIsAudioLoading(true);
         try {
-            const base64Audio = await generateSpeechFromText(summary, apiKey);
-            if (base64Audio) {
-                const url = `data:audio/mp3;base64,${base64Audio}`;
-                setAudioUrl(url);
-                const audio = new Audio(url);
-                audio.play();
-            } else {
-                alert("Failed to generate audio.");
-            }
+            await playTTS(summaryText, apiKey);
         } catch (e) {
             console.error(e);
             alert("Failed to play audio.");
@@ -624,7 +782,7 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
     };
     const handlePlanForGoal = async (goal: StudyGoal) => { setIsSuggestingTasks(true); setSuggestedTasks(null); try { const newTasks = await generateTasksFromGoal(goal.text, apiKey, modelName); setSuggestedTasks(newTasks); } catch(e) { console.error(e); } finally { setIsSuggestingTasks(false); } };
     const addSuggestedTask = (task: {task: string, time: number}) => { setDailyTasks(prev => [...prev, { id: `ai-${Date.now()}-${Math.random()}`, text: task.task, completed: false, taskType: TaskType.StudySession, estimatedTime: task.time, effort: TaskEffort.Medium }]); setSuggestedTasks(prev => prev ? prev.filter(t => t.task !== task.task) : null); };
-    const handleGenerateSmartTasks = async () => { setIsGeneratingTasks(true); setSmartTasks(null); try { const newTasks = await generateSmartTasks(prioritizedWeakTopics, apiKey, modelName); setSmartTasks(newTasks); } catch (e) { console.error(e); } finally { setIsGeneratingTasks(false); } };
+    const handleGenerateSmartTasks = async () => { setIsGeneratingTasks(true); setSmartTasks(null); try { const newTasks = await generateSmartTasks(prioritizedWeakTopics, bioStats, apiKey, modelName); setSmartTasks(newTasks); } catch (e) { console.error(e); } finally { setIsGeneratingTasks(false); } };
     const addSmartTask = (task: { task: string; time: number; topic: string }) => { const newTask = { id: `smart-${Date.now()}`, text: task.task, completed: false, taskType: TaskType.ProblemPractice, estimatedTime: task.time, linkedTopic: task.topic, effort: TaskEffort.High }; setDailyTasks(p => [newTask, ...p]); setSmartTasks(p => p?.filter(t => t.task !== task.task) || null); };
     
     const handleSaveAccomplishment = (taskId: string, accomplishment: string) => { 
@@ -633,7 +791,7 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
 
         setDailyTasks(prev => prev.map(t => t.id === taskId ? { ...t, accomplishment: finalAccomplishment, completed: true } : t)); 
         setAccomplishmentModal(null); 
-        setActiveTask(null); 
+        setTimerState({ activeTaskId: null }); 
         setIsCompleted(true); 
         handleTimerReset(); 
     };
@@ -642,7 +800,7 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
     
     const totalDuration = timerMode === 'custom' ? customTime * 60 : (activeTask && activeTask.estimatedTime > 0 ? activeTask.estimatedTime * 60 : timerModes[timerMode]);
     const progress = totalDuration > 0 ? ((totalDuration - timeLeft) / totalDuration) : 0;
-    const TabButton: React.FC<{tabName: 'tasks' | 'weekly', label: string}> = ({tabName, label}) => (<button onClick={() => setActiveTab(tabName)} className={`py-2 px-4 font-semibold transition-colors text-sm rounded-t-md ${activeTab === tabName ? 'bg-slate-800 text-cyan-400' : 'bg-slate-900/50 text-gray-400 hover:bg-slate-800/80 hover:text-white'}`}>{label}</button>);
+    const TabButton: React.FC<{tabName: 'tasks' | 'weekly' | 'summary' | 'history', label: string}> = ({tabName, label}) => (<button onClick={() => setActiveTab(tabName)} className={`py-2 px-4 font-semibold transition-colors text-sm rounded-t-md ${activeTab === tabName ? 'bg-slate-800/50 backdrop-blur-md text-cyan-400' : 'bg-slate-900/30 backdrop-blur-md text-gray-400 hover:bg-slate-800/50 hover:text-white'}`}>{label}</button>);
 
     const displayedTasks = useMemo(() => {
         if (showSchedule) {
@@ -653,43 +811,65 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
 
     const isRecoveryMode = bioStats && (bioStats.sleep < 6 || bioStats.stress > 7 || bioStats.energy < 4);
 
+    const timerBgClass = interruptionCount >= 3 ? 'bg-red-900/30' : interruptionCount > 0 ? 'bg-yellow-900/30' : 'bg-cyan-900/30';
+    const timerTextClass = interruptionCount >= 3 ? 'text-red-500' : interruptionCount > 0 ? 'text-yellow-500' : 'text-cyan-500';
+
+    const realityCheckWarning = useMemo(() => {
+        const text = newTaskText.toLowerCase();
+        if ((text.includes('mock') || text.includes('test') || text.includes('exam')) && newTaskTime < 120) {
+            return "Reality Check: Full tests usually take 2-3 hours. Are you sure this is enough time?";
+        }
+        if (newTaskEffort === TaskEffort.High && newTaskTime < 45) {
+            return "Reality Check: High effort tasks typically require at least 45m of deep focus.";
+        }
+        return null;
+    }, [newTaskText, newTaskTime, newTaskEffort]);
+
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 relative">
-             {showBioCheck && <BioCheckModal onSave={handleBioSave} onSkip={handleBioSkip} onSnooze={handleBioSnooze} />}
-             {accomplishmentModal && <AccomplishmentModal task={accomplishmentModal.task} onSave={handleSaveAccomplishment} onClose={() => setAccomplishmentModal(null)} interruptionCount={interruptionCount} />}
+        <div className="space-y-6 relative">
+             {showBioCheck && <MorningReadinessWidget onSave={handleBioSave} onSkip={handleBioSkip} onSnooze={handleBioSnooze} />}
              
-             {isHyperFocusMode && (
+             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                 {accomplishmentModal && <AccomplishmentModal task={accomplishmentModal.task} onSave={handleSaveAccomplishment} onClose={() => setAccomplishmentModal(null)} interruptionCount={interruptionCount} />}
+                 
+                 {isHyperFocusMode && (
                 <div className="fixed inset-0 z-[100] bg-black flex flex-col items-center justify-center animate-fade-in overflow-hidden">
                     <div className="absolute inset-0 bg-gradient-to-b from-slate-900 via-black to-slate-900 opacity-50 pointer-events-none"></div>
                     <div className="absolute inset-0 flex items-center justify-center opacity-20 pointer-events-none">
-                         <div className={`w-[600px] h-[600px] bg-cyan-900/30 rounded-full blur-3xl ${isTimerActive ? 'animate-pulse' : ''}`} style={{ animationDuration: '4s' }}></div>
+                         <div className={`w-[600px] h-[600px] ${timerBgClass} rounded-full blur-3xl ${isTimerActive ? 'animate-pulse' : ''}`} style={{ animationDuration: '4s' }}></div>
                     </div>
                     <div className="absolute top-6 right-6 z-10">
                          <button onClick={() => setIsHyperFocusMode(false)} className="text-gray-500 hover:text-white text-sm border border-gray-700 hover:border-gray-500 px-4 py-2 rounded-full transition-all">Exit Focus Mode</button>
                     </div>
                     <div className="text-center space-y-8 relative z-10">
-                         <p className="text-xl text-cyan-500 font-medium tracking-wide uppercase">{activeTask ? activeTask.text : 'Deep Work Session'}</p>
+                         <p className={`text-xl ${timerTextClass} font-medium tracking-wide uppercase`}>{activeTask ? activeTask.text : 'Deep Work Session'}</p>
                          <div className="text-[12rem] font-bold text-white tracking-tighter leading-none tabular-nums select-none drop-shadow-2xl">{formatTime(timeLeft)}</div>
+                         
+                         {interruptionCount > 0 && (
+                             <div className={`text-sm font-medium ${interruptionCount >= 3 ? 'text-red-400' : 'text-yellow-400'} animate-pulse`}>
+                                 {interruptionCount} Interruption{interruptionCount !== 1 ? 's' : ''} Detected
+                             </div>
+                         )}
                          
                          <div className="flex items-center gap-8 justify-center mt-8">
                             <div className="flex flex-col items-center gap-2">
-                                <button onClick={() => { audioEngine.init(); setAmbientSound(prev => prev === 'off' ? 'brown' : 'off'); }} className={`p-4 rounded-full transition-all duration-300 border ${ambientSound !== 'off' ? 'bg-cyan-600 border-cyan-500 text-white shadow-[0_0_30px_rgba(34,211,238,0.4)]' : 'bg-slate-800 border-slate-700 text-gray-400 hover:border-gray-500'}`}>
+                                <button onClick={() => { audioEngine.init(); setAmbientSound(prev => prev === 'off' ? 'brown' : 'off'); }} className={`p-4 rounded-full transition-all duration-300 border ${ambientSound !== 'off' ? 'bg-cyan-600 border-cyan-500 text-white shadow-[0_0_30px_rgba(34,211,238,0.4)]' : 'bg-slate-800/50 backdrop-blur-sm border-white/10 text-gray-400 hover:border-gray-500'}`}>
                                     {ambientSound !== 'off' ? <span className="text-2xl">🔊</span> : <span className="text-2xl">🔇</span>}
                                 </button>
                                 <span className="text-xs text-gray-500 font-medium uppercase tracking-wider">Soundscape</span>
                             </div>
                             {ambientSound !== 'off' && (
-                                <div className="bg-slate-900/80 p-4 rounded-2xl border border-slate-800 flex gap-4 items-center animate-scale-in">
+                                <div className="bg-slate-900/50 backdrop-blur-md p-4 rounded-2xl border border-white/10 flex gap-4 items-center animate-scale-in">
                                     <div className="flex gap-1">
                                         {(['brown', 'pink', 'white'].map(type => (
-                                            <button key={type} onClick={() => { audioEngine.init(); setAmbientSound(type as any); }} className={`px-3 py-1 text-xs rounded-md border uppercase font-bold transition-colors ${ambientSound === type ? 'bg-slate-700 border-cyan-500 text-cyan-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>{type}</button>
+                                            <button key={type} onClick={() => { audioEngine.init(); setAmbientSound(type as any); }} className={`px-3 py-1 text-xs rounded-md border uppercase font-bold transition-colors ${ambientSound === type ? 'bg-slate-700/50 backdrop-blur-sm border-cyan-500 text-cyan-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>{type}</button>
                                         )))}
-                                        <div className="w-px h-6 bg-slate-700 mx-1"></div>
-                                        <button onClick={() => { audioEngine.init(); setAmbientSound('alpha'); }} className={`px-3 py-1 text-xs rounded-md border uppercase font-bold transition-colors ${ambientSound === 'alpha' ? 'bg-indigo-900/50 border-indigo-500 text-indigo-400' : 'border-transparent text-indigo-400/50 hover:text-indigo-400'}`} title="Alpha Waves (Focus)">Alpha</button>
-                                        <button onClick={() => { audioEngine.init(); setAmbientSound('theta'); }} className={`px-3 py-1 text-xs rounded-md border uppercase font-bold transition-colors ${ambientSound === 'theta' ? 'bg-purple-900/50 border-purple-500 text-purple-400' : 'border-transparent text-purple-400/50 hover:text-purple-400'}`} title="Theta Waves (Deep Focus)">Theta</button>
+                                        <div className="w-px h-6 bg-white/10 mx-1"></div>
+                                        <button onClick={() => { audioEngine.init(); setAmbientSound('alpha'); }} className={`px-3 py-1 text-xs rounded-md border uppercase font-bold transition-colors ${ambientSound === 'alpha' ? 'bg-indigo-900/50 backdrop-blur-sm border-indigo-500 text-indigo-400' : 'border-transparent text-indigo-400/50 hover:text-indigo-400'}`} title="Alpha Waves (Focus)">Alpha</button>
+                                        <button onClick={() => { audioEngine.init(); setAmbientSound('theta'); }} className={`px-3 py-1 text-xs rounded-md border uppercase font-bold transition-colors ${ambientSound === 'theta' ? 'bg-purple-900/50 backdrop-blur-sm border-purple-500 text-purple-400' : 'border-transparent text-purple-400/50 hover:text-purple-400'}`} title="Theta Waves (Deep Focus)">Theta</button>
                                     </div>
-                                    <div className="h-8 w-[1px] bg-slate-700"></div>
-                                    <input type="range" min="0" max="1" step="0.01" value={soundVolume} onChange={e => setSoundVolume(parseFloat(e.target.value))} className="w-24 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"/>
+                                    <div className="h-8 w-[1px] bg-white/10"></div>
+                                    <input type="range" min="0" max="1" step="0.01" value={soundVolume} onChange={e => setSoundVolume(parseFloat(e.target.value))} className="w-24 h-1 bg-slate-700/50 backdrop-blur-sm rounded-lg appearance-none cursor-pointer accent-cyan-500"/>
                                 </div>
                             )}
                          </div>
@@ -701,10 +881,12 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
              )}
 
             <div className="lg:col-span-2 space-y-6">
-                <div className="bg-slate-800/50 p-6 rounded-lg shadow-lg border border-slate-700">
+                <div className="bg-slate-800/30 backdrop-blur-md p-6 rounded-2xl shadow-lg border border-white/10">
                     <div className="flex justify-between items-start flex-wrap gap-4">
                         <div>
-                            <h2 className="text-2xl font-bold text-cyan-300">Daily Planner</h2>
+                            <div className="flex items-center gap-4">
+                                <h2 className="text-2xl font-bold text-cyan-300">Daily Planner</h2>
+                            </div>
                             <p className="text-gray-400 mt-1">{formatDateFull(currentTime.toISOString())}</p>
                         </div>
                         <div className="text-right">
@@ -717,7 +899,7 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
                 {proactiveInsight?.visible && (
                     <div className="bg-yellow-900/30 border border-yellow-600/50 rounded-lg p-4 flex flex-wrap items-center justify-between gap-4 animate-glow backdrop-blur-sm">
                         <div>
-                            <h3 className="font-bold text-yellow-300 flex items-center gap-2">💡 Proactive Insight</h3>
+                            <h3 className="font-bold text-yellow-300 flex items-center gap-2">📄 Proactive Insight</h3>
                             <p className="text-yellow-200/80 text-sm mt-1">
                                 Accuracy in <strong className="capitalize text-yellow-100">{proactiveInsight.subject}</strong> dropped recently. Need a recovery plan?
                             </p>
@@ -744,8 +926,10 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
                         <div className="flex">
                             <TabButton tabName="tasks" label={`Today's Plan (${formatDuration(totalPlannedTime)})`} />
                             <TabButton tabName="weekly" label={`Weekly Goals (${goals.length})`} />
+                            <TabButton tabName="summary" label="Summary" />
+                            <TabButton tabName="history" label="History" />
                         </div>
-                         <button onClick={() => setShowSchedule(p => !p)} className={`text-xs text-white font-semibold py-1 px-3 rounded-full transition-colors mb-1 flex items-center gap-2 ${showSchedule ? 'bg-indigo-600' : 'bg-slate-700 hover:bg-slate-600'}`}>
+                         <button onClick={() => setShowSchedule(p => !p)} className={`text-xs text-white font-semibold py-1 px-3 rounded-full transition-colors mb-1 flex items-center gap-2 ${showSchedule ? 'bg-indigo-600' : 'bg-slate-800/50 backdrop-blur-sm border border-white/10 hover:bg-slate-700/50'}`}>
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                             {showSchedule ? 'Hide' : 'Show'} Schedule
                          </button>
@@ -755,33 +939,49 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
                         <div className={`grid gap-6 transition-all duration-300 ${showSchedule ? 'grid-cols-1 xl:grid-cols-2' : 'grid-cols-1'}`}>
                             {/* Left Column: Task List */}
                             <div className="space-y-4">
-                                <form onSubmit={addDailyTask} className="bg-slate-900/40 rounded-xl border border-slate-700/60 p-4 space-y-4">
+                                <form onSubmit={addDailyTask} className="bg-slate-800/30 backdrop-blur-md rounded-2xl border border-white/10 p-4 space-y-4">
                                     <div className="flex flex-col sm:flex-row gap-3">
-                                         <div className="flex-grow"><input type="text" value={newTaskText} onChange={e => setNewTaskText(e.target.value)} placeholder="What needs doing?" className="w-full p-3 bg-slate-800 border border-slate-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none text-white placeholder-gray-500"/></div>
-                                         <div className="w-full sm:w-24 flex-shrink-0"><input type="number" value={newTaskTime} onChange={e => setNewTaskTime(parseInt(e.target.value) || 0)} placeholder="Min" className="w-full p-3 bg-slate-800 border border-slate-700 rounded-lg text-center focus:ring-2 focus:ring-cyan-500 focus:outline-none" title="Estimated Time (minutes)"/></div>
+                                         <div className="flex-grow relative">
+                                             <input type="text" value={newTaskText} onChange={e => setNewTaskText(e.target.value)} placeholder="What needs doing?" className="w-full p-3 pr-10 bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none text-white placeholder-gray-500"/>
+                                             <button type="button" onClick={handleVoiceInput} className={`absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full transition-colors ${isListening ? 'bg-red-500/20 text-red-400 animate-pulse' : 'text-gray-400 hover:text-cyan-400 hover:bg-slate-800/50'}`} title="Voice Input">
+                                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+                                             </button>
+                                         </div>
+                                         <div className="w-full sm:w-24 flex-shrink-0"><input type="number" value={newTaskTime} onChange={e => setNewTaskTime(parseInt(e.target.value) || 0)} placeholder="Min" className="w-full p-3 bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg text-center focus:ring-2 focus:ring-cyan-500 focus:outline-none" title="Estimated Time (minutes)"/></div>
                                     </div>
                                     <div className="flex flex-wrap gap-4 justify-between items-center">
                                         <div className="flex flex-wrap gap-3 w-full sm:w-auto">
-                                            <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-700 w-full sm:w-auto justify-between sm:justify-start">
+                                            <div className="flex bg-slate-800/50 backdrop-blur-sm rounded-lg p-1 border border-white/10 w-full sm:w-auto justify-between sm:justify-start">
                                                 {Object.values(TaskEffort).map((effort) => (
                                                     <button key={effort} type="button" onClick={() => setNewTaskEffort(effort)} className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all flex-1 sm:flex-none justify-center ${newTaskEffort === effort ? effortConfig[effort].color : 'text-gray-400 hover:text-gray-200'}`} title={effort}><span>{effortConfig[effort].icon}</span><span className="hidden sm:inline">{effortConfig[effort].label}</span></button>
                                                 ))}
                                             </div>
-                                            <select value={newTaskType} onChange={e => setNewTaskType(e.target.value as TaskType)} className="bg-slate-800 text-xs text-gray-300 p-2 rounded-lg border border-slate-700 focus:outline-none focus:border-cyan-500 w-full sm:w-auto">{Object.entries(taskTypeConfig).map(([key, {name}]) => <option key={key} value={key}>{name}</option>)}</select>
+                                            <select value={newTaskType} onChange={e => setNewTaskType(e.target.value as TaskType)} className="bg-slate-800/50 backdrop-blur-sm text-xs text-gray-300 p-2 rounded-lg border border-white/10 focus:outline-none focus:border-cyan-500 w-full sm:w-auto">{Object.entries(taskTypeConfig).map(([key, {name}]) => <option key={key} value={key}>{name}</option>)}</select>
                                         </div>
                                         <div className="flex gap-2 w-full sm:w-auto">
+                                            <button type="button" onClick={handleSmartReschedule} disabled={dailyTasks.filter(t => !t.completed).length === 0} className="bg-orange-600/20 hover:bg-orange-600/40 text-orange-300 hover:text-white border border-orange-600/50 px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1 transition-all disabled:opacity-50 disabled:cursor-not-allowed" title="Move incomplete tasks to backlog">
+                                                📅 Reschedule
+                                            </button>
+                                            <button type="button" onClick={handleGenerateSmartTasks} disabled={isGeneratingTasks} className="bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 hover:text-white border border-purple-600/50 px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                                {isGeneratingTasks ? <span className="animate-spin">↻</span> : '🤖 AI Suggest'}
+                                            </button>
                                             <button type="button" onClick={handleSmartSort} disabled={isSorting || dailyTasks.length < 2} className="bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 hover:text-white border border-indigo-600/50 px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                                 {isSorting ? <span className="animate-spin">↻</span> : '✨ Smart Sort'}
                                             </button>
                                             <button type="submit" className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-2 px-6 rounded-lg shadow-lg transition-all hover:shadow-cyan-500/20 w-full sm:w-auto">Add</button>
                                         </div>
                                     </div>
+                                    {realityCheckWarning && (
+                                        <div className="text-xs text-yellow-400 bg-yellow-900/20 border border-yellow-800/50 p-2 rounded-lg flex items-center gap-2 animate-fade-in">
+                                            <span>⚠️</span> {realityCheckWarning}
+                                        </div>
+                                    )}
                                 </form>
                                 
                                 {smartTasks && (
                                     <div className="p-4 bg-indigo-900/20 rounded-lg border border-indigo-500/30 animate-scale-in">
                                         <div className="flex justify-between mb-2"><h4 className="font-bold text-indigo-300">AI Suggestions</h4><button onClick={() => setSmartTasks(null)} className="text-gray-500 hover:text-white text-xl leading-none">&times;</button></div>
-                                        <div className="space-y-2">{smartTasks.map((task, i) => (<div key={i} className="flex justify-between items-center bg-slate-800/50 p-3 rounded border border-slate-700 hover:border-indigo-500/50 transition-colors"><div><p className="text-sm text-gray-200 font-medium">{task.task}</p><p className="text-xs text-indigo-300 mt-0.5">Focus: {task.topic} • {task.time} mins</p></div><button onClick={() => addSmartTask(task)} className="text-xs bg-green-600 hover:bg-green-500 text-white px-3 py-1.5 rounded font-bold shadow-lg">Add</button></div>))}</div>
+                                        <div className="space-y-2">{smartTasks.map((task, i) => (<div key={i} className="flex justify-between items-center bg-slate-800/30 backdrop-blur-md p-3 rounded-xl border border-white/10 hover:border-indigo-500/50 transition-colors"><div><p className="text-sm text-gray-200 font-medium">{task.task}</p><p className="text-xs text-indigo-300 mt-0.5">Focus: {task.topic} • {task.time} mins</p></div><button onClick={() => addSmartTask(task)} className="text-xs bg-green-600 hover:bg-green-500 text-white px-3 py-1.5 rounded font-bold shadow-lg">Add</button></div>))}</div>
                                     </div>
                                 )}
 
@@ -792,18 +992,24 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
                                             key={task.id} 
                                             draggable={showSchedule} 
                                             onDragStart={(e) => e.dataTransfer.setData('text/plain', task.id)}
-                                            className={`group relative p-4 bg-slate-800/60 rounded-xl border border-slate-700/50 flex items-center gap-4 transition-all hover:bg-slate-800 hover:border-slate-600 ${task.completed ? 'opacity-60' : ''} ${lastCompletedTaskId === task.id ? 'animate-power-up' : ''} ${showSchedule ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                                            className={`group relative p-4 bg-slate-800/30 backdrop-blur-md rounded-xl border flex items-center gap-4 transition-all hover:bg-slate-800/50 ${
+                                                task.isGhost && !task.completed ? 'border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.15)]' : 'border-white/10 hover:border-white/20'
+                                            } ${task.completed ? 'opacity-60' : ''} ${lastCompletedTaskId === task.id ? 'animate-power-up' : ''} ${showSchedule ? 'cursor-grab active:cursor-grabbing' : ''}`}
                                         >
                                             <div className={`absolute left-0 top-4 bottom-4 w-1 rounded-r-full ${taskTypeConfig[task.taskType].color.replace('border-l-', 'bg-')}`}></div>
-                                            <div className="pl-3"><input type="checkbox" checked={task.completed} onChange={() => toggleDailyTask(task.id)} className="w-5 h-5 rounded border-slate-600 text-cyan-500 bg-slate-700 focus:ring-offset-0 focus:ring-2 focus:ring-cyan-500 cursor-pointer"/></div>
+                                            <div className="pl-3"><input type="checkbox" checked={task.completed} onChange={() => toggleDailyTask(task.id)} className="w-5 h-5 rounded border-white/20 text-cyan-500 bg-slate-800/50 backdrop-blur-sm focus:ring-offset-0 focus:ring-2 focus:ring-cyan-500 cursor-pointer"/></div>
                                             <div className="flex-grow min-w-0">
-                                                <div className="flex items-center gap-2 mb-1"><span className={`text-sm font-medium line-clamp-2 sm:line-clamp-1 ${task.completed ? 'line-through text-gray-500' : 'text-gray-200'}`}>{task.text}</span>{task.effort === TaskEffort.High && <span className="text-[10px] bg-red-900/30 text-red-300 border border-red-800 px-1.5 rounded flex-shrink-0">Deep Work</span>}</div>
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    {task.isGhost && !task.completed && <span className="text-red-400 text-sm animate-pulse" title="Unfinished from previous day">👻</span>}
+                                                    <span className={`text-sm font-medium line-clamp-2 sm:line-clamp-1 ${task.completed ? 'line-through text-gray-500' : 'text-gray-200'}`}>{task.text}</span>
+                                                    {task.effort === TaskEffort.High && <span className="text-[10px] bg-red-900/30 text-red-300 border border-red-800 px-1.5 rounded flex-shrink-0">Deep Work</span>}
+                                                </div>
                                                 <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap"><span className="flex items-center gap-1">{taskTypeConfig[task.taskType].icon} {taskTypeConfig[task.taskType].name}</span><span>•</span><span>{task.estimatedTime}m</span></div>
                                                 {task.accomplishment && <div className="mt-2 text-xs text-green-400 bg-green-900/20 p-1.5 rounded border border-green-900/30 inline-block">✓ {task.accomplishment}</div>}
                                             </div>
                                             <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                 <button onClick={() => handleStartFocus(task)} disabled={isTimerActive && activeTask?.id !== task.id} className="p-2 bg-slate-700 hover:bg-cyan-600 hover:text-white rounded-lg text-gray-400 transition-colors" title="Focus on this task"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg></button>
-                                                <button onClick={() => deleteDailyTask(task.id)} className="p-2 bg-slate-700 hover:bg-red-600 hover:text-white rounded-lg text-gray-400 transition-colors" title="Delete task"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+                                                 <button onClick={() => handleStartFocus(task)} disabled={isTimerActive && activeTask?.id !== task.id} className="p-2 bg-slate-800/50 backdrop-blur-sm border border-white/10 hover:bg-cyan-600 hover:text-white hover:border-cyan-500 rounded-lg text-gray-400 transition-colors" title="Focus on this task"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg></button>
+                                                <button onClick={() => deleteDailyTask(task.id)} className="p-2 bg-slate-800/50 backdrop-blur-sm border border-white/10 hover:bg-red-600 hover:text-white hover:border-red-500 rounded-lg text-gray-400 transition-colors" title="Delete task"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
                                             </div>
                                         </div>
                                     ))}
@@ -824,13 +1030,13 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
                         // Weekly Goals Tab
                          <div className="space-y-6">
                             <form onSubmit={addWeeklyGoal} className="flex flex-col sm:flex-row gap-3">
-                                <input type="text" value={newWeeklyGoal} onChange={e => setNewWeeklyGoal(e.target.value)} placeholder="Add a goal for this week..." className="flex-grow p-3 bg-slate-800 border border-slate-700 rounded-lg focus:ring-2 focus:ring-cyan-500 text-white"/>
+                                <input type="text" value={newWeeklyGoal} onChange={e => setNewWeeklyGoal(e.target.value)} placeholder="Add a goal for this week..." className="flex-grow p-3 bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg focus:ring-2 focus:ring-cyan-500 text-white"/>
                                 <button type="submit" className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-2 px-6 rounded-lg">Add</button>
                             </form>
                             <div className="space-y-3">
                                 {goals.map(goal => (
-                                    <div key={goal.id} className="p-4 bg-slate-900/40 rounded-lg border border-slate-700 flex items-center gap-4 group">
-                                        <input type="checkbox" checked={goal.completed} onChange={() => toggleWeeklyGoal(goal.id)} className="w-5 h-5 rounded border-slate-600 text-cyan-500 bg-slate-700 focus:ring-offset-0"/>
+                                    <div key={goal.id} className="p-4 bg-slate-800/30 backdrop-blur-md rounded-xl border border-white/10 flex items-center gap-4 group">
+                                        <input type="checkbox" checked={goal.completed} onChange={() => toggleWeeklyGoal(goal.id)} className="w-5 h-5 rounded border-white/20 text-cyan-500 bg-slate-800/50 backdrop-blur-sm focus:ring-offset-0"/>
                                         <div className="flex-grow"><p className={`transition-colors ${goal.completed ? 'line-through text-gray-500' : 'text-gray-200'}`}>{goal.text}</p></div>
                                         <button onClick={() => handlePlanForGoal(goal)} disabled={isSuggestingTasks} className="bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 hover:text-white text-xs font-bold py-1 px-3 rounded transition-colors disabled:opacity-40">
                                             {isSuggestingTasks ? '...' : 'Plan Daily Tasks'}
@@ -844,7 +1050,7 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
                                     <div className="flex justify-between mb-2"><h4 className="font-bold text-indigo-300">Suggested Breakdown</h4><button onClick={() => setSuggestedTasks(null)} className="text-gray-500 hover:text-white">&times;</button></div>
                                     <div className="space-y-2">
                                         {suggestedTasks.map((task, i) => (
-                                            <div key={i} className="flex justify-between items-center bg-slate-800/50 p-2 rounded border border-slate-700">
+                                            <div key={i} className="flex justify-between items-center bg-slate-800/30 backdrop-blur-md p-2 rounded-xl border border-white/10">
                                                 <span className="text-sm text-gray-300">{task.task} ({task.time}m)</span>
                                                 <button onClick={() => addSuggestedTask(task)} className="text-xs bg-green-600 hover:bg-green-500 text-white px-2 py-1 rounded">Add</button>
                                             </div>
@@ -854,41 +1060,102 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
                             )}
                         </div>
                     )}
-                </div>
-
-                <div className="bg-slate-800/50 p-6 rounded-lg shadow-lg border border-slate-700">
-                    <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-xl font-bold text-cyan-300">End of Day Summary</h3>
-                        {summary && (
-                            <button 
-                                onClick={handlePlaySummaryAudio} 
-                                disabled={isAudioLoading}
-                                className="bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 hover:text-white text-xs font-bold py-1.5 px-3 rounded transition-colors disabled:opacity-50 flex items-center gap-2"
-                            >
-                                {isAudioLoading ? <span className="animate-pulse">Generating...</span> : <span>🔊 Play Audio</span>}
-                            </button>
-                        )}
-                    </div>
-                    {summary ? (
-                        <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700">
-                             <p className="text-gray-300 leading-relaxed whitespace-pre-line">{summary}</p>
-                             {audioUrl && (
-                                 <audio controls src={audioUrl} className="w-full mt-4 h-8" />
-                             )}
+                    
+                    {activeTab === 'summary' && (
+                        <div className="bg-slate-800/30 backdrop-blur-md p-6 rounded-2xl shadow-lg border border-white/10">
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-xl font-bold text-cyan-300">End of Day Summary</h3>
+                                <div className="flex gap-2">
+                                    <button onClick={handleGenerateSummary} disabled={isSummaryLoading} className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-1.5 px-3 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                        {isSummaryLoading ? 'Analyzing...' : 'Generate Today'}
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                                {Object.keys(summaries).length > 0 ? (
+                                    Object.entries(summaries)
+                                        .sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime())
+                                        .map(([date, summaryText]) => (
+                                            <div key={date} className="bg-slate-800/30 backdrop-blur-md p-4 rounded-xl border border-white/10">
+                                                <div className="flex justify-between items-center mb-3 border-b border-slate-700/50 pb-2">
+                                                    <span className="text-sm font-semibold text-indigo-300">{date}</span>
+                                                    <button 
+                                                        onClick={() => handlePlaySummaryAudio(summaryText)} 
+                                                        disabled={isAudioLoading}
+                                                        className="text-gray-400 hover:text-indigo-300 transition-colors"
+                                                        title="Play Audio"
+                                                    >
+                                                        🔊
+                                                    </button>
+                                                </div>
+                                                <div className="text-gray-300 text-sm leading-relaxed markdown-body">
+                                                    <MarkdownRenderer content={summaryText} title="Daily_Summary" />
+                                                </div>
+                                            </div>
+                                        ))
+                                ) : (
+                                    <div className="text-center py-8">
+                                        <p className="text-gray-400 text-sm">No summaries yet. Generate one at the end of your day!</p>
+                                    </div>
+                                )}
+                            </div>
+                            {audioUrl && (
+                                <audio controls src={audioUrl} className="w-full mt-4 h-8" autoPlay />
+                            )}
                         </div>
-                    ) : (
-                        <div className="text-center py-4">
-                            <p className="text-gray-400 text-sm mb-4">Done for the day? Let AI summarize your progress and set the tone for tomorrow.</p>
-                            <button onClick={handleGenerateSummary} disabled={isSummaryLoading} className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                                {isSummaryLoading ? 'Analyzing Day...' : 'Generate Summary'}
-                            </button>
+                    )}
+                    
+                    {activeTab === 'history' && (
+                        <div className="bg-slate-800/30 backdrop-blur-md p-6 rounded-2xl shadow-lg border border-white/10">
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-xl font-bold text-cyan-300">Daily Plan History</h3>
+                            </div>
+                            <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                                {Object.keys(planHistory).length > 0 ? (
+                                    <div className="space-y-6">
+                                        {Object.entries(planHistory)
+                                            .sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime())
+                                            .map(([date, tasks]) => (
+                                                <div key={date} className="bg-slate-800/30 backdrop-blur-md rounded-xl border border-white/10 overflow-hidden">
+                                                    <div className="bg-slate-800/50 backdrop-blur-sm p-4 border-b border-white/10 font-bold text-indigo-300 flex justify-between items-center">
+                                                        <span>{date}</span>
+                                                        <span className="text-sm font-normal text-gray-400">
+                                                            {tasks.filter(t => t.completed).length} / {tasks.length} Completed
+                                                        </span>
+                                                    </div>
+                                                    <div className="p-4 space-y-2">
+                                                        {tasks.map(task => (
+                                                            <div key={task.id} className={`flex items-center gap-3 p-2 rounded-md ${task.completed ? 'bg-slate-900/50 backdrop-blur-sm opacity-70 border border-white/5' : 'bg-slate-800/50 backdrop-blur-sm border border-white/10'}`}>
+                                                                <div className={`w-4 h-4 rounded-full flex-shrink-0 ${task.completed ? 'bg-cyan-500' : 'border-2 border-white/20'}`}></div>
+                                                                <div className="flex-grow min-w-0">
+                                                                    <p className={`text-sm ${task.completed ? 'line-through text-gray-500' : 'text-gray-200'}`}>{task.text}</p>
+                                                                </div>
+                                                                <div className="text-xs text-gray-500 whitespace-nowrap">
+                                                                    {task.estimatedTime}m
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-12">
+                                        <p className="text-gray-400 text-lg">No daily plans saved yet.</p>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     )}
                 </div>
             </div>
 
             <div className="space-y-6">
-                <div className="bg-slate-800/50 p-6 rounded-lg shadow-lg border border-slate-700 relative overflow-hidden group">
+                {bioStats && !(bioStats as any).skipped && !showBioCheck && (
+                    <MorningReadinessSummaryWidget stats={bioStats} />
+                )}
+                <div className="bg-slate-800/30 backdrop-blur-md p-6 rounded-2xl shadow-lg border border-white/10 relative overflow-hidden group">
                     <div className="absolute inset-0 bg-gradient-to-br from-amber-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
                     <div key={streakData.animationKey} className={`text-center relative z-10 ${streakData.count > 0 ? 'streak-pop-animation' : ''}`}>
                          <h3 className="text-lg font-bold text-amber-400 uppercase tracking-wider mb-2">Daily Streak</h3>
@@ -900,7 +1167,7 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
                     </div>
                 </div>
                 
-                <div className="bg-slate-800/50 p-6 rounded-lg shadow-lg border border-slate-700">
+                <div className="bg-slate-800/30 backdrop-blur-md p-6 rounded-2xl shadow-lg border border-white/10">
                     <h3 className="text-lg font-bold text-cyan-300 mb-6 text-center">Focus Timer</h3>
                     <div className="relative w-56 h-56 mx-auto mb-8 group cursor-pointer" onClick={handleTimerToggle} title={isTimerActive ? "Click to Pause" : "Click to Start"}>
                         <svg className="w-full h-full transform -rotate-90 drop-shadow-xl" viewBox="0 0 100 100">
@@ -913,24 +1180,25 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({ goals, setGoals, api
                         </div>
                     </div>
                     <div className="grid grid-cols-2 gap-2 mb-6">
-                        <button onClick={() => handleTimerModeChange('focus')} className={`py-2 rounded-md text-xs font-bold transition-colors ${timerMode === 'focus' ? 'bg-cyan-600 text-white' : 'bg-slate-700 text-gray-400 hover:bg-slate-600'}`}>Focus (25)</button>
-                        <button onClick={() => handleTimerModeChange('short')} className={`py-2 rounded-md text-xs font-bold transition-colors ${timerMode === 'short' ? 'bg-cyan-600 text-white' : 'bg-slate-700 text-gray-400 hover:bg-slate-600'}`}>Short Break (5)</button>
-                        <button onClick={() => handleTimerModeChange('long')} className={`py-2 rounded-md text-xs font-bold transition-colors ${timerMode === 'long' ? 'bg-cyan-600 text-white' : 'bg-slate-700 text-gray-400 hover:bg-slate-600'}`}>Long Break (15)</button>
-                        <button onClick={() => handleTimerModeChange('custom')} className={`py-2 rounded-md text-xs font-bold transition-colors ${timerMode === 'custom' ? 'bg-cyan-600 text-white' : 'bg-slate-700 text-gray-400 hover:bg-slate-600'}`}>Custom</button>
+                        <button onClick={() => handleTimerModeChange('focus')} className={`py-2 rounded-md text-xs font-bold transition-colors ${timerMode === 'focus' ? 'bg-cyan-600 text-white shadow-[0_0_15px_rgba(34,211,238,0.3)]' : 'bg-slate-800/50 backdrop-blur-sm border border-white/10 text-gray-400 hover:bg-slate-700/50'}`}>Focus (25)</button>
+                        <button onClick={() => handleTimerModeChange('short')} className={`py-2 rounded-md text-xs font-bold transition-colors ${timerMode === 'short' ? 'bg-cyan-600 text-white shadow-[0_0_15px_rgba(34,211,238,0.3)]' : 'bg-slate-800/50 backdrop-blur-sm border border-white/10 text-gray-400 hover:bg-slate-700/50'}`}>Short Break (5)</button>
+                        <button onClick={() => handleTimerModeChange('long')} className={`py-2 rounded-md text-xs font-bold transition-colors ${timerMode === 'long' ? 'bg-cyan-600 text-white shadow-[0_0_15px_rgba(34,211,238,0.3)]' : 'bg-slate-800/50 backdrop-blur-sm border border-white/10 text-gray-400 hover:bg-slate-700/50'}`}>Long Break (15)</button>
+                        <button onClick={() => handleTimerModeChange('custom')} className={`py-2 rounded-md text-xs font-bold transition-colors ${timerMode === 'custom' ? 'bg-cyan-600 text-white shadow-[0_0_15px_rgba(34,211,238,0.3)]' : 'bg-slate-800/50 backdrop-blur-sm border border-white/10 text-gray-400 hover:bg-slate-700/50'}`}>Custom</button>
                     </div>
                     {showCustomInput && (
-                        <div className="flex justify-center items-center gap-2 mb-6 bg-slate-900/50 p-2 rounded-lg">
+                        <div className="flex justify-center items-center gap-2 mb-6 bg-slate-800/30 backdrop-blur-md p-2 rounded-xl border border-white/10">
                             <span className="text-sm text-gray-400">Duration:</span>
-                            <input type="number" value={customTime} onChange={e => { const val = Math.max(1, parseInt(e.target.value) || 1); setCustomTime(val); setTimeLeft(val * 60); }} className="w-16 p-1 bg-slate-700 border border-slate-600 rounded text-center text-white focus:outline-none focus:border-cyan-500"/>
+                            <input type="number" value={customTime} onChange={e => { const val = Math.max(1, parseInt(e.target.value) || 1); setCustomTime(val); setTimerState({ timeLeft: val * 60 }); }} className="w-16 p-1 bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded text-center text-white focus:outline-none focus:ring-2 focus:ring-cyan-500"/>
                             <span className="text-sm text-gray-400">min</span>
                         </div>
                     )}
                     <div className="flex gap-2">
                         <button onClick={handleTimerToggle} className={`flex-grow font-bold py-3 rounded-lg shadow-lg transition-transform active:scale-95 ${isTimerActive ? 'bg-amber-600 hover:bg-amber-500 text-white' : 'bg-cyan-600 hover:bg-cyan-500 text-white'}`}>{isTimerActive ? 'Pause' : 'Start Timer'}</button>
-                        <button onClick={handleTimerReset} className="px-4 bg-slate-700 hover:bg-slate-600 text-gray-300 rounded-lg transition-colors" title="Reset">↺</button>
+                        <button onClick={handleTimerReset} className="px-4 bg-slate-800/50 backdrop-blur-sm border border-white/10 hover:bg-slate-700/50 text-gray-300 rounded-lg transition-colors" title="Reset">↺</button>
                     </div>
                 </div>
-                 <FocusAnalyticsWidget />
+                 <FocusAnalyticsWidget logs={logs} />
+            </div>
             </div>
             <canvas ref={canvasRef} className="particle-canvas pointer-events-none" />
         </div>

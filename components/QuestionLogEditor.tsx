@@ -679,6 +679,7 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
         { title: 'Question Type', key: 'questionType' },
         { title: 'Status', key: 'status' },
         { title: 'Marks Awarded', key: 'marksAwarded' },
+        { title: 'Time (s)', key: 'timeSpent' as SortKey, width: 'w-20' },
         { title: 'Confidence', key: 'confidence' as SortKey, width: 'w-20' },
         { title: 'Topic / Chapter', key: 'topic' },
         { title: 'Reason for Error', key: 'reasonForError' },
@@ -810,6 +811,13 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
                                             </div>
                                             <div className="flex-grow max-w-[80px]"><MarksBar marks={log.marksAwarded} type={log.questionType} log={log} /></div>
                                         </div>
+                                    </td>
+                                    <td className="p-1 min-w-[80px]">
+                                        <EditableCell 
+                                            value={log.timeSpent ?? ''} 
+                                            onChange={v => handleUpdate(log.questionNumber, log.testId, 'timeSpent', v)} 
+                                            type="number"
+                                        />
                                     </td>
                                     <td className="p-1 min-w-[80px]">
                                         <ConfidenceSlider 

@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useJeeStore } from '../store/useJeeStore';
 import { MarkdownRenderer } from './common/MarkdownRenderer';
 import { ErrorReason } from '../types';
-import { generateSpeechFromText, decodeAudio, decodeAudioData } from '../services/geminiService';
+import { playTTS, stopTTS } from '../services/audioEngine';
 
 interface FlashCardModalProps {
     isOpen: boolean;
@@ -33,9 +33,7 @@ export const FlashCardModal: React.FC<FlashCardModalProps> = ({ isOpen, onClose,
     // Cleanup audio context on unmount
     useEffect(() => {
         return () => {
-            if (audioContextRef.current) {
-                audioContextRef.current.close();
-            }
+            stopTTS();
         };
     }, []);
 
@@ -49,10 +47,7 @@ export const FlashCardModal: React.FC<FlashCardModalProps> = ({ isOpen, onClose,
             setDiagnosis(null);
             setShowMutation(false);
             setRevealMutationAnswer(false);
-            if (audioSourceRef.current) {
-                audioSourceRef.current.stop();
-                audioSourceRef.current = null;
-            }
+            stopTTS();
         }
     }, [isOpen, flashcardSession.currentCardIndex, isFinished]);
 
@@ -92,32 +87,9 @@ export const FlashCardModal: React.FC<FlashCardModalProps> = ({ isOpen, onClose,
     const handlePlayAudio = async (text: string) => {
         if (!text || isAudioLoading) return;
         
-        if (audioSourceRef.current) {
-            audioSourceRef.current.stop();
-            audioSourceRef.current = null;
-        }
-
         setIsAudioLoading(true);
         try {
-            const base64Audio = await generateSpeechFromText(text, apiKey);
-            if (base64Audio) {
-                if (!audioContextRef.current) {
-                    audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-                }
-                const buffer = await decodeAudioData(
-                    decodeAudio(base64Audio),
-                    audioContextRef.current,
-                    24000,
-                    1
-                );
-                const source = audioContextRef.current.createBufferSource();
-                source.buffer = buffer;
-                source.connect(audioContextRef.current.destination);
-                source.start();
-                audioSourceRef.current = source;
-            } else {
-                alert("Failed to generate audio.");
-            }
+            await playTTS(text, apiKey);
         } catch (e) {
             console.error(e);
             alert("Failed to play audio.");

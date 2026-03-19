@@ -2,8 +2,8 @@
 import type { TestReport, QuestionLog, StudyGoal, ChatMessage, GamificationState, DailyTask, LongTermGoal } from '../types';
 
 const DB_NAME = 'JeePerformanceDB';
-const DB_VERSION = 5; // Bump version for vector store
-const STORES = ['testReports', 'questionLogs', 'studyGoals', 'chatHistory', 'gamificationState', 'dailyTasks', 'appState', 'longTermGoals', 'vectorIndex'] as const;
+const DB_VERSION = 6; // Bump version for reflections
+const STORES = ['testReports', 'questionLogs', 'studyGoals', 'chatHistory', 'gamificationState', 'dailyTasks', 'appState', 'longTermGoals', 'vectorIndex', 'reflections'] as const;
 type StoreName = typeof STORES[number];
 
 class DBService {
@@ -68,6 +68,11 @@ class DBService {
         if (event.oldVersion < 5) {
             if (!db.objectStoreNames.contains('vectorIndex')) {
                 db.createObjectStore('vectorIndex', { keyPath: 'id' });
+            }
+        }
+        if (event.oldVersion < 6) {
+            if (!db.objectStoreNames.contains('reflections')) {
+                db.createObjectStore('reflections', { keyPath: 'id' });
             }
         }
       };

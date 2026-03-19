@@ -26,6 +26,12 @@ const Icons = {
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-cyan-300 animate-pulse">
             <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
         </svg>
+    ),
+    BookOpen: () => (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+            <path d="M2 3h6a4 4 0 0 1 4 4v14a4 4 0 0 0-4-4H2z"></path>
+            <path d="M22 3h-6a4 4 0 0 0-4 4v14a4 4 0 0 1 4-4h6z"></path>
+        </svg>
     )
 };
 
@@ -181,7 +187,11 @@ export const CyberSkillTree: React.FC<CyberSkillTreeProps> = ({ userProfile, mas
                             {lane.nodes.map((node) => {
                                 const progress = userProfile.syllabus[node.id];
                                 const status = progress?.status || SyllabusStatus.NotStarted;
+                                // Locking mechanism disabled as per user request
+                                const isLocked = false;
+                                /*
                                 const isLocked = status === SyllabusStatus.NotStarted;
+                                */
                                 const isMastered = status === SyllabusStatus.Completed || status === SyllabusStatus.Revising;
                                 const isInProgress = status === SyllabusStatus.InProgress;
                                 
@@ -227,7 +237,7 @@ export const CyberSkillTree: React.FC<CyberSkillTreeProps> = ({ userProfile, mas
 
                                             {/* Icon / Content */}
                                             <div className="relative z-10 text-white flex flex-col items-center gap-1">
-                                                {isMastered ? <Icons.Crown /> : isInProgress ? <Icons.Bolt /> : <Icons.Lock />}
+                                                {isMastered ? <Icons.Crown /> : isInProgress ? <Icons.Bolt /> : <Icons.BookOpen />}
                                                 {masteryScores[node.id] && masteryScores[node.id].score > 1200 && (
                                                     <span className="text-[8px] font-bold text-yellow-400 bg-black/50 px-1 rounded">
                                                         {Math.round(masteryScores[node.id].score)}

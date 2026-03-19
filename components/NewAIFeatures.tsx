@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useJeeStore } from '../store/useJeeStore';
 import { GoogleGenAI, Type, ThinkingLevel, Modality, LiveServerMessage } from '@google/genai';
+import { decodeAudioData, decodeAudio } from '../services/geminiService';
 import { Button } from './common/Button';
 import { Card } from './common/Card';
 import { Input } from './common/Input';
@@ -265,8 +266,8 @@ const FeatureSandbox: React.FC<{
                     onmessage: async (message: LiveServerMessage) => {
                         const base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
                         if (base64Audio) {
-                            const audioData = Uint8Array.from(atob(base64Audio), c => c.charCodeAt(0));
-                            const audioBuffer = await audioContextRef.current!.decodeAudioData(audioData.buffer);
+                            const audioData = decodeAudio(base64Audio);
+                            const audioBuffer = await decodeAudioData(audioData, audioContextRef.current!, 24000, 1);
                             const source = audioContextRef.current!.createBufferSource();
                             source.buffer = audioBuffer;
                             source.connect(audioContextRef.current!.destination);

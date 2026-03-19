@@ -10,25 +10,26 @@ import { SUBJECT_CONFIG } from '../constants';
 import Modal from './common/Modal';
 import CustomTooltip from './common/CustomTooltip';
 import { useDashboardKpis } from '../hooks/useDashboardAnalytics';
-import { 
-    PaperStrategyWidget, 
-    StrategicROIWidget, 
-    RankPredictorWidget, 
-    PercentilePredictorWidget, 
-    VolatilityWidget,
-    PerformanceTrendWidget,
-    SubjectComparisonWidget,
-    SubjectRadarWidget,
-    CalendarHeatmapWidget,
-    RankSimulatorWidget,
-    GoalProgressWidget,
-    OracleWidget, 
-    CalibrationWidget 
-} from './DashboardWidgets';
 import { CompetitorLeaderboard } from './competitors/CompetitorLeaderboard';
 import { Button } from './common/Button';
 import { OracleChamber } from './OracleChamber';
 import { MarkdownRenderer } from './common/MarkdownRenderer';
+import { useJeeStore } from '../store/useJeeStore';
+
+const PaperStrategyWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.PaperStrategyWidget })));
+const StrategicROIWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.StrategicROIWidget })));
+const RankPredictorWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.RankPredictorWidget })));
+const PercentilePredictorWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.PercentilePredictorWidget })));
+const VolatilityWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.VolatilityWidget })));
+const PerformanceTrendWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.PerformanceTrendWidget })));
+const SubjectComparisonWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.SubjectComparisonWidget })));
+const SubjectRadarWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.SubjectRadarWidget })));
+const CalendarHeatmapWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.CalendarHeatmapWidget })));
+const RankSimulatorWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.RankSimulatorWidget })));
+const GoalProgressWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.GoalProgressWidget })));
+const OracleWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.OracleWidget })));
+const CalibrationWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.CalibrationWidget })));
+const ReflectionsWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.ReflectionsWidget })));
 
 interface DashboardProps {
   reports: TestReport[];
@@ -43,7 +44,7 @@ interface DashboardProps {
   onUpdateProfile: React.Dispatch<React.SetStateAction<UserProfile>>;
 }
 
-type WidgetId = 'heatmap' | 'performanceTrend' | 'subjectComparison' | 'subjectStrengthsRadar' | 'percentilePredictor' | 'aiAnalysis' | 'strategicROI' | 'paperStrategy' | 'rankPredictor' | 'volatility' | 'rankSimulator' | 'goalProgress' | 'oracle' | 'calibration' | 'competitors';
+type WidgetId = 'heatmap' | 'performanceTrend' | 'subjectComparison' | 'subjectStrengthsRadar' | 'percentilePredictor' | 'aiAnalysis' | 'strategicROI' | 'paperStrategy' | 'rankPredictor' | 'volatility' | 'rankSimulator' | 'goalProgress' | 'oracle' | 'calibration' | 'competitors' | 'reflections';
 
 interface WidgetLayout {
     id: WidgetId;
@@ -60,6 +61,7 @@ const DEFAULT_DASHBOARD_LAYOUT: WidgetLayout[] = [
     { id: 'performanceTrend', visible: true, size: 'normal' },
     { id: 'rankSimulator', visible: true, size: 'normal' },
     { id: 'goalProgress', visible: true, size: 'normal' },
+    { id: 'reflections', visible: true, size: 'normal' },
     { id: 'strategicROI', visible: true, size: 'wide' },
     { id: 'paperStrategy', visible: true, size: 'wide' },
     { id: 'rankPredictor', visible: true, size: 'wide' },
@@ -224,7 +226,7 @@ const KPICard: React.FC<KPICardProps> = React.memo(({ title, value, suffix = '',
 
   if (isGauge && isNumeric) {
       return (
-          <div className="bg-slate-800/90 p-3 rounded-lg shadow-lg border border-slate-700 flex flex-col relative overflow-hidden h-28 cursor-default">
+          <div className="bg-slate-800/30 backdrop-blur-md p-3 rounded-2xl shadow-lg flex flex-col relative overflow-hidden h-28 cursor-default">
               <ReadinessGauge score={value as number} />
           </div>
       )
@@ -232,16 +234,16 @@ const KPICard: React.FC<KPICardProps> = React.memo(({ title, value, suffix = '',
 
   return (
     <div 
-      className={`group bg-slate-800/90 p-4 rounded-lg shadow-lg border border-slate-700 flex flex-col justify-between flex-1 transition-all duration-300 hover:scale-[1.02] hover:shadow-cyan-500/20 relative overflow-hidden h-28 ${onClick ? 'cursor-pointer' : ''}`}
+      className={`group bg-slate-800/30 backdrop-blur-md p-4 rounded-2xl shadow-lg flex flex-col justify-between flex-1 transition-all duration-300 hover:scale-[1.02] hover:shadow-cyan-500/20 relative overflow-hidden h-28 ${onClick ? 'cursor-pointer' : ''}`}
       onClick={onClick}
     >
       <div className={`relative z-10 flex flex-col h-full justify-between pointer-events-none transition-opacity duration-300 ${trendData ? 'group-hover:opacity-0' : ''}`}>
         <div>
             <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{title}</h3>
             <div className="flex items-baseline gap-2 mt-1">
-                <p className="text-2xl font-bold text-white tracking-tight">{displayValue}{suffix}</p>
+                <p className="text-2xl font-bold text-white tracking-tight font-mono">{displayValue}{suffix}</p>
                 {comparison && comparison.trend !== 'flat' && (
-                    <span className={`text-[10px] font-bold ${trendColor} flex items-center bg-slate-900/50 px-1.5 rounded-full backdrop-blur-sm border border-slate-700/50`}>
+                    <span className={`text-[10px] font-bold ${trendColor} flex items-center bg-slate-900/50 px-1.5 rounded-full backdrop-blur-sm`}>
                     {trendIcon} {Math.abs(Number(formattedDiff))}
                     </span>
                 )}
@@ -296,6 +298,14 @@ const KPICard: React.FC<KPICardProps> = React.memo(({ title, value, suffix = '',
   );
 });
 
+const SkeletonLoader = () => (
+    <div className="w-full h-full flex flex-col items-center justify-center p-6 animate-pulse bg-slate-800/20 rounded-lg">
+        <div className="w-3/4 h-8 bg-slate-700/50 rounded mb-6"></div>
+        <div className="w-full h-full bg-slate-700/30 rounded-full max-w-[200px] max-h-[200px]"></div>
+        <div className="w-1/2 h-4 bg-slate-700/50 rounded mt-6"></div>
+    </div>
+);
+
 const ChartCard: React.FC<{ 
     title: React.ReactNode; 
     children: React.ReactNode; 
@@ -314,7 +324,7 @@ const ChartCard: React.FC<{
     onMouseLeave?: () => void;
 }> = ({ title, children, isEditing, isDragging, onChartClick, actionButton, onInfoClick, headerControls, onHide, onResize, className, insightText, isInsightLoading, onMouseEnter, onMouseLeave }) => (
     <div
-        className={`bg-slate-800/50 p-4 rounded-lg shadow-lg border border-slate-700 flex flex-col h-full transition-all duration-300 relative ${isDragging ? 'shadow-[rgba(var(--color-primary-rgb),0.5)] opacity-50' : ''} ${!isEditing && onChartClick ? 'cursor-pointer hover:shadow-[rgba(var(--color-primary-rgb),0.2)] hover:-translate-y-1' : ''} ${isEditing ? 'ring-2 ring-dashed ring-slate-500 cursor-move' : ''} ${className || ''}`}
+        className={`bg-slate-800/30 backdrop-blur-md p-4 rounded-2xl shadow-lg flex flex-col h-full transition-all duration-300 relative ${isDragging ? 'shadow-[rgba(var(--color-primary-rgb),0.5)] opacity-50' : ''} ${!isEditing && onChartClick ? 'cursor-pointer hover:shadow-[rgba(var(--color-primary-rgb),0.2)] hover:-translate-y-1' : ''} ${isEditing ? 'ring-2 ring-dashed ring-slate-500 cursor-move' : ''} ${className || ''}`}
         onClick={() => { if (!isEditing && onChartClick) onChartClick(); }}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
@@ -411,12 +421,83 @@ const KPIModal: React.FC<{ title: string, metricKey: string, reports: TestReport
     );
 }
 
+const AiAnalysisWidget: React.FC<{
+    aiAnalysis: { content: string; isLoading: boolean; error: string | null };
+    aiAnalysisHistory: Record<string, string>;
+    handleGenerateAiAnalysis: () => void;
+    selectedDate: string | null;
+    setSelectedDate: (date: string | null) => void;
+}> = ({ aiAnalysis, aiAnalysisHistory, handleGenerateAiAnalysis, selectedDate, setSelectedDate }) => {
+    return (
+        <div className="flex flex-col">
+            <div className="flex justify-end mb-2">
+                <button onClick={handleGenerateAiAnalysis} disabled={aiAnalysis.isLoading} className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-1.5 px-3 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                    {aiAnalysis.isLoading ? 'Analyzing...' : 'Generate Today'}
+                </button>
+            </div>
+            {aiAnalysis.isLoading && <div className="flex-grow flex items-center justify-center text-gray-400 animate-pulse py-8">Thinking... <span className="text-xs ml-2 text-gray-500">(May take 30s)</span></div>}
+            {aiAnalysis.error && <div className="flex-grow flex flex-col items-center justify-center text-red-400 py-8"><p>{aiAnalysis.error}</p><button onClick={handleGenerateAiAnalysis} className="mt-2 bg-red-600/50 hover:bg-red-600 text-white font-semibold py-1 px-3 rounded-full text-xs">Retry</button></div>}
+            
+            {!aiAnalysis.isLoading && !aiAnalysis.error && (
+                <div className="flex-grow pr-2 space-y-4">
+                    {selectedDate && aiAnalysisHistory[selectedDate] ? (
+                        <div className="bg-slate-800/30 backdrop-blur-md p-4 rounded-2xl">
+                            <div className="flex items-center gap-3 mb-3 border-b border-slate-700/50 pb-2">
+                                <button onClick={() => setSelectedDate(null)} className="text-xs bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded transition-colors">&larr; Back to List</button>
+                                <span className="text-sm font-semibold text-indigo-300">{selectedDate}</span>
+                            </div>
+                            <div className="text-gray-300 text-sm leading-relaxed markdown-body">
+                                <MarkdownRenderer content={aiAnalysisHistory[selectedDate]} />
+                            </div>
+                        </div>
+                    ) : Object.keys(aiAnalysisHistory).length > 0 ? (
+                        <div className="space-y-3">
+                            {Object.entries(aiAnalysisHistory)
+                                .sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime())
+                                .map(([date, analysisText]) => (
+                                    <div 
+                                        key={date} 
+                                        onClick={() => setSelectedDate(date)}
+                                        className="bg-slate-800/30 backdrop-blur-md hover:bg-slate-800/50 p-3 rounded-xl cursor-pointer transition-colors flex justify-between items-center group"
+                                    >
+                                        <span className="text-sm text-indigo-300 font-medium">{date}</span>
+                                        <span className="text-xs text-slate-500 group-hover:text-indigo-400 transition-colors">View &rarr;</span>
+                                    </div>
+                                ))}
+                        </div>
+                    ) : (
+                        <div className="flex-grow flex items-center justify-center h-full py-8">
+                            <div className="text-center">
+                                <p className="text-gray-400 text-sm">No analysis yet. Generate one to see your performance review!</p>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
 export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, setView, setRootCauseFilter, onStartFocusSession, longTermGoals, modelName, userProfile, onUpdateProfile }) => {
     const [isCustomizing, setIsCustomizing] = useState(false);
+    const [isFocusMode, setIsFocusMode] = useState(false);
     const [enableAiInsights, setEnableAiInsights] = useState(false);
     const [contextualInsight, setContextualInsight] = useState<{ widgetId: WidgetId | null; text: string; isLoading: boolean }>({ widgetId: null, text: '', isLoading: false });
     const insightTimeoutRef = useRef<number | null>(null);
     const [aiAnalysis, setAiAnalysis] = useState<{ content: string; isLoading: boolean; error: string | null }>({ content: '', isLoading: false, error: null });
+    const [aiAnalysisHistory, setAiAnalysisHistory] = useState<Record<string, string>>({});
+    const [selectedAiAnalysisDate, setSelectedAiAnalysisDate] = useState<string | null>(null);
+
+    useEffect(() => {
+        const savedHistory = localStorage.getItem('aiAnalysisHistory_v1');
+        if (savedHistory) {
+            try {
+                setAiAnalysisHistory(JSON.parse(savedHistory));
+            } catch (e) {
+                console.error("Failed to parse AI Analysis history", e);
+            }
+        }
+    }, []);
     const [infoModalContent, setInfoModalContent] = useState<{title: string, content: React.ReactNode} | null>(null);
     const [activeKpiModal, setActiveKpiModal] = useState<{ title: string, metricKey: string } | null>(null);
     
@@ -554,6 +635,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
             // Uses the selected model for deep analysis
             const result = await getAIAnalysis(reports, logs, apiKey, modelName);
             setAiAnalysis({ content: result, isLoading: false, error: null });
+            
+            const todayStr = new Date().toISOString().split('T')[0];
+            setAiAnalysisHistory(prev => {
+                const updated = { ...prev, [todayStr]: result };
+                localStorage.setItem('aiAnalysisHistory_v1', JSON.stringify(updated));
+                return updated;
+            });
+            setSelectedAiAnalysisDate(todayStr);
         } catch (e) {
             setAiAnalysis({ content: '', isLoading: false, error: e instanceof Error ? e.message : 'An unknown error occurred.' });
         }
@@ -646,20 +735,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
         volatility: { title: "Stability Gauge", component: kpiData.volatilityMetrics ? <VolatilityWidget volatilityMetrics={kpiData.volatilityMetrics} /> : <div className="flex items-center justify-center h-full text-gray-500">Not enough data.</div>, getDataForInsight: () => `Analyze volatility sharpe ratio: ${kpiData.volatilityMetrics?.sharpeRatio}`, info: "Measures the stability of your performance. Higher Sharpe Ratio means more consistent high scores." },
         rankSimulator: { title: "What-If Rank Simulator", component: <RankSimulatorWidget rankModel={kpiData.rankModel} currentAvg={kpiData.avgScores} />, getDataForInsight: () => "Analyze rank simulation potential.", info: "Interactive tool to simulate how improving subject scores impacts your predicted rank." },
         goalProgress: { title: "Goal Tracker", component: <GoalProgressWidget goals={longTermGoals} />, getDataForInsight: () => `Analyze goal progress. Completed: ${longTermGoals.filter(g=>g.completed).length}.`, info: "Tracks your progress towards defined long-term milestones." },
-        aiAnalysis: { title: "AI Performance Analysis", component: (
-            <div className="h-full flex flex-col">
-                {aiAnalysis.isLoading && <div className="flex-grow flex items-center justify-center text-gray-400 animate-pulse">Thinking... <span className="text-xs ml-2 text-gray-500">(May take 30s)</span></div>}
-                {aiAnalysis.error && <div className="flex-grow flex flex-col items-center justify-center text-red-400"><p>{aiAnalysis.error}</p><button onClick={handleGenerateAiAnalysis} className="mt-2 bg-red-600/50 hover:bg-red-600 text-white font-semibold py-1 px-3 rounded-full text-xs">Retry</button></div>}
-                {aiAnalysis.content ? <div className="flex-grow overflow-y-auto pr-2"><MarkdownRenderer content={aiAnalysis.content} /></div> : null}
-                {!aiAnalysis.content && !aiAnalysis.isLoading && !aiAnalysis.error && (
-                    <div className="flex-grow flex items-center justify-center">
-                        <button onClick={handleGenerateAiAnalysis} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg transition-colors shadow-lg">
-                            {aiAnalysis.isLoading ? 'Generating...' : 'Generate AI Analysis'}
-                        </button>
-                    </div>
-                )}
-            </div>
-        ), getDataForInsight: () => "AI analysis has been requested.", info: "This widget provides a comprehensive performance review generated by AI. It analyzes trends, strengths, weaknesses, and gives actionable recommendations based on all your data." },
+        reflections: { title: "Recent Reflections", component: <ReflectionsWidget reflections={useJeeStore(s => s.reflections)} />, getDataForInsight: () => "Analyze recent reflections.", info: "Shows your most recent journal entries and reflections." },
+        aiAnalysis: { title: "AI Performance Analysis", component: <AiAnalysisWidget aiAnalysis={aiAnalysis} aiAnalysisHistory={aiAnalysisHistory} handleGenerateAiAnalysis={handleGenerateAiAnalysis} selectedDate={selectedAiAnalysisDate} setSelectedDate={setSelectedAiAnalysisDate} />, getDataForInsight: () => "AI analysis has been requested.", info: "This widget provides a comprehensive performance review generated by AI. It analyzes trends, strengths, weaknesses, and gives actionable recommendations based on all your data." },
     };
     
     const hiddenWidgets = DEFAULT_DASHBOARD_LAYOUT.filter(w => !layout.find(l => l.id === w.id)?.visible);
@@ -684,8 +761,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
     return (
         <div className="space-y-6 pb-20">
             <div className="flex justify-between items-center flex-wrap gap-4">
-                 <h2 className="text-2xl font-bold text-cyan-300">Dashboard</h2>
                  <div className="flex items-center gap-4">
+                    <h2 className="text-2xl font-bold text-cyan-300">Dashboard</h2>
+                    <button 
+                        onClick={() => setIsOracleOpen(true)}
+                        className="flex items-center gap-2 bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 px-3 py-1.5 rounded-full border border-purple-500/30 text-xs font-bold transition-all animate-pulse"
+                    >
+                        <span>🔮</span> Consult Oracle
+                    </button>
+                 </div>
+                 <div className="flex items-center gap-4">
+                     <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer" title="Toggle Focus Mode to hide complex charts and focus on the most important metric.">
+                        <input type="checkbox" checked={isFocusMode} onChange={(e) => setIsFocusMode(e.target.checked)} className="form-checkbox h-4 w-4 bg-slate-700 border-slate-600 text-cyan-500 rounded focus:ring-cyan-500"/>
+                        <span className="hidden sm:inline">Focus Mode</span>
+                    </label>
                      <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer" title="Hover over a chart for a quick AI-powered insight.">
                         <input type="checkbox" checked={enableAiInsights} onChange={(e) => setEnableAiInsights(e.target.checked)} className="form-checkbox h-4 w-4 bg-slate-700 border-slate-600 text-cyan-500 rounded focus:ring-cyan-500"/>
                         <span className="hidden sm:inline">AI Insights</span>
@@ -695,6 +784,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
             </div>
             
             <InsightBanner reports={reports} apiKey={apiKey} />
+
+            {/* Quick Actions Bar */}
+            {!isFocusMode && (
+                <div className="flex flex-wrap gap-3 mb-2">
+                    <button onClick={() => setView('root-cause')} className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded-full border border-slate-700 transition-colors">
+                        🔍 Deep Root Cause
+                    </button>
+                    <button onClick={() => onStartFocusSession('Physics')} className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded-full border border-slate-700 transition-colors">
+                        ⚛️ Physics Sprint
+                    </button>
+                    <button onClick={() => onStartFocusSession('Chemistry')} className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded-full border border-slate-700 transition-colors">
+                        🧪 Chem Sprint
+                    </button>
+                    <button onClick={() => onStartFocusSession('Maths')} className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded-full border border-slate-700 transition-colors">
+                        📐 Maths Sprint
+                    </button>
+                </div>
+            )}
 
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                 <KPICard 
@@ -729,34 +836,55 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
             </div>
 
             <div className="flex gap-6 relative">
-                <main className="flex-grow grid grid-cols-1 lg:grid-cols-2 gap-6" onDragOver={(e) => e.preventDefault()}>
-                    {layout.filter(w => w.visible).map((widget) => {
-                        const widgetConfig = WIDGETS[widget.id];
-                        if (!widgetConfig) return null;
-                        const isDraggable = isCustomizing;
-                        return (
-                            <div key={widget.id} className={`${widget.size === 'wide' ? 'lg:col-span-2' : ''} h-[28rem] ${isDraggable ? 'cursor-move' : ''} ${dragOverId === widget.id && draggingId ? 'drag-over-indicator' : ''}`} draggable={isDraggable} onDragStart={(e) => handleDragStart(e, widget.id)} onDragEnter={(e) => handleDragEnter(e, widget.id)} onDragEnd={handleDragEnd} onDragLeave={() => setDragOverId(null)}>
-                                <ChartCard 
-                                    title={widgetConfig.title} 
-                                    isEditing={isCustomizing} 
-                                    isDragging={draggingId === widget.id} 
-                                    onChartClick={() => setEnlargedWidget(widget.id)} 
-                                    onMouseEnter={() => handleMouseEnterWidget(widget.id)} 
-                                    onMouseLeave={handleMouseLeaveWidget} 
-                                    insightText={contextualInsight.widgetId === widget.id ? contextualInsight.text : ''} 
-                                    isInsightLoading={contextualInsight.widgetId === widget.id && contextualInsight.isLoading} 
-                                    onInfoClick={() => setInfoModalContent({title: widgetConfig.title, content: widgetConfig.info})}
-                                    onHide={() => toggleWidgetVisibility(widget.id, false)}
-                                    onResize={() => handleToggleWidgetSize(widget.id)}
-                                >
-                                    {widgetConfig.component}
-                                </ChartCard>
-                            </div>
-                        );
-                    })}
-                </main>
+                {isFocusMode ? (
+                    <div className="w-full h-[60vh] flex flex-col items-center justify-center bg-slate-800/50 rounded-2xl border border-slate-700/50 p-12 text-center animate-fade-in">
+                        <h3 className="text-3xl font-light text-slate-400 mb-4">Focus Mode</h3>
+                        <div className="text-6xl font-bold text-rose-400 mb-8 tracking-tight">
+                            {kpiData.strongestSubject.name === 'Physics' ? 'Maths' : 'Physics'}
+                        </div>
+                        <p className="text-xl text-slate-300 mb-12 max-w-2xl">
+                            This is your weakest area right now. Eliminate distractions and focus solely on improving this subject.
+                        </p>
+                        <Button 
+                            variant="primary" 
+                            className="text-lg px-8 py-4 rounded-full shadow-lg shadow-cyan-500/20"
+                            onClick={() => onStartFocusSession(kpiData.strongestSubject.name === 'Physics' ? 'Maths' : 'Physics')}
+                        >
+                            Start Deep Work Session
+                        </Button>
+                    </div>
+                ) : (
+                    <main className="flex-grow grid grid-cols-1 lg:grid-cols-2 gap-6" onDragOver={(e) => e.preventDefault()}>
+                        {layout.filter(w => w.visible).map((widget) => {
+                            const widgetConfig = WIDGETS[widget.id];
+                            if (!widgetConfig) return null;
+                            const isDraggable = isCustomizing;
+                            return (
+                                <div key={widget.id} className={`${widget.size === 'wide' ? 'lg:col-span-2' : ''} ${widget.id === 'aiAnalysis' ? 'min-h-[28rem] h-auto' : 'h-[28rem]'} ${isDraggable ? 'cursor-move' : ''} ${dragOverId === widget.id && draggingId ? 'drag-over-indicator' : ''}`} draggable={isDraggable} onDragStart={(e) => handleDragStart(e, widget.id)} onDragEnter={(e) => handleDragEnter(e, widget.id)} onDragEnd={handleDragEnd} onDragLeave={() => setDragOverId(null)}>
+                                    <ChartCard 
+                                        title={widgetConfig.title} 
+                                        isEditing={isCustomizing} 
+                                        isDragging={draggingId === widget.id} 
+                                        onChartClick={() => setEnlargedWidget(widget.id)} 
+                                        onMouseEnter={() => handleMouseEnterWidget(widget.id)} 
+                                        onMouseLeave={handleMouseLeaveWidget} 
+                                        insightText={contextualInsight.widgetId === widget.id ? contextualInsight.text : ''} 
+                                        isInsightLoading={contextualInsight.widgetId === widget.id && contextualInsight.isLoading} 
+                                        onInfoClick={() => setInfoModalContent({title: widgetConfig.title, content: widgetConfig.info})}
+                                        onHide={() => toggleWidgetVisibility(widget.id, false)}
+                                        onResize={() => handleToggleWidgetSize(widget.id)}
+                                    >
+                                        <React.Suspense fallback={<SkeletonLoader />}>
+                                            {widgetConfig.component}
+                                        </React.Suspense>
+                                    </ChartCard>
+                                </div>
+                            );
+                        })}
+                    </main>
+                )}
 
-                 {isCustomizing && (
+                 {isCustomizing && !isFocusMode && (
                      <aside className="hidden lg:block w-64 flex-shrink-0 animate-fade-in sticky top-6 h-fit">
                          <div className="bg-slate-800/90 border-dashed border-2 border-slate-600 p-4 rounded-lg">
                             <h3 className="text-lg font-semibold mb-4 text-gray-300">Hidden Widgets</h3>
@@ -782,6 +910,25 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
                     </aside>
                 )}
             </div>
+
+            {/* Bottom Layer: Next Best Action */}
+            {!isFocusMode && (
+                <div className="mt-12 bg-gradient-to-r from-slate-800 to-slate-900 rounded-2xl p-8 border border-slate-700 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-6">
+                    <div>
+                        <h3 className="text-2xl font-bold text-white mb-2">Ready to improve?</h3>
+                        <p className="text-slate-400 max-w-xl">
+                            Based on your recent performance, we recommend focusing on <span className="text-cyan-400 font-semibold">{kpiData.strongestSubject.name === 'Physics' ? 'Maths' : 'Physics'}</span>. Generate a targeted practice set to address your specific weaknesses.
+                        </p>
+                    </div>
+                    <Button 
+                        variant="primary" 
+                        className="whitespace-nowrap px-8 py-4 text-lg rounded-xl shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/40 transition-all"
+                        onClick={() => onStartFocusSession(kpiData.strongestSubject.name === 'Physics' ? 'Maths' : 'Physics')}
+                    >
+                        Generate Practice Set
+                    </Button>
+                </div>
+            )}
             
              <Modal isOpen={!!enlargedWidget} onClose={() => setEnlargedWidget(null)} title={enlargedWidget ? WIDGETS[enlargedWidget].title : ''}>
                 {enlargedWidget ? WIDGETS[enlargedWidget].component : null}

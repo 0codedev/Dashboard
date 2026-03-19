@@ -6,7 +6,8 @@ import {
     LongTermGoal,
     DailyTask,
     FlashcardSession,
-    Flashcard
+    Flashcard,
+    Reflection
 } from '../types';
 import { dbService } from '../services/dbService';
 
@@ -17,6 +18,14 @@ interface DataState {
     longTermGoals: LongTermGoal[];
     dailyTasks: DailyTask[];
     flashcardSession: FlashcardSession;
+    reflections: Reflection[];
+    
+    // DailyPlanner specific state
+    bioStats: { sleep: number; stress: number; energy: number; date: string; skipped?: boolean } | null;
+    dailyQuote: { text: string; date: string } | null;
+    streakData: { count: number; date: string };
+    endOfDaySummaries: Record<string, string>;
+    dailyPlansHistory: Record<string, DailyTask[]>;
 }
 
 interface DataActions {
@@ -26,6 +35,14 @@ interface DataActions {
     setDailyTasks: (tasks: DailyTask[] | ((prev: DailyTask[]) => DailyTask[])) => void;
     setStudyGoals: (goals: StudyGoal[] | ((prev: StudyGoal[]) => StudyGoal[])) => void;
     setLongTermGoals: (goals: LongTermGoal[] | ((prev: LongTermGoal[]) => LongTermGoal[])) => void;
+    setReflections: (reflections: Reflection[] | ((prev: Reflection[]) => Reflection[])) => void;
+    
+    setBioStats: (stats: DataState['bioStats']) => void;
+    setDailyQuote: (quote: DataState['dailyQuote']) => void;
+    setStreakData: (data: DataState['streakData']) => void;
+    setEndOfDaySummaries: (summaries: Record<string, string> | ((prev: Record<string, string>) => Record<string, string>)) => void;
+    setDailyPlansHistory: (history: Record<string, DailyTask[]> | ((prev: Record<string, DailyTask[]>) => Record<string, DailyTask[]>)) => void;
+    
     clearReportsAndLogs: () => Promise<void>;
     
     startFlashcardSession: (cards: Flashcard[]) => void;
@@ -82,6 +99,12 @@ export const useDataStore = create<DataState & DataActions>((set, get) => ({
     longTermGoals: [],
     dailyTasks: [],
     flashcardSession: initialFlashcardSession,
+    reflections: [],
+    bioStats: null,
+    dailyQuote: null,
+    streakData: { count: 0, date: '' },
+    endOfDaySummaries: {},
+    dailyPlansHistory: {},
 
     addTestReport: (report, logs) => {
         set(state => {
@@ -133,6 +156,41 @@ export const useDataStore = create<DataState & DataActions>((set, get) => ({
             const newGoals = typeof goalsOrFn === 'function' ? goalsOrFn(state.longTermGoals) : goalsOrFn;
             dbService.syncStore('longTermGoals', newGoals);
             return { longTermGoals: newGoals };
+        });
+    },
+
+    setReflections: (reflectionsOrFn) => {
+        set(state => {
+            const newReflections = typeof reflectionsOrFn === 'function' ? reflectionsOrFn(state.reflections) : reflectionsOrFn;
+            dbService.syncStore('reflections', newReflections);
+            return { reflections: newReflections };
+        });
+    },
+
+    setBioStats: (stats) => {
+        set({ bioStats: stats });
+        if (stats) localStorage.setItem(`bioLog_${stats.date}`, JSON.stringify(stats));
+    },
+    setDailyQuote: (quote) => {
+        set({ dailyQuote: quote });
+        if (quote) localStorage.setItem('dailyQuote', JSON.stringify(quote));
+    },
+    setStreakData: (data) => {
+        set({ streakData: data });
+        localStorage.setItem('streakData_v1', JSON.stringify(data));
+    },
+    setEndOfDaySummaries: (summariesOrFn) => {
+        set(state => {
+            const newSummaries = typeof summariesOrFn === 'function' ? summariesOrFn(state.endOfDaySummaries) : summariesOrFn;
+            localStorage.setItem('endOfDaySummaries_v1', JSON.stringify(newSummaries));
+            return { endOfDaySummaries: newSummaries };
+        });
+    },
+    setDailyPlansHistory: (historyOrFn) => {
+        set(state => {
+            const newHistory = typeof historyOrFn === 'function' ? historyOrFn(state.dailyPlansHistory) : historyOrFn;
+            localStorage.setItem('dailyPlansHistory_v1', JSON.stringify(newHistory));
+            return { dailyPlansHistory: newHistory };
         });
     },
 

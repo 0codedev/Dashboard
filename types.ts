@@ -23,6 +23,7 @@ export interface DailyTask {
   estimatedTime: number;
   accomplishment?: string;
   scheduledTime?: string;
+  isGhost?: boolean;
 }
 
 export interface StudyGoal {
@@ -89,6 +90,7 @@ export interface TestReport {
   subType?: TestSubType;
   difficulty?: DifficultyLevel; 
   topperScore?: number; 
+  tags?: string[];
 
   physics: SubjectData;
   chemistry: SubjectData;
@@ -149,6 +151,7 @@ export interface QuestionLog {
   finalKey?: string;
   timeSpent?: number;
   confidence?: number; // 0-100% for Dunning-Kruger Analysis
+  timestamp?: number;
 }
 
 // --- Advanced Analysis Types ---
@@ -303,6 +306,8 @@ export interface AppearancePreferences {
   disableParticles: boolean;
   reduceMotion: boolean;
   highContrast: boolean;
+  largeText: boolean;
+  dyslexicFont: boolean;
 }
 
 export enum TargetExam {
@@ -427,4 +432,15 @@ export interface Toast {
   icon: string;
 }
 
-export type View = 'daily-planner' | 'dashboard' | 'detailed-reports' | 'deep-analysis' | 'root-cause' | 'data-entry' | 'ai-assistant' | 'question-log-editor' | 'settings' | 'achievements' | 'syllabus' | 'competitors' | 'flashcards' | 'new-ai-features';
+export interface Reflection {
+  id: string;
+  timestamp: number;
+  content: string;
+  tags: string[];
+  aiSummary?: string;
+  actionItems?: string[];
+  relatedTopics?: string[];
+  mood?: 'eureka' | 'frustrated' | 'neutral' | 'confident' | 'confused';
+}
+
+export type View = 'daily-planner' | 'dashboard' | 'detailed-reports' | 'deep-analysis' | 'root-cause' | 'data-entry' | 'ai-assistant' | 'question-log-editor' | 'settings' | 'achievements' | 'syllabus' | 'competitors' | 'flashcards' | 'new-ai-features' | 'reflections' | 'launchpad';

@@ -6,6 +6,30 @@ import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, YAxis, Toolt
 
 // --- Internal Helper Components ---
 
+const CustomPieTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+        return (
+            <div className="p-2 bg-slate-800 border border-slate-600 rounded-md text-xs shadow-xl">
+                <p className="font-bold text-white">{payload[0].name}</p>
+                <p className="text-cyan-400">{payload[0].value} Questions</p>
+            </div>
+        );
+    }
+    return null;
+};
+
+const CustomAreaTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+        return (
+            <div className="p-2 bg-slate-800 border border-slate-600 rounded-md text-xs shadow-xl">
+                <p className="font-bold text-white mb-1">{label}</p>
+                <p className="text-cyan-400">Accuracy: {payload[0].value.toFixed(1)}%</p>
+            </div>
+        );
+    }
+    return null;
+};
+
 const MemoryBattery: React.FC<{ percentage: number; status: 'good' | 'fading' | 'critical' | 'dormant' | 'fresh'; daysAgo: number }> = ({ percentage, status, daysAgo }) => {
     let color = 'bg-slate-600';
     if (status === 'good' || status === 'fresh') color = 'bg-green-500';
@@ -274,8 +298,13 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
 
     // Removed 'overflow-hidden' from main wrapper to allow tooltips to pop out
     return (
-        <div ref={cardRef} className={`relative rounded-lg p-px ${forceExpanded ? 'h-full' : ''}`} style={ringGlowStyle}>
-            <div className={`relative rounded-lg border transition-all duration-300 ${statusColors[progress.status]} ${forceExpanded ? 'bg-slate-900 h-full border-0' : ''}`}>
+        <div ref={cardRef} className={`relative rounded-lg p-px ${forceExpanded ? 'h-full min-h-[600px]' : ''}`} style={ringGlowStyle}>
+            <div className={`relative rounded-lg border transition-all duration-300 ${statusColors[progress.status]} ${forceExpanded ? 'bg-slate-900 h-full border-0 overflow-y-auto custom-scrollbar' : ''}`}>
+                {/* Full-height status color overlay for pop-up view */}
+                {forceExpanded && (
+                    <div className={`absolute inset-0 pointer-events-none opacity-[0.07] ${statusColors[progress.status].split(' ')[0]}`}></div>
+                )}
+                
                 {isHighYield && !forceExpanded && (
                     <div className="absolute top-0 right-0 pointer-events-none z-0 w-16 h-16 overflow-hidden rounded-tr-lg">
                         <div className="bg-amber-500 text-white text-[9px] font-bold py-1 w-[120px] text-center rotate-45 absolute top-[8px] -right-[36px] shadow-sm">
@@ -459,17 +488,20 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
                                     <div className="bg-slate-900/50 p-2 rounded"><p className="text-gray-400">Accuracy</p><p className="font-bold text-lg text-white">{chapterStats.accuracy.toFixed(1)}%</p></div>
                                     <div className="bg-slate-900/50 p-2 rounded"><p className="text-gray-400">Attempt Rate</p><p className="font-bold text-lg text-white">{chapterStats.attemptRate.toFixed(1)}%</p></div>
                                     <div className="bg-slate-900/50 p-2 rounded"><p className="text-gray-400">SPAQ</p><p className="font-bold text-lg text-white">{chapterStats.spaq.toFixed(2)}</p></div>
-                                    <div className="bg-slate-900/50 p-2 rounded h-16">
-                                        <p className="text-gray-400">Accuracy Trend</p>
-                                        {chapterStats.accuracyTrend.length > 1 ? (
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <AreaChart data={chapterStats.accuracyTrend} margin={{top: 5, right: 0, left: 0, bottom: 0}}>
-                                                <defs><linearGradient id="sparklineGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="rgb(var(--color-primary-rgb))" stopOpacity={0.4}/><stop offset="95%" stopColor="rgb(var(--color-primary-rgb))" stopOpacity={0}/></linearGradient></defs>
-                                                <YAxis domain={[0, 100]} hide />
-                                                <Area type="monotone" dataKey="accuracy" stroke="rgb(var(--color-primary-rgb))" strokeWidth={2} fill="url(#sparklineGradient)" />
-                                            </AreaChart>
-                                        </ResponsiveContainer>
-                                        ) : <p className="text-gray-500 text-xs mt-1">Not enough data</p>}
+                                    <div className="bg-slate-900/50 p-2 rounded h-24 flex flex-col">
+                                        <p className="text-gray-400 mb-1">Accuracy Trend</p>
+                                        <div className="flex-grow">
+                                            {chapterStats.accuracyTrend.length > 1 ? (
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <AreaChart data={chapterStats.accuracyTrend} margin={{top: 5, right: 5, left: 5, bottom: 5}}>
+                                                    <defs><linearGradient id="sparklineGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="rgb(var(--color-primary-rgb))" stopOpacity={0.4}/><stop offset="95%" stopColor="rgb(var(--color-primary-rgb))" stopOpacity={0}/></linearGradient></defs>
+                                                    <YAxis domain={[0, 100]} hide />
+                                                    <RechartsTooltip content={<CustomAreaTooltip />} />
+                                                    <Area type="monotone" dataKey="accuracy" stroke="rgb(var(--color-primary-rgb))" strokeWidth={2} fill="url(#sparklineGradient)" />
+                                                </AreaChart>
+                                            </ResponsiveContainer>
+                                            ) : <p className="text-gray-500 text-[10px] mt-1">Not enough data</p>}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -483,7 +515,7 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
                                                 <Pie data={chapterStats.errorReasons} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius="60%" outerRadius="80%" paddingAngle={5}>
                                                     {chapterStats.errorReasons.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS_PIE[entry.name] || '#8884d8'} />)}
                                                 </Pie>
-                                                <RechartsTooltip content={<div className="p-2 bg-slate-800 border border-slate-600 rounded-md text-xs"><p className="font-bold text-white">{chapterStats.errorReasons[0]?.name}</p></div>} />
+                                                <RechartsTooltip content={<CustomPieTooltip />} />
                                             </PieChart>
                                         </ResponsiveContainer>
                                     </div>

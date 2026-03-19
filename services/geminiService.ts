@@ -224,8 +224,86 @@ export const generateEndOfDaySummary = async (goals: any[], checklist: any[], ap
     return await llmPipeline({ task: 'creative_writing', prompt: `Summarize my study day. Goals: ${JSON.stringify(goals)}. Checklist: ${JSON.stringify(checklist)}. Be encouraging.`, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
 };
 
+export const generateTestAnalysis = async (report: TestReport, apiKey: string, model?: string): Promise<string> => {
+    const prompt = `Act as an elite JEE academic strategist and performance psychologist. 
+    Analyze this test report: ${JSON.stringify(report)}.
+    
+    Provide a deep-dive analysis in Markdown format with the following sections:
+    1. **Executive Summary**: A high-level overview of the performance (Marks: ${report.total.marks}, Rank: ${report.total.rank}).
+    2. **Subject-Wise Breakdown**: Detailed insights into Physics, Chemistry, and Maths performance. Highlight where the student excelled and where they struggled.
+    3. **Behavioral Patterns**: Analyze metrics like Accuracy (${report.totalMetrics?.accuracy.toFixed(1)}%), Attempt Rate, and SPAQ to identify psychological or behavioral hurdles (e.g., "Over-attempting in Physics led to high negative marks").
+    4. **The "Vaccination" Action Plan**: 3-5 highly specific, actionable steps the student must take in the next 48 hours to fix the most critical leaks.
+    
+    Use a professional, encouraging, yet firm tone. Use bolding and lists for readability.`;
+    return await llmPipeline({ task: 'analysis_deep', prompt, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
+};
+
+export const generateAudioDebrief = async (report: TestReport, apiKey: string): Promise<string | null> => {
+    const ai = new GoogleGenAI({ apiKey });
+    const prompt = `
+    You are an encouraging but firm JEE mentor. Provide a 60-second audio debrief for the student based on this test report.
+    Speak directly to the student (e.g., "Hey there, looking at your recent test...").
+    Highlight their total score, their best subject, and the subject that needs the most work.
+    Give them one specific piece of advice to reduce negative marking or improve accuracy.
+    Keep it conversational, motivational, and concise.
+
+    Test Name: ${report.testName}
+    Total Marks: ${report.total.marks}
+    Physics: ${report.physics.marks} marks
+    Chemistry: ${report.chemistry.marks} marks
+    Maths: ${report.maths.marks} marks
+    Accuracy: ${report.totalMetrics?.accuracy.toFixed(1)}%
+    `;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash-preview-tts",
+            contents: [{ parts: [{ text: prompt }] }],
+            config: {
+                responseModalities: [Modality.AUDIO],
+                speechConfig: {
+                    voiceConfig: {
+                        prebuiltVoiceConfig: { voiceName: 'Puck' },
+                    },
+                },
+            },
+        });
+        
+        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        return base64Audio || null;
+    } catch (error) {
+        console.error("Error generating audio debrief:", error);
+        return null;
+    }
+};
+
+export const generateVaccinePlan = async (logs: QuestionLog[], apiKey: string, model?: string): Promise<string> => {
+    const prompt = `Act as a Master JEE Coach. You are designing a "7-Day Error Vaccination Plan" for a student based on their recent mistakes.
+    
+    DATA (Question Logs): ${JSON.stringify(logs.slice(0, 50))}
+    
+    Your goal is to "vaccinate" the student against repeating these errors. 
+    Provide a structured 7-day plan in Markdown:
+    - **Day 1-2: Root Cause Eradication**: Focus on the most frequent error reasons (e.g., "Conceptual Gap in Electromagnetics").
+    - **Day 3-4: Behavioral Calibration**: Exercises to fix "Silly Mistakes" or "Time Management" issues.
+    - **Day 5-6: Targeted Drill**: Specific types of questions or topics to practice.
+    - **Day 7: Simulation & Review**: How to test if the "vaccine" worked.
+    
+    Include specific "Dos and Don'ts" for each day. Be highly specific to the topics and errors found in the logs.`;
+    return await llmPipeline({ task: 'planning_routine', prompt, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
+};
+
 export const getAIChiefAnalystSummary = async (weakTopics: any, errorReasons: any, correlations: any, apiKey: string, improvise: boolean, model?: string): Promise<string> => {
-    const prompt = `Act as Chief Analyst. Data: Weakness ${JSON.stringify(weakTopics)}, Errors ${JSON.stringify(errorReasons)}. ${improvise ? 'Provide a counter-intuitive insight.' : 'Provide executive summary.'}`;
+    const prompt = `Act as the Chief Academic Analyst for an elite JEE coaching institute. 
+    Analyze the following performance data:
+    - **Weak Topics**: ${JSON.stringify(weakTopics)}
+    - **Error Reasons**: ${JSON.stringify(errorReasons)}
+    
+    ${improvise 
+        ? "Provide a counter-intuitive, 'black-swan' insight. Don't just state the obvious. Find a hidden correlation or a non-obvious strategy that could lead to a breakthrough." 
+        : "Provide a high-level executive summary. Identify the single biggest 'bottleneck' holding the student back and suggest a high-impact strategic shift."}
+    
+    Format the output in Markdown. Be concise but profound.`;
     return await llmPipeline({ task: 'analysis_briefing', prompt, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey, includeFooter: true });
 };
 
@@ -253,16 +331,18 @@ export const generateTasksFromGoal = async (goalText: string, apiKey: string, mo
     } catch { return []; }
 };
 
-export const generateSmartTasks = async (weakTopics: string[], apiKey: string, model?: string): Promise<{ task: string; time: number; topic: string; }[]> => {
-    const prompt = `Suggest 3 tasks for weak topics: ${weakTopics.join(', ')}. Return JSON { tasks: [{task, time, topic}] }`;
+export const generateSmartTasks = async (weakTopics: string[], bioStats: { sleep: number; stress: number; energy: number } | null, apiKey: string, model?: string): Promise<{ task: string; time: number; topic: string; }[]> => {
+    const bioContext = bioStats ? `User energy: ${bioStats.energy}/10, stress: ${bioStats.stress}/10, sleep: ${bioStats.sleep}h. Adjust task difficulty and duration accordingly.` : '';
+    const prompt = `Suggest 3 tasks for weak topics: ${weakTopics.join(', ')}. ${bioContext} Return JSON { tasks: [{task, time, topic}] }`;
     try {
         const res = await llmPipeline({ task: 'planning_routine', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
         return JSON.parse(res).tasks || [];
     } catch { return []; }
 };
 
-export const generateSmartTaskOrder = async (tasks: DailyTask[], userProfile: UserProfile, logs: QuestionLog[], apiKey: string, model?: string): Promise<string[]> => {
-    const prompt = `Reorder tasks for max efficiency. Profile: ${JSON.stringify(userProfile.studyTimes)}. Tasks: ${JSON.stringify(tasks)}. Return JSON { orderedIds: string[] }`;
+export const generateSmartTaskOrder = async (tasks: DailyTask[], userProfile: UserProfile, logs: QuestionLog[], bioStats: { sleep: number; stress: number; energy: number } | null, apiKey: string, model?: string): Promise<string[]> => {
+    const bioContext = bioStats ? `User energy: ${bioStats.energy}/10, stress: ${bioStats.stress}/10, sleep: ${bioStats.sleep}h.` : '';
+    const prompt = `Reorder tasks for max efficiency. ${bioContext} Profile: ${JSON.stringify(userProfile.studyTimes)}. Tasks: ${JSON.stringify(tasks)}. Return JSON { orderedIds: string[] }`;
     try {
         const res = await llmPipeline({ task: 'planning_sorting', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
         return JSON.parse(res).orderedIds || tasks.map(t => t.id);
@@ -299,6 +379,29 @@ export const generateOracleDrill = async (errorStats: { topic: string; reason: s
     } catch (e) { console.error("Oracle Generation Failed", e); return []; }
 };
 
+export const analyzeReflection = async (content: string, apiKey: string): Promise<{ tags: string[], summary: string, actionItems: string[], relatedTopics: string[], mood: 'eureka' | 'frustrated' | 'neutral' | 'confident' | 'confused' }> => {
+    const prompt = `Analyze this student's study reflection/journal entry: "${content}". 
+    Return a JSON object with:
+    - tags: array of strings (e.g., subjects, topics, or themes like 'time-management', 'silly-mistake')
+    - summary: a 1-sentence key takeaway
+    - actionItems: array of strings (actionable steps derived from the reflection)
+    - relatedTopics: array of strings (JEE topics mentioned or implied)
+    - mood: one of 'eureka', 'frustrated', 'neutral', 'confident', 'confused'`;
+    try {
+        const res = await llmPipeline({ task: 'analysis_deep', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
+        const parsed = JSON.parse(res);
+        return {
+            tags: parsed.tags || [],
+            summary: parsed.summary || "Could not generate summary.",
+            actionItems: parsed.actionItems || [],
+            relatedTopics: parsed.relatedTopics || [],
+            mood: parsed.mood || 'neutral'
+        };
+    } catch {
+        return { tags: [], summary: "Could not analyze.", actionItems: [], relatedTopics: [], mood: 'neutral' };
+    }
+};
+
 export const generateFlashcards = async (topics: string[], apiKey: string): Promise<Flashcard[]> => {
     const prompt = `Generate 3 conceptual JEE flashcards for: ${topics.join(', ')}. Return JSON array: [ { "topic": "", "front": "", "back": "", "difficulty": "Medium" } ]`;
     try {
@@ -321,29 +424,7 @@ export const generateFlashcards = async (topics: string[], apiKey: string): Prom
     }
 };
 
-export const generateSpeechFromText = async (text: string, apiKey: string, voiceName: string = 'Kore'): Promise<string | null> => {
-    try {
-        const ai = new GoogleGenAI({ apiKey });
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash-preview-tts",
-            contents: [{ parts: [{ text }] }],
-            config: {
-                responseModalities: [Modality.AUDIO],
-                speechConfig: {
-                    voiceConfig: {
-                        prebuiltVoiceConfig: { voiceName },
-                    },
-                },
-            },
-        });
-        
-        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        return base64Audio || null;
-    } catch (e) {
-        console.error("TTS Generation Failed:", e);
-        return null;
-    }
-};
+
 
 // ... (Rest of file including generateCardSolution and exports remains unchanged)
 export const generateCardSolution = async (cardContext: { topic: string, front: string }, apiKey: string): Promise<{ solution: string; mutation?: any; visual_aid?: any }> => {

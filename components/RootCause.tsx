@@ -7,7 +7,7 @@ import {
     Tooltip, Legend, ResponsiveContainer, ReferenceLine, ScatterChart,
     Scatter, Label, Sector, Line, LabelList, Rectangle, AreaChart, Area, Sankey, ComposedChart, Brush, ZAxis
 } from 'recharts';
-import { getAIChiefAnalystSummary } from '../services/geminiService';
+import { getAIChiefAnalystSummary, generateVaccinePlan } from '../services/geminiService';
 import { useRootCauseAnalytics } from '../hooks/useRootCauseAnalytics';
 import CustomTooltip from './common/CustomTooltip';
 import Modal from './common/Modal';
@@ -694,10 +694,24 @@ const AIChiefAnalyst: React.FC<{
   correlationData: any;
   apiKey: string;
   model?: string;
-}> = ({ weakTopics, errorReasons, correlationData, apiKey, model }) => {
+  logs: QuestionLog[];
+}> = ({ weakTopics, errorReasons, correlationData, apiKey, model, logs }) => {
   const [summary, setSummary] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [history, setHistory] = useState<Record<string, string>>({});
+  const [selectedHistory, setSelectedHistory] = useState<{ date: string, content: string } | null>(null);
+
+  useEffect(() => {
+      const savedHistory = localStorage.getItem('aiChiefAnalystHistory_v1');
+      if (savedHistory) {
+          try {
+              setHistory(JSON.parse(savedHistory));
+          } catch (e) {
+              console.error("Failed to parse AI Chief Analyst history", e);
+          }
+      }
+  }, []);
 
   const stringifiedData = JSON.stringify({ weakTopics, errorReasons, correlationData });
 
@@ -708,6 +722,13 @@ const AIChiefAnalyst: React.FC<{
     try {
       const result = await getAIChiefAnalystSummary(weakTopics, errorReasons, correlationData, apiKey, improvise, model);
       setSummary(result);
+      
+      const timestamp = new Date().toLocaleString();
+      setHistory(prev => {
+          const updated = { ...prev, [timestamp]: result };
+          localStorage.setItem('aiChiefAnalystHistory_v1', JSON.stringify(updated));
+          return updated;
+      });
     } catch (e: any) {
       setError(e.message || 'Failed to generate summary.');
     } finally {
@@ -720,6 +741,22 @@ const AIChiefAnalyst: React.FC<{
       setError('');
       setIsLoading(false);
   }, [stringifiedData]);
+
+    const [isGeneratingVaccine, setIsGeneratingVaccine] = useState(false);
+    const [vaccinePlan, setVaccinePlan] = useState<string | null>(null);
+
+    const generateVaccinePlanHandler = async () => {
+        setIsGeneratingVaccine(true);
+        try {
+            const plan = await generateVaccinePlan(logs, apiKey, model);
+            setVaccinePlan(plan);
+        } catch (e) {
+            console.error(e);
+            setVaccinePlan("Failed to generate vaccination plan. Please try again.");
+        } finally {
+            setIsGeneratingVaccine(false);
+        }
+    };
 
   return (
     <div className="bg-slate-900/50 p-6 rounded-xl border border-slate-700 shadow-lg">
@@ -751,9 +788,30 @@ const AIChiefAnalyst: React.FC<{
                 <p>Ready to analyze your weak topics and error patterns.</p>
             </div>
         )}
+
+        {vaccinePlan && (
+            <div className="mt-6 p-5 bg-emerald-900/20 border border-emerald-500/30 rounded-lg animate-fade-in">
+                <div className="flex justify-between items-center mb-3">
+                    <h4 className="text-sm font-bold text-emerald-400 flex items-center gap-2">
+                        <span>🛡️</span> Error Vaccination Plan
+                    </h4>
+                    <button onClick={() => setVaccinePlan(null)} className="text-gray-500 hover:text-white">&times;</button>
+                </div>
+                <div className="text-xs text-gray-300 leading-relaxed prose prose-invert prose-sm max-w-none">
+                    <MarkdownRenderer content={vaccinePlan} />
+                </div>
+            </div>
+        )}
         
         {!isLoading && (
              <div className="mt-6 flex flex-wrap gap-3 justify-end">
+                <button 
+                    onClick={generateVaccinePlanHandler}
+                    disabled={isGeneratingVaccine}
+                    className="text-sm bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-5 rounded-lg transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-2"
+                >
+                    <span>🛡️</span> {isGeneratingVaccine ? 'Generating...' : 'Get Vaccination Plan'}
+                </button>
                 <button 
                     onClick={() => generateSummary(false)} 
                     disabled={isLoading} 
@@ -771,7 +829,47 @@ const AIChiefAnalyst: React.FC<{
                 </button>
             </div>
         )}
+
+        {Object.keys(history).length > 0 && (
+            <div className="mt-8 pt-6 border-t border-slate-700/50">
+                <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Past Analyses</h4>
+                <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                    {Object.entries(history)
+                        .sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime())
+                        .map(([date, content]) => (
+                            <div 
+                                key={date} 
+                                onClick={() => setSelectedHistory({ date, content })}
+                                className="bg-slate-800/40 hover:bg-slate-800 p-3 rounded-lg border border-slate-700/50 cursor-pointer transition-colors flex justify-between items-center group"
+                            >
+                                <span className="text-sm text-indigo-300 font-medium">{date}</span>
+                                <span className="text-xs text-slate-500 group-hover:text-indigo-400 transition-colors">View &rarr;</span>
+                            </div>
+                        ))
+                    }
+                </div>
+            </div>
+        )}
       </div>
+
+      {selectedHistory && (
+          <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 animate-fade-in">
+              <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+                  <div className="p-6 border-b border-slate-800 flex justify-between items-center">
+                      <div className="flex items-center gap-4">
+                          <button onClick={() => setSelectedHistory(null)} className="text-xs bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded transition-colors">&larr; Back to List</button>
+                          <h2 className="text-xl font-bold text-cyan-300">Analysis from {selectedHistory.date}</h2>
+                      </div>
+                      <button onClick={() => setSelectedHistory(null)} className="text-gray-400 hover:text-white transition-colors text-2xl">&times;</button>
+                  </div>
+                  <div className="p-6 overflow-y-auto custom-scrollbar flex-grow">
+                      <div className="bg-slate-900/30 rounded-lg border border-slate-700/50 p-5 markdown-body">
+                          <MarkdownRenderer content={selectedHistory.content} />
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
     </div>
   );
 };
@@ -1387,6 +1485,7 @@ export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFi
                         correlationData={{ data: [] }}
                         apiKey={apiKey}
                         model={modelName}
+                        logs={filteredLogs}
                     />
                     
                     <div className="flex gap-6 relative">

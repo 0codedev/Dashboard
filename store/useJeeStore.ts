@@ -13,7 +13,8 @@ import {
     GlobalFilter,
     AiAssistantPreferences,
     NotificationPreferences,
-    AppearancePreferences
+    AppearancePreferences,
+    Reflection
 } from '../types';
 import { dbService } from '../services/dbService';
 import { MOCK_TEST_REPORTS, MOCK_QUESTION_LOGS } from '../constants';
@@ -26,6 +27,7 @@ interface JeeState {
     // Session State (Flashcards)
     flashcardSession: FlashcardSession;
     isFlashcardModalOpen: boolean;
+    shieldActive: boolean;
 
     // Global App State
     isInitialized: boolean;
@@ -40,6 +42,14 @@ interface JeeState {
     dailyTasks: DailyTask[];
     chatHistory: ChatMessage[];
     activeSessionId: string | null;
+    reflections: Reflection[];
+    
+    // DailyPlanner specific state
+    bioStats: { sleep: number; stress: number; energy: number; date: string; skipped?: boolean } | null;
+    dailyQuote: { text: string; date: string } | null;
+    streakData: { count: number; date: string };
+    endOfDaySummaries: Record<string, string>;
+    dailyPlansHistory: Record<string, DailyTask[]>;
     
     // State & Config
     gamificationState: GamificationState;
@@ -76,6 +86,13 @@ interface JeeActions {
     setDailyTasks: (tasks: DailyTask[] | ((prev: DailyTask[]) => DailyTask[])) => void;
     setStudyGoals: (goals: StudyGoal[] | ((prev: StudyGoal[]) => StudyGoal[])) => void;
     setLongTermGoals: (goals: LongTermGoal[] | ((prev: LongTermGoal[]) => LongTermGoal[])) => void;
+    setReflections: (reflections: Reflection[] | ((prev: Reflection[]) => Reflection[])) => void;
+    
+    setBioStats: (stats: { sleep: number; stress: number; energy: number; date: string; skipped?: boolean } | null) => void;
+    setDailyQuote: (quote: { text: string; date: string } | null) => void;
+    setStreakData: (data: { count: number; date: string }) => void;
+    setEndOfDaySummaries: (summaries: Record<string, string> | ((prev: Record<string, string>) => Record<string, string>)) => void;
+    setDailyPlansHistory: (history: Record<string, DailyTask[]> | ((prev: Record<string, DailyTask[]>) => Record<string, DailyTask[]>)) => void;
     
     // Chat & Gamification
     setChatHistory: (history: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => void;
@@ -87,6 +104,7 @@ interface JeeActions {
     setNotificationPreferences: (prefs: NotificationPreferences | ((prev: NotificationPreferences) => NotificationPreferences)) => void;
     setAppearancePreferences: (prefs: AppearancePreferences | ((prev: AppearancePreferences) => AppearancePreferences)) => void;
     setTheme: (theme: 'cyan' | 'indigo' | 'green' | 'red') => void;
+    setShieldActive: (isActive: boolean) => void;
 
     // Reset
     fullReset: () => Promise<void>;
@@ -99,6 +117,7 @@ export const useJeeStore = create<JeeState & JeeActions>((set, get) => ({
     // --- Initial State (Derived from micro-stores) ---
     flashcardSession: useDataStore.getState().flashcardSession,
     isFlashcardModalOpen: useAppStore.getState().isFlashcardModalOpen,
+    shieldActive: useAppStore.getState().shieldActive,
     
     isInitialized: useAppStore.getState().isInitialized,
     apiKey: useAppStore.getState().apiKey,
@@ -111,6 +130,13 @@ export const useJeeStore = create<JeeState & JeeActions>((set, get) => ({
     dailyTasks: useDataStore.getState().dailyTasks,
     chatHistory: useAIStore.getState().chatHistory,
     activeSessionId: useAIStore.getState().activeSessionId,
+    reflections: useDataStore.getState().reflections,
+    
+    bioStats: useDataStore.getState().bioStats,
+    dailyQuote: useDataStore.getState().dailyQuote,
+    streakData: useDataStore.getState().streakData,
+    endOfDaySummaries: useDataStore.getState().endOfDaySummaries,
+    dailyPlansHistory: useDataStore.getState().dailyPlansHistory,
     
     gamificationState: useAppStore.getState().gamificationState,
     globalFilter: useAppStore.getState().globalFilter,
@@ -134,6 +160,7 @@ export const useJeeStore = create<JeeState & JeeActions>((set, get) => ({
         const savedAppearPrefs = localStorage.getItem('appearancePreferences_v1');
         const savedTheme = localStorage.getItem('theme_v1');
         const savedFilter = localStorage.getItem('jeeGlobalFilter_v2');
+        const savedTimer = localStorage.getItem('jee_timer_state');
 
         // 2. Load IndexedDB Items (Async)
         await dbService.initDB();
@@ -156,7 +183,7 @@ export const useJeeStore = create<JeeState & JeeActions>((set, get) => ({
             await dbService.putBulk('gamificationState', [initialGamificationState]);
         }
 
-        const [reports, logs, goals, history, gStateArray, tasks, longGoals] = await Promise.all([
+        const [reports, logs, goals, history, gStateArray, tasks, longGoals, reflections] = await Promise.all([
             dbService.getAll<TestReport>('testReports'),
             dbService.getAll<QuestionLog>('questionLogs'),
             dbService.getAll<StudyGoal>('studyGoals'),
@@ -164,12 +191,20 @@ export const useJeeStore = create<JeeState & JeeActions>((set, get) => ({
             dbService.getAll<GamificationState>('gamificationState'),
             dbService.getAll<DailyTask>('dailyTasks'),
             dbService.getAll<LongTermGoal>('longTermGoals'),
+            dbService.getAll<any>('reflections'),
         ]);
 
         // Daily Task Reset Logic
         const today = new Date().toISOString().split('T')[0];
         const savedDate = await dbService.get<string>('appState', 'dailyTasksDate');
-        const currentTasks = savedDate === today ? tasks : [];
+        
+        let currentTasks = tasks;
+        if (savedDate !== today) {
+            // Keep unfinished tasks as ghosts
+            currentTasks = tasks.filter(t => !t.completed).map(t => ({ ...t, isGhost: true, scheduledTime: undefined }));
+            // Save the new state
+            useDataStore.getState().setDailyTasks(currentTasks);
+        }
 
         // Apply visual preferences immediately
         const appearance = savedAppearPrefs ? JSON.parse(savedAppearPrefs) : appState.appearancePreferences;
@@ -189,6 +224,7 @@ export const useJeeStore = create<JeeState & JeeActions>((set, get) => ({
             theme: themeVal,
             globalFilter: savedFilter ? JSON.parse(savedFilter) : appState.globalFilter,
             gamificationState: gStateArray[0] || appState.gamificationState,
+            timerState: savedTimer ? JSON.parse(savedTimer) : appState.timerState,
         });
 
         useDataStore.getState().hydrateData({
@@ -196,7 +232,13 @@ export const useJeeStore = create<JeeState & JeeActions>((set, get) => ({
             questionLogs: logs,
             studyGoals: goals,
             longTermGoals: longGoals,
-            dailyTasks: currentTasks
+            dailyTasks: currentTasks,
+            reflections: reflections,
+            bioStats: localStorage.getItem(`bioLog_${new Date().toISOString().split('T')[0]}`) ? JSON.parse(localStorage.getItem(`bioLog_${new Date().toISOString().split('T')[0]}`)!) : null,
+            dailyQuote: localStorage.getItem('dailyQuote') ? JSON.parse(localStorage.getItem('dailyQuote')!) : null,
+            streakData: localStorage.getItem('streakData_v1') ? JSON.parse(localStorage.getItem('streakData_v1')!) : { count: 0, date: '' },
+            endOfDaySummaries: localStorage.getItem('endOfDaySummaries_v1') ? JSON.parse(localStorage.getItem('endOfDaySummaries_v1')!) : {},
+            dailyPlansHistory: localStorage.getItem('dailyPlansHistory_v1') ? JSON.parse(localStorage.getItem('dailyPlansHistory_v1')!) : {}
         });
 
         useAIStore.getState().hydrateAI({
@@ -215,6 +257,13 @@ export const useJeeStore = create<JeeState & JeeActions>((set, get) => ({
     setDailyTasks: (tasksOrFn) => useDataStore.getState().setDailyTasks(tasksOrFn),
     setStudyGoals: (goalsOrFn) => useDataStore.getState().setStudyGoals(goalsOrFn),
     setLongTermGoals: (goalsOrFn) => useDataStore.getState().setLongTermGoals(goalsOrFn),
+    setReflections: (reflectionsOrFn) => useDataStore.getState().setReflections(reflectionsOrFn),
+    
+    setBioStats: (stats) => useDataStore.getState().setBioStats(stats),
+    setDailyQuote: (quote) => useDataStore.getState().setDailyQuote(quote),
+    setStreakData: (data) => useDataStore.getState().setStreakData(data),
+    setEndOfDaySummaries: (summaries) => useDataStore.getState().setEndOfDaySummaries(summaries),
+    setDailyPlansHistory: (history) => useDataStore.getState().setDailyPlansHistory(history),
     
     setChatHistory: (historyOrFn) => useAIStore.getState().setChatHistory(historyOrFn),
     setActiveSessionId: (id) => useAIStore.getState().setActiveSessionId(id),
@@ -224,6 +273,7 @@ export const useJeeStore = create<JeeState & JeeActions>((set, get) => ({
     setNotificationPreferences: (prefsOrFn) => useAppStore.getState().setNotificationPreferences(prefsOrFn),
     setAppearancePreferences: (prefsOrFn) => useAppStore.getState().setAppearancePreferences(prefsOrFn),
     setTheme: (theme) => useAppStore.getState().setTheme(theme),
+    setShieldActive: (isActive) => useAppStore.getState().setShieldActive(isActive),
 
     fullReset: async () => {
         await dbService.clearAllStores();
@@ -256,7 +306,8 @@ useAppStore.subscribe((state) => {
         notificationPreferences: state.notificationPreferences,
         appearancePreferences: state.appearancePreferences,
         theme: state.theme,
-        isFlashcardModalOpen: state.isFlashcardModalOpen
+        isFlashcardModalOpen: state.isFlashcardModalOpen,
+        shieldActive: state.shieldActive
     });
 });
 
@@ -267,7 +318,13 @@ useDataStore.subscribe((state) => {
         studyGoals: state.studyGoals,
         longTermGoals: state.longTermGoals,
         dailyTasks: state.dailyTasks,
-        flashcardSession: state.flashcardSession
+        flashcardSession: state.flashcardSession,
+        reflections: state.reflections,
+        bioStats: state.bioStats,
+        dailyQuote: state.dailyQuote,
+        streakData: state.streakData,
+        endOfDaySummaries: state.endOfDaySummaries,
+        dailyPlansHistory: state.dailyPlansHistory
     });
 });
 

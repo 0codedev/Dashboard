@@ -542,7 +542,10 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
                     expectJson: false,
                     includeFooter: true, // IMPORTANT: Tell pipeline to append footer
                     fallbackFrom: fallbackFrom,
-                    chatHistory: chatHistory
+                    chatHistory: chatHistory.map(h => ({
+                        role: h.role,
+                        content: typeof h.content === 'string' ? h.content : JSON.stringify(h.content)
+                    }))
                 });
 
                 setChatHistory(prev => [...prev, { role: 'model', content: responseText }]);

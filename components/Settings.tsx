@@ -332,6 +332,28 @@ const AppearanceSettings: React.FC<Pick<SettingsProps, 'theme' | 'setTheme' | 'a
                             onChange={c => setAppearancePreferences(p => ({ ...p, highContrast: c }))} 
                         />
                     </div>
+                    <div className="flex items-center justify-between p-3 bg-slate-900/30 rounded-lg">
+                        <div>
+                            <p className="text-sm font-medium text-slate-200">Large Text Mode</p>
+                            <p className="text-xs text-slate-500">Increase font sizes across the application.</p>
+                        </div>
+                        <ToggleSwitch 
+                            label="" 
+                            checked={appearancePreferences.largeText} 
+                            onChange={c => setAppearancePreferences(p => ({ ...p, largeText: c }))} 
+                        />
+                    </div>
+                    <div className="flex items-center justify-between p-3 bg-slate-900/30 rounded-lg">
+                        <div>
+                            <p className="text-sm font-medium text-slate-200">Dyslexic Friendly Font</p>
+                            <p className="text-xs text-slate-500">Use OpenDyslexic font for improved readability.</p>
+                        </div>
+                        <ToggleSwitch 
+                            label="" 
+                            checked={appearancePreferences.dyslexicFont} 
+                            onChange={c => setAppearancePreferences(p => ({ ...p, dyslexicFont: c }))} 
+                        />
+                    </div>
                 </div>
             </div>
         </div>
@@ -968,9 +990,17 @@ const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleRepo
             />
 
             <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
-                 <h3 className="text-lg font-bold text-[rgb(var(--color-primary-rgb))] mb-2 flex items-center gap-2">
-                    <span className="text-xl">Sync & Backup</span>
-                </h3>
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-lg font-bold text-[rgb(var(--color-primary-rgb))] flex items-center gap-2">
+                        <span className="text-xl">💾</span> Sync & Backup
+                    </h3>
+                    {currentUser && (
+                        <div className="flex items-center gap-2 px-3 py-1 bg-green-500/10 border border-green-500/20 rounded-full">
+                            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                            <span className="text-[10px] font-bold text-green-400 uppercase tracking-widest">Cloud Sync Active</span>
+                        </div>
+                    )}
+                </div>
                 
                 <div className="flex border-b border-slate-700 mb-6">
                     <button 

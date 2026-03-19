@@ -20,6 +20,15 @@ interface AppState {
     appearancePreferences: AppearancePreferences;
     theme: 'cyan' | 'indigo' | 'green' | 'red';
     isFlashcardModalOpen: boolean;
+    shieldActive: boolean;
+    // Timer State
+    timerState: {
+        isActive: boolean;
+        mode: 'focus' | 'short' | 'long' | 'custom';
+        timeLeft: number;
+        endTime: number | null;
+        activeTaskId: string | null;
+    };
 }
 
 interface AppActions {
@@ -34,6 +43,8 @@ interface AppActions {
     setTheme: (theme: 'cyan' | 'indigo' | 'green' | 'red') => void;
     clearGamification: () => Promise<void>;
     setFlashcardModalOpen: (isOpen: boolean) => void;
+    setShieldActive: (isActive: boolean) => void;
+    setTimerState: (state: Partial<AppState['timerState']>) => void;
     // For initialization
     hydrateApp: (data: Partial<AppState>) => void;
 }
@@ -64,9 +75,17 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
     globalFilter: { type: 'all', subType: 'all', startDate: '', endDate: '' },
     aiPreferences: { model: 'gemini-3.1-flash-lite-preview', responseLength: 'medium', tone: 'encouraging' },
     notificationPreferences: { achievements: true, proactiveInsights: true, proactiveInsightSensitivity: 'medium' },
-    appearancePreferences: { disableParticles: true, reduceMotion: false, highContrast: false },
+    appearancePreferences: { disableParticles: true, reduceMotion: false, highContrast: false, largeText: false, dyslexicFont: false },
     theme: 'cyan',
     isFlashcardModalOpen: false,
+    shieldActive: false,
+    timerState: {
+        isActive: false,
+        mode: 'focus',
+        timeLeft: 25 * 60,
+        endTime: null,
+        activeTaskId: null,
+    },
 
     setInitialized: (val) => set({ isInitialized: val }),
     
@@ -119,6 +138,8 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
             localStorage.setItem('appearancePreferences_v1', JSON.stringify(newPrefs));
             document.body.classList.toggle('reduce-motion', newPrefs.reduceMotion);
             document.body.classList.toggle('high-contrast', newPrefs.highContrast);
+            document.body.classList.toggle('large-text', newPrefs.largeText);
+            document.body.classList.toggle('dyslexic-font', newPrefs.dyslexicFont);
             return { appearancePreferences: newPrefs };
         });
     },
@@ -135,6 +156,13 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
     },
 
     setFlashcardModalOpen: (isOpen) => set({ isFlashcardModalOpen: isOpen }),
+    setShieldActive: (isActive) => set({ shieldActive: isActive }),
+    
+    setTimerState: (newState) => set(state => {
+        const updated = { ...state.timerState, ...newState };
+        localStorage.setItem('jee_timer_state', JSON.stringify(updated));
+        return { timerState: updated };
+    }),
 
     hydrateApp: (data) => set(data)
 }));

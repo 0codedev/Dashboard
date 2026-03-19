@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import { SUBJECT_CONFIG } from '../constants';
 import CustomTooltip from './common/CustomTooltip';
-import { LongTermGoal, QuestionLog, ExamStrategy } from '../types';
+import { LongTermGoal, QuestionLog, ExamStrategy, Reflection } from '../types';
 import { CalibrationMatrix } from './visualizations/CalibrationMatrix';
 import { formatNumber, formatPercent, formatRank } from '../utils/formatters';
 
@@ -15,7 +15,7 @@ const CustomRadarTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
         const data = payload[0].payload;
         return (
-            <div className="p-3 bg-slate-800/80 backdrop-blur-sm border border-slate-600/50 rounded-lg shadow-xl text-sm z-50">
+            <div className="p-3 bg-white/5 backdrop-blur-sm border border-white/5 rounded-lg shadow-xl text-sm z-50">
                 <p className="font-bold text-white mb-2">{data.subject}</p>
                 <div className="space-y-1">
                     <p className="text-cyan-400 flex justify-between gap-4"><span>Avg Marks:</span> <span>{formatNumber(data.A)}</span></p>
@@ -30,7 +30,7 @@ const CustomScatterTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
         const data = payload[0].payload;
         return (
-            <div className="p-3 bg-slate-900/90 border border-slate-600 rounded-lg shadow-xl text-xs z-50 max-w-[200px]">
+            <div className="p-3 bg-black/20 border border-white/5 rounded-lg shadow-xl text-xs z-50 max-w-[200px]">
                 <p className="font-bold text-white mb-1 truncate">{data.topic}</p>
                 <span className={`inline-block px-2 py-0.5 rounded mb-2 text-[10px] font-semibold ${data.quadrant === 'Quick Wins' ? 'bg-green-900 text-green-300' :
                     data.quadrant === 'Big Bets' ? 'bg-amber-900 text-amber-300' :
@@ -52,7 +52,7 @@ const CustomScatterTooltip = ({ active, payload }: any) => {
 const AiChartFooter: React.FC<{ summary?: string }> = ({ summary }) => {
     if (!summary) return null;
     return (
-        <div className="mt-2 p-2 bg-slate-900/50 border-t border-slate-700 text-xs text-cyan-200 flex items-start gap-2 animate-fade-in">
+        <div className="mt-2 p-2 bg-black/20 border-t border-white/10 text-xs text-cyan-200 flex items-start gap-2 animate-fade-in">
             <span className="text-lg">✨</span>
             <span className="italic leading-relaxed">{summary}</span>
         </div>
@@ -70,7 +70,7 @@ export const OracleWidget: React.FC<{ onConsult: () => void }> = ({ onConsult })
             </div>
             
             <div className="relative z-10 transform transition-transform duration-500 group-hover:scale-105">
-                <div className="w-24 h-24 mx-auto mb-4 rounded-full bg-slate-900 border-2 border-indigo-500/50 shadow-[0_0_40px_rgba(99,102,241,0.3)] flex items-center justify-center relative">
+                <div className="w-24 h-24 mx-auto mb-4 rounded-full bg-black/20 border-2 border-indigo-500/50 shadow-[0_0_40px_rgba(99,102,241,0.3)] flex items-center justify-center relative">
                     <span className="text-5xl animate-pulse">🔮</span>
                     <div className="absolute inset-0 rounded-full border border-indigo-400/30 animate-[ping_3s_cubic-bezier(0,0,0.2,1)_infinite]"></div>
                 </div>
@@ -209,10 +209,10 @@ export const PaperStrategyWidget: React.FC<{
 
     return (
         <div className="flex flex-col h-full gap-4">
-            <div className="flex justify-between items-center border-b border-slate-700 pb-2">
+            <div className="flex justify-between items-center border-b border-white/10 pb-2">
                 <div className="flex gap-2">
-                    <button onClick={() => setExamType('mains')} className={`text-[10px] px-2 py-1 rounded transition-colors ${examType === 'mains' ? 'bg-cyan-600 text-white' : 'bg-slate-700 text-gray-400'}`}>Mains</button>
-                    <button onClick={() => setExamType('advanced')} className={`text-[10px] px-2 py-1 rounded transition-colors ${examType === 'advanced' ? 'bg-cyan-600 text-white' : 'bg-slate-700 text-gray-400'}`}>Advanced</button>
+                    <button onClick={() => setExamType('mains')} className={`text-[10px] px-2 py-1 rounded transition-colors ${examType === 'mains' ? 'bg-cyan-600 text-white' : 'bg-white/10 text-gray-400'}`}>Mains</button>
+                    <button onClick={() => setExamType('advanced')} className={`text-[10px] px-2 py-1 rounded transition-colors ${examType === 'advanced' ? 'bg-cyan-600 text-white' : 'bg-white/10 text-gray-400'}`}>Advanced</button>
                 </div>
                 
                 <div className="flex items-center gap-2">
@@ -224,7 +224,7 @@ export const PaperStrategyWidget: React.FC<{
                             Save
                         </button>
                     )}
-                    <div className="text-right pl-4 border-l border-slate-700">
+                    <div className="text-right pl-4 border-l border-white/10">
                         <p className="text-xs text-gray-400">Est. Score</p>
                         <p className="text-xl font-bold text-cyan-300 tabular-nums">{stats.totalScore}</p>
                     </div>
@@ -237,16 +237,16 @@ export const PaperStrategyWidget: React.FC<{
 
             <div className="flex-grow grid grid-cols-1 md:grid-cols-3 gap-4 overflow-y-auto pr-2 custom-scrollbar">
                 {stats.subjectStats.map((stat, idx) => (
-                    <div key={stat.subject} className="bg-slate-900/50 p-3 rounded border border-slate-700 relative group">
+                    <div key={stat.subject} className="bg-black/20 p-3 rounded border border-white/10 relative group">
                         <div className="absolute top-2 right-2 flex gap-1">
-                            <button onClick={() => moveLeft(idx)} disabled={idx === 0} className="text-[10px] bg-slate-800 hover:bg-slate-700 text-gray-400 hover:text-white w-5 h-5 rounded flex items-center justify-center disabled:opacity-30">{'<'}</button>
+                            <button onClick={() => moveLeft(idx)} disabled={idx === 0} className="text-[10px] bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white w-5 h-5 rounded flex items-center justify-center disabled:opacity-30">{'<'}</button>
                             <span className="text-[10px] font-bold text-gray-500 w-4 text-center">#{idx + 1}</span>
-                            <button onClick={() => moveRight(idx)} disabled={idx === subjectOrder.length - 1} className="text-[10px] bg-slate-800 hover:bg-slate-700 text-gray-400 hover:text-white w-5 h-5 rounded flex items-center justify-center disabled:opacity-30">{'>'}</button>
+                            <button onClick={() => moveRight(idx)} disabled={idx === subjectOrder.length - 1} className="text-[10px] bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white w-5 h-5 rounded flex items-center justify-center disabled:opacity-30">{'>'}</button>
                         </div>
                         
                         <div className="flex justify-between items-center mb-2 pt-6">
                             <span className="capitalize font-semibold text-gray-300 text-sm">{stat.subject}</span>
-                            <span className={`text-[10px] px-1.5 rounded ${stat.panicDrop > 15 ? 'bg-red-900/50 text-red-300' : 'bg-slate-800 text-gray-400'}`}>
+                            <span className={`text-[10px] px-1.5 rounded ${stat.panicDrop > 15 ? 'bg-red-900/50 text-red-300' : 'bg-white/5 text-gray-400'}`}>
                                 -{stat.fatigueDrop + stat.panicDrop}% Eff.
                             </span>
                         </div>
@@ -258,7 +258,7 @@ export const PaperStrategyWidget: React.FC<{
                                     type="range" min="0" max="120" step="5" 
                                     value={timeAlloc[stat.subject as keyof typeof timeAlloc]} 
                                     onChange={(e) => handleTimeChange(stat.subject, parseInt(e.target.value))} 
-                                    className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[rgb(var(--color-primary-rgb))]"
+                                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-[rgb(var(--color-primary-rgb))]"
                                 />
                             </div>
                             <div>
@@ -267,7 +267,7 @@ export const PaperStrategyWidget: React.FC<{
                                     type="range" min="0" max={maxAttempts} step="1" 
                                     value={attemptTarget[stat.subject as keyof typeof attemptTarget]} 
                                     onChange={(e) => handleAttemptChange(stat.subject, parseInt(e.target.value))} 
-                                    className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[rgb(var(--color-primary-rgb))]"
+                                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-[rgb(var(--color-primary-rgb))]"
                                 />
                             </div>
                             <div className="pt-1 border-t border-slate-800/50">
@@ -276,11 +276,11 @@ export const PaperStrategyWidget: React.FC<{
                                     type="range" min="0" max="100" step="10" 
                                     value={confidence[stat.subject as keyof typeof confidence]} 
                                     onChange={(e) => handleConfidenceChange(stat.subject, parseInt(e.target.value))} 
-                                    className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-emerald-500"
                                 />
                             </div>
                         </div>
-                         <div className="flex justify-between items-end pt-2 mt-1 border-t border-slate-700/30">
+                         <div className="flex justify-between items-end pt-2 mt-1 border-t border-white/10">
                              <span className="text-[10px] text-gray-400">Score: <strong className="text-white">{stat.score}</strong></span>
                              <span className={`text-[9px] ${parseFloat(stat.timePerQ) < parseFloat(stat.targetTime) ? 'text-red-400' : 'text-green-400'}`}>
                                 {stat.timePerQ}m / {stat.targetTime}m
@@ -290,7 +290,7 @@ export const PaperStrategyWidget: React.FC<{
                 ))}
             </div>
             
-            <div className="flex justify-between items-center text-[10px] text-gray-500 bg-slate-800/30 p-2 rounded">
+            <div className="flex justify-between items-center text-[10px] text-gray-500 bg-white/5 p-2 rounded">
                 <span>Total Time: <span className={`${totalTime > 180 ? 'text-red-400' : 'text-green-400 font-bold'}`}>{totalTime}</span> / 180 min</span>
                 <span>{totalTime > 180 ? 'Over limit!' : `${180 - totalTime}m buffer`}</span>
             </div>
@@ -315,7 +315,7 @@ export const StrategicROIWidget: React.FC<{ data: any[], onPointClick: (topic: s
                 <Tooltip content={<CustomScatterTooltip />} cursor={{ strokeDasharray: '3 3' }} />
                 <ReferenceLine x={30} stroke="#4B5563" strokeDasharray="3 3" />
                 <ReferenceLine y={30} stroke="#4B5563" strokeDasharray="3 3" />
-                <Scatter name="Topics" data={data} onClick={(point) => onPointClick(point.topic)} cursor="pointer">
+                <Scatter name="Topics" data={data} onClick={(point: any) => onPointClick(point.topic)} cursor="pointer">
                     {data.map((entry, index) => {
                         let fill = '#6B7280';
                         if (entry.quadrant === 'Quick Wins') fill = '#10B981'; // Green
@@ -337,7 +337,7 @@ export const RankPredictorWidget: React.FC<{ rankPrediction: any, goalProbabilit
                 <p className="text-white font-mono tabular-nums">{formatRank(rankPrediction.bestCase)} - {formatRank(rankPrediction.worstCase)}</p>
             </div>
             {goalProbability && (
-                <div className="flex items-center gap-2 bg-slate-800/80 rounded-full px-3 py-1 border border-slate-700">
+                <div className="flex items-center gap-2 bg-white/5 rounded-full px-3 py-1 border border-white/10">
                     <div className="relative w-8 h-8">
                         <svg className="w-full h-full" viewBox="0 0 36 36">
                             <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#374151" strokeWidth="4" />
@@ -548,9 +548,9 @@ export const CalendarHeatmapWidget: React.FC<{ reports: any[] }> = ({ reports })
     }, [reports, containerWidth]);
 
     const getColorClass = (score: number | undefined) => {
-        if (score === undefined || score === null) return 'bg-slate-700/50';
+        if (score === undefined || score === null) return 'bg-white/10';
         const percentage = Math.max(0, score) / maxScore;
-        if (percentage === 0) return 'bg-slate-700'; if (percentage < 0.25) return 'bg-[rgba(var(--color-primary-rgb),0.2)]';
+        if (percentage === 0) return 'bg-white/10'; if (percentage < 0.25) return 'bg-[rgba(var(--color-primary-rgb),0.2)]';
         if (percentage < 0.5) return 'bg-[rgba(var(--color-primary-rgb),0.4)]'; if (percentage < 0.75) return 'bg-[rgba(var(--color-primary-rgb),0.7)]';
         return 'bg-[rgb(var(--color-primary-rgb))]';
     };
@@ -570,13 +570,13 @@ export const CalendarHeatmapWidget: React.FC<{ reports: any[] }> = ({ reports })
                     {days.map((day, index) => (
                         <div key={index} className="group relative" style={{ width: `${cellSize}px`, height: `${cellSize}px` }}>
                             <div className={`w-full h-full rounded-sm ${getColorClass(day.data?.avgScore)}`}></div>
-                            {day.date && <div className="absolute z-10 hidden group-hover:block bottom-full mb-2 left-1/2 -translate-x-1/2 p-2 text-xs text-white bg-slate-900/80 backdrop-blur-sm border border-slate-600 rounded-md shadow-lg w-max"><p className="font-bold">{day.date.toLocaleDateString()}</p><p>{day.data ? `${day.data.avgScore.toFixed(1)} score (${day.data.count} test${day.data.count > 1 ? 's' : ''})` : 'No tests'}</p></div>}
+                            {day.date && <div className="absolute z-10 hidden group-hover:block bottom-full mb-2 left-1/2 -translate-x-1/2 p-2 text-xs text-white bg-black/20 backdrop-blur-sm border border-white/5 rounded-md shadow-lg w-max"><p className="font-bold">{day.date.toLocaleDateString()}</p><p>{day.data ? `${day.data.avgScore.toFixed(1)} score (${day.data.count} test${day.data.count > 1 ? 's' : ''})` : 'No tests'}</p></div>}
                         </div>
                     ))}
                 </div>
             </div>
             <div className="flex justify-end items-center gap-2 text-xs text-gray-400 mt-2 flex-grow">
-                <span>Less</span><div className="w-3.5 h-3.5 rounded-sm bg-slate-700/50"></div><div className="w-3.5 h-3.5 rounded-sm bg-[rgba(var(--color-primary-rgb),0.2)]"></div><div className="w-3.5 h-3.5 rounded-sm bg-[rgba(var(--color-primary-rgb),0.4)]"></div><div className="w-3.5 h-3.5 rounded-sm bg-[rgba(var(--color-primary-rgb),0.7)]"></div><div className="w-3.5 h-3.5 rounded-sm bg-[rgb(var(--color-primary-rgb))]"></div><span>More</span>
+                <span>Less</span><div className="w-3.5 h-3.5 rounded-sm bg-white/10"></div><div className="w-3.5 h-3.5 rounded-sm bg-[rgba(var(--color-primary-rgb),0.2)]"></div><div className="w-3.5 h-3.5 rounded-sm bg-[rgba(var(--color-primary-rgb),0.4)]"></div><div className="w-3.5 h-3.5 rounded-sm bg-[rgba(var(--color-primary-rgb),0.7)]"></div><div className="w-3.5 h-3.5 rounded-sm bg-[rgb(var(--color-primary-rgb))]"></div><span>More</span>
             </div>
         </div>
     );
@@ -611,7 +611,7 @@ export const RankSimulatorWidget: React.FC<{ rankModel: { slope: number, interce
 
     return (
         <div className="flex flex-col h-full">
-            <div className="flex justify-between items-center bg-slate-900/50 p-3 rounded-lg border border-slate-700 mb-4">
+            <div className="flex justify-between items-center bg-black/20 p-3 rounded-lg border border-white/10 mb-4">
                 <div>
                     <p className="text-xs text-gray-400">Current Rank Est.</p>
                     <p className="text-lg font-bold text-white tabular-nums">#{simulatedData?.baseRank ? formatRank(simulatedData.baseRank) : 'N/A'}</p>
@@ -637,7 +637,7 @@ export const RankSimulatorWidget: React.FC<{ rankModel: { slope: number, interce
                             type="range" min="0" max="30" step="1" 
                             value={improvements[subject]} 
                             onChange={(e) => setImprovements(prev => ({...prev, [subject]: parseInt(e.target.value)}))}
-                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                            className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-500"
                         />
                         <div className="flex justify-between text-[9px] text-gray-500 mt-1">
                             <span>0</span>
@@ -654,6 +654,39 @@ export const RankSimulatorWidget: React.FC<{ rankModel: { slope: number, interce
     );
 };
 
+// --- NEW WIDGET: Reflections ---
+export const ReflectionsWidget: React.FC<{ reflections: Reflection[] }> = ({ reflections }) => {
+    if (reflections.length === 0) return <div className="flex items-center justify-center h-full text-gray-500 text-sm italic">No reflections yet. Start journaling!</div>;
+
+    const recentReflections = reflections.slice(0, 3);
+
+    return (
+        <div className="h-full flex flex-col">
+            <div className="flex-grow overflow-y-auto pr-2 custom-scrollbar space-y-3">
+                {recentReflections.map(r => (
+                    <div key={r.id} className="bg-white/5 p-3 rounded-lg border border-white/10">
+                        <div className="flex justify-between items-start mb-1">
+                            <span className="text-xs text-gray-400">{new Date(r.timestamp).toLocaleDateString()}</span>
+                            <span className="text-sm">{r.mood === 'eureka' ? '💡' : r.mood === 'frustrated' ? '😫' : r.mood === 'confident' ? '😎' : r.mood === 'confused' ? '🤔' : '📝'}</span>
+                        </div>
+                        <p className="text-sm text-slate-300 line-clamp-2">{r.content}</p>
+                        {r.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-2">
+                                {r.tags.slice(0, 3).map(tag => (
+                                    <span key={tag} className="px-1.5 py-0.5 bg-indigo-900/50 text-indigo-300 rounded text-[10px] border border-indigo-700/50">
+                                        {tag}
+                                    </span>
+                                ))}
+                                {r.tags.length > 3 && <span className="text-[10px] text-gray-500">+{r.tags.length - 3}</span>}
+                            </div>
+                        )}
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
 // --- NEW WIDGET: Goal Progress ---
 export const GoalProgressWidget: React.FC<{ goals: LongTermGoal[] }> = ({ goals }) => {
     if (goals.length === 0) return <div className="flex items-center justify-center h-full text-gray-500 text-sm italic">No long term goals set in Settings.</div>;
@@ -662,7 +695,7 @@ export const GoalProgressWidget: React.FC<{ goals: LongTermGoal[] }> = ({ goals 
         <div className="h-full flex flex-col">
             <div className="flex-grow overflow-y-auto pr-2 custom-scrollbar space-y-3">
                 {goals.map(goal => (
-                    <div key={goal.id} className={`p-3 rounded-lg border transition-all ${goal.completed ? 'bg-green-900/20 border-green-500/30' : 'bg-slate-800 border-slate-700'}`}>
+                    <div key={goal.id} className={`p-3 rounded-lg border transition-all ${goal.completed ? 'bg-green-900/20 border-green-500/30' : 'bg-white/5 border-white/10'}`}>
                         <div className="flex items-center gap-3">
                             <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${goal.completed ? 'border-green-500 bg-green-500' : 'border-gray-500'}`}>
                                 {goal.completed && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
@@ -672,7 +705,7 @@ export const GoalProgressWidget: React.FC<{ goals: LongTermGoal[] }> = ({ goals 
                         
                         {!goal.completed && (
                             <div className="mt-3 pl-8">
-                                <div className="h-1.5 w-full bg-slate-700 rounded-full overflow-hidden">
+                                <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
                                     <div className="h-full bg-cyan-500 w-1/3 rounded-full opacity-50"></div>
                                 </div>
                                 <p className="text-[10px] text-gray-500 mt-1 text-right">In Progress</p>

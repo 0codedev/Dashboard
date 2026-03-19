@@ -25,53 +25,132 @@ const NavItem: React.FC<{
     setView: (view: View) => void;
     children: React.ReactNode;
     onClick?: () => void;
-}> = ({ viewId, label, currentView, setView, children, onClick }) => {
+    isSidebarCollapsed?: boolean;
+}> = ({ viewId, label, currentView, setView, children, onClick, isSidebarCollapsed }) => {
     const isActive = viewId === currentView;
     return (
-        <div className="sidebar-tooltip-container w-full px-2">
-            <div 
-                className={`relative w-full rounded-xl transition-colors duration-200 ${isActive ? 'bg-slate-800' : ''}`}
+        <div className={`w-full py-0.5 ${isSidebarCollapsed ? 'px-3' : 'px-3'}`}>
+            <button
+                onClick={() => { setView(viewId); if (onClick) onClick(); }}
+                title={isSidebarCollapsed ? label : undefined}
+                aria-label={label}
+                aria-current={isActive ? 'page' : undefined}
+                className={`group relative w-full h-10 flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3 px-3'} rounded-lg transition-colors duration-200 ${isActive ? 'bg-slate-800/80' : 'hover:bg-slate-800/50'}`}
             >
                 {isActive && (
                     <div 
-                        className="absolute -left-2 top-1/2 -translate-y-1/2 h-8 w-1 bg-cyan-400 rounded-r-full"
+                        className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-1 bg-cyan-400 rounded-r-full"
                         style={{boxShadow: '0 0 8px rgba(34, 211, 238, 0.7)'}}
                     ></div>
                 )}
-                <button
-                    onClick={() => { setView(viewId); if (onClick) onClick(); }}
-                    aria-label={label}
-                    aria-current={isActive ? 'page' : undefined}
-                    className="sidebar-button group w-full h-12 flex items-center justify-center rounded-lg"
-                >
-                    <div className={`transition-colors ${isActive ? 'sidebar-icon-active' : 'sidebar-icon-inactive group-hover:sidebar-icon-active'}`}>
-                        {children}
-                    </div>
-                </button>
-            </div>
+                <div className={`transition-colors shrink-0 ${isActive ? 'text-cyan-400' : 'text-slate-400 group-hover:text-slate-300'}`}>
+                    {children}
+                </div>
+                {!isSidebarCollapsed && (
+                    <span className={`text-sm font-medium transition-colors whitespace-nowrap ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-300'}`}>
+                        {label}
+                    </span>
+                )}
+            </button>
+        </div>
+    );
+};
 
-            {/* Tooltip */}
-            <div className="sidebar-tooltip absolute left-full top-1/2 -translate-y-1/2 ml-4 px-3 py-1.5 bg-slate-800 text-slate-100 text-xs font-semibold rounded-md shadow-xl border border-slate-700 whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50">
-                {label}
-                <div className="absolute top-1/2 -left-1 -translate-y-1/2 w-2 h-2 bg-slate-800 border-l border-b border-slate-700 transform rotate-45"></div>
+const NavGroup: React.FC<{
+    group: any;
+    isSidebarCollapsed: boolean;
+    currentView: View;
+    setView: (view: View) => void;
+    onItemClick?: () => void;
+}> = ({ group, isSidebarCollapsed, currentView, setView, onItemClick }) => {
+    const [isHovered, setIsHovered] = useState(false);
+    const [isPinned, setIsPinned] = useState(false);
+
+    const isExpanded = isHovered || isPinned;
+
+    return (
+        <div 
+            className="w-full flex flex-col mb-4"
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+        >
+            <div 
+                className={`flex items-center ${isSidebarCollapsed ? 'justify-center px-2' : 'px-6'} py-2 cursor-pointer transition-colors hover:text-white ${isPinned ? 'text-white' : 'text-gray-500'}`}
+                onClick={() => setIsPinned(!isPinned)}
+                title={isSidebarCollapsed ? group.title : undefined}
+            >
+                <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} w-full`}>
+                    <div className="shrink-0">
+                        {group.icon}
+                    </div>
+                    {!isSidebarCollapsed && (
+                        <span className="text-xs font-semibold tracking-wider uppercase whitespace-nowrap">
+                            {group.title}
+                        </span>
+                    )}
+                </div>
+            </div>
+            
+            <div 
+                className={`overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}
+            >
+                <div className="flex flex-col gap-y-1 mt-1">
+                    {group.items.map((item: any) => (
+                        <NavItem 
+                            key={item.id} 
+                            viewId={item.id} 
+                            label={item.label} 
+                            currentView={currentView} 
+                            setView={setView} 
+                            onClick={onItemClick}
+                            isSidebarCollapsed={isSidebarCollapsed}
+                        >
+                            {item.icon}
+                        </NavItem>
+                    ))}
+                </div>
             </div>
         </div>
     );
 };
 
-const navItems: { id: View, label: string, icon: React.ReactNode }[] = [
-    { id: 'daily-planner', label: 'Daily Planner', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
-    { id: 'dashboard', label: 'Dashboard', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg> },
-    { id: 'syllabus', label: 'Syllabus', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg> },
-    { id: 'detailed-reports', label: 'Reports', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> },
-    { id: 'deep-analysis', label: 'Deep Analysis', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> },
-    { id: 'root-cause', label: 'Root Cause', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg> },
-    { id: 'flashcards', label: 'Error Vaccinator', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg> },
-    { id: 'question-log-editor', label: 'Logs', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg> },
-    { id: 'ai-assistant', label: 'AI Coach', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg> },
-    { id: 'new-ai-features', label: 'New AI Features', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg> },
-    { id: 'data-entry', label: 'Add Report', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> },
-    { id: 'achievements', label: 'Awards', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg> },
+const navGroups = [
+    {
+        title: 'Core Prep',
+        icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>,
+        items: [
+            { id: 'daily-planner', label: 'Daily Planner', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
+            { id: 'dashboard', label: 'Dashboard', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg> },
+            { id: 'syllabus', label: 'Syllabus', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg> },
+        ]
+    },
+    {
+        title: 'Logs & Analytics',
+        icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" /><path strokeLinecap="round" strokeLinejoin="round" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" /></svg>,
+        items: [
+            { id: 'data-entry', label: 'Add Report', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> },
+            { id: 'detailed-reports', label: 'Reports', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> },
+            { id: 'question-log-editor', label: 'Question Logs', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg> },
+            { id: 'root-cause', label: 'Root Cause', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg> },
+            { id: 'deep-analysis', label: 'Deep Analysis', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> },
+        ]
+    },
+    {
+        title: 'AI & Tools',
+        icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>,
+        items: [
+            { id: 'ai-assistant', label: 'AI Coach', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg> },
+            { id: 'new-ai-features', label: 'New AI Features', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg> },
+            { id: 'flashcards', label: 'Error Vaccinator', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg> },
+            { id: 'launchpad', label: 'Launchpad', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 21v-7.5a.75.75 0 0 1 .75-.75h3a.75.75 0 0 1 .75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349M3.75 21V9.349m0 0a3.001 3.001 0 0 0 3.75-.615A2.993 2.993 0 0 0 9.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 0 0 2.25 1.016c.896 0 1.7-.393 2.25-1.016c.896 0 1.7-.393 2.25-1.015a3.001 3.001 0 0 0 3.75.614m-16.5 0a3.001 3.001 0 0 1-.621-4.72l1.189-1.19A1.5 1.5 0 0 1 5.378 3h13.243a1.5 1.5 0 0 1 1.06.44l1.19 1.189a3 3 0 0 1-.621 4.72M6.75 18h3.75a.75.75 0 0 0 .75-.75v-3.5a.75.75 0 0 0-.75-.75H6.75a.75.75 0 0 0-.75.75v3.5c0 .414.336.75.75.75Z" /></svg> },
+            { id: 'reflections', label: 'Reflections', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M16 3H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12l5-5V5a2 2 0 0 0-2-2z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 21V16a1 1 0 0 1 1-1h5" /></svg> },
+            { id: 'achievements', label: 'Awards', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg> },
+        ]
+    }
+];
+
+const bottomItems = [
+    { id: 'settings', label: 'Settings', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg> },
 ];
 
 const CommandPalette: React.FC<{ 
@@ -90,6 +169,8 @@ const CommandPalette: React.FC<{
         { id: 'flashcards', label: 'Review Error Vaccinator', category: 'Study', action: () => setView('flashcards') },
         { id: 'add-report', label: 'Add New Test Report', category: 'Action', action: () => setView('data-entry') },
         { id: 'ai-chat', label: 'Ask AI Coach', category: 'Action', action: () => setView('ai-assistant') },
+        { id: 'reflections', label: 'View Reflections', category: 'Study', action: () => setView('reflections') },
+        { id: 'launchpad', label: 'Open Launchpad', category: 'Navigation', action: () => setView('launchpad') },
     ];
 
     const filteredCommands = commands.filter(c => c.label.toLowerCase().includes(query.toLowerCase()));
@@ -170,6 +251,7 @@ const CommandPalette: React.FC<{
 export const AppShell: React.FC<AppShellProps> = ({ view, setView, userProfile, globalFilter, setGlobalFilter, availableTestTypes, availableSubTypes, toasts, setToasts, children }) => {
     const [isPaletteOpen, setIsPaletteOpen] = useState(false);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -181,6 +263,10 @@ export const AppShell: React.FC<AppShellProps> = ({ view, setView, userProfile, 
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
     }, []);
+
+    const dynamicNavGroups = navGroups;
+
+    const dynamicBottomItems = bottomItems;
 
     return (
         <div className="relative z-10 flex h-full w-full bg-slate-900">
@@ -197,42 +283,51 @@ export const AppShell: React.FC<AppShellProps> = ({ view, setView, userProfile, 
 
             {/* Sidebar */}
             <aside className={`
-                fixed md:static inset-y-0 left-0 z-50 w-16 bg-[#0F172A] border-r border-slate-800 flex flex-col items-center py-4
-                transform transition-transform duration-300 ease-in-out md:transform-none
+                fixed md:static inset-y-0 left-0 z-50 bg-[#0F172A] border-r border-slate-800 flex flex-col py-4
+                transform transition-all duration-300 ease-in-out md:transform-none
                 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+                ${isSidebarCollapsed ? 'w-20' : 'w-64'}
             `}>
-                <div className="w-10 h-10 bg-slate-800/50 border border-slate-700 rounded-xl flex items-center justify-center text-cyan-400 font-bold text-lg shadow-lg mb-6 shrink-0">J</div>
+                <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3 px-6'} mb-8 shrink-0 transition-all duration-300`}>
+                    <div 
+                        className="w-8 h-8 bg-slate-800/50 border border-slate-700 rounded-lg flex items-center justify-center text-cyan-400 font-bold text-lg shadow-lg cursor-pointer hover:bg-slate-700 transition-colors shrink-0"
+                        onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                        title="Toggle Sidebar"
+                    >
+                        J
+                    </div>
+                    {!isSidebarCollapsed && (
+                        <span className="text-white font-semibold tracking-wide whitespace-nowrap overflow-hidden">JEE Analytics</span>
+                    )}
+                </div>
                 
-                <nav aria-label="Main Navigation" className="flex-grow flex flex-col gap-y-2 w-full items-center overflow-y-auto md:overflow-visible hide-scrollbar">
-                    {navItems
-                        .filter(item => item.id !== 'flashcards' && item.id !== 'new-ai-features')
-                        .map(item => (
-                        <NavItem 
+                <nav aria-label="Main Navigation" className="flex-grow flex flex-col gap-y-2 w-full overflow-y-auto hide-scrollbar">
+                    {dynamicNavGroups.map((group, groupIdx) => (
+                        <NavGroup 
+                            key={groupIdx} 
+                            group={group} 
+                            isSidebarCollapsed={isSidebarCollapsed} 
+                            currentView={view} 
+                            setView={setView} 
+                            onItemClick={() => setIsSidebarOpen(false)} 
+                        />
+                    ))}
+                </nav>
+
+                <div className="mt-auto pt-4 w-full flex flex-col border-t border-white/10">
+                    {dynamicBottomItems.map(item => (
+                         <NavItem 
                             key={item.id} 
-                            viewId={item.id} 
+                            viewId={item.id as View} 
                             label={item.label} 
                             currentView={view} 
                             setView={setView} 
                             onClick={() => setIsSidebarOpen(false)}
+                            isSidebarCollapsed={isSidebarCollapsed}
                         >
                             {item.icon}
                         </NavItem>
                     ))}
-                </nav>
-
-                <div className="mt-auto pt-4 w-full flex flex-col items-center">
-                     <NavItem 
-                        viewId="settings" 
-                        label="Settings" 
-                        currentView={view} 
-                        setView={setView} 
-                        onClick={() => setIsSidebarOpen(false)}
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sidebar-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        </svg>
-                    </NavItem>
                 </div>
             </aside>
             
