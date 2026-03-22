@@ -122,7 +122,7 @@ const AchievementFlipCard: React.FC<{ achievement: Achievement }> = ({ achieveme
 };
 
 const HeroSection: React.FC<{ gamificationState: GamificationState, levelInfo: any, rank: any }> = ({ gamificationState, levelInfo, rank }) => (
-    <div className="bg-slate-800/50 p-6 rounded-2xl shadow-2xl border border-slate-700 relative overflow-hidden">
+    <div className="glass-panel p-6 rounded-2xl relative overflow-hidden">
         {/* Background Ambient Glow */}
         <div className={`absolute top-0 right-0 w-64 h-64 rounded-full blur-[80px] opacity-20 pointer-events-none ${rank.bg.replace('/20', '')}`}></div>
 
@@ -210,7 +210,7 @@ export const Achievements: React.FC<AchievementsProps> = ({ gamificationState, a
           {/* Left Col: Bounties & Activity */}
           <div className="space-y-6">
               {/* Daily Bounties */}
-              <div className="bg-slate-800/50 p-5 rounded-xl border border-slate-700">
+              <div className="glass-panel p-5 rounded-2xl">
                   <div className="flex justify-between items-center mb-4">
                       <h3 className="text-lg font-bold text-cyan-300">Daily Bounties</h3>
                       <span className="text-xs text-gray-500 bg-slate-900 px-2 py-1 rounded">Resets in 12h</span>
@@ -221,7 +221,7 @@ export const Achievements: React.FC<AchievementsProps> = ({ gamificationState, a
               </div>
 
               {/* Recent Activity Feed */}
-              <div className="bg-slate-800/50 p-5 rounded-xl border border-slate-700">
+              <div className="glass-panel p-5 rounded-2xl">
                   <h3 className="text-lg font-bold text-gray-300 mb-4">Recent Unlocks</h3>
                   <div className="space-y-4 relative pl-4 border-l border-slate-700">
                       {sortedAchievements.filter(a => a.unlocked).slice(0, 3).map((ach, i) => (

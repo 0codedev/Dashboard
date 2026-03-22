@@ -193,7 +193,7 @@ export const SyllabusRiverFlow: React.FC<SyllabusRiverFlowProps> = ({ userProfil
     };
 
     return (
-        <div ref={containerRef} className="w-full h-[600px] bg-slate-900 rounded-xl border border-slate-700 p-4 relative overflow-hidden">
+        <div ref={containerRef} className="w-full h-[600px] glass-panel rounded-2xl p-4 relative overflow-hidden">
             <h3 className="text-xl font-bold text-slate-200 absolute top-4 left-4 z-10">Prerequisite River Flow</h3>
             <svg 
                 ref={svgRef}
@@ -265,7 +265,7 @@ export const SyllabusRiverFlow: React.FC<SyllabusRiverFlowProps> = ({ userProfil
                     })}
                 </g>
             </svg>
-            <div className="absolute bottom-4 right-4 text-[10px] text-gray-500 bg-slate-900/80 px-3 py-2 rounded-lg border border-slate-700 flex items-center gap-3 z-20">
+            <div className="absolute bottom-4 right-4 text-[10px] text-gray-500 glass-panel px-3 py-2 rounded-xl flex items-center gap-3 z-20">
                 <span>Node size & Flow width = Topic Weightage</span>
                  <div className="flex gap-1">
                     <button onClick={() => handleZoom('in')} className="w-6 h-6 bg-slate-700 rounded text-white hover:bg-slate-600">+</button>
@@ -282,7 +282,7 @@ export const SyllabusRiverFlow: React.FC<SyllabusRiverFlowProps> = ({ userProfil
                         top: containerRef.current?.getBoundingClientRect().top! + hoveredNode.y 
                     }}
                 >
-                    <div className="bg-slate-900/90 backdrop-blur-xl border border-cyan-500/30 p-4 rounded-xl shadow-[0_0_30px_rgba(0,0,0,0.5)] min-w-[220px]">
+                    <div className="glass-panel border-cyan-500/30 p-4 rounded-xl shadow-[0_0_30px_rgba(0,0,0,0.5)] min-w-[220px]">
                         <div className="flex justify-between items-start mb-2 border-b border-cyan-900/50 pb-2">
                             <span className="text-xs font-bold text-cyan-300 uppercase tracking-widest">{hoveredNode.subject}</span>
                             <span className="text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded">ID: {getAbbreviation(hoveredNode.topic)}</span>
@@ -302,7 +302,7 @@ export const SyllabusRiverFlow: React.FC<SyllabusRiverFlowProps> = ({ userProfil
                                     </div>
                                     
                                     {mastery && (
-                                        <div className="bg-slate-800/50 p-2 rounded-lg border border-slate-700/50">
+                                        <div className="glass-panel p-2 rounded-lg">
                                             <div className="flex justify-between text-[10px] mb-1">
                                                 <span className="text-slate-400">Mastery</span>
                                                 <span className="font-bold" style={{color: mastery.color}}>{mastery.tier}</span>

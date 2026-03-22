@@ -58,6 +58,11 @@ const App: React.FC = () => {
         theme, setTheme,
         globalFilter, setGlobalFilter,
         reflections, setReflections,
+        endOfDaySummaries, setEndOfDaySummaries,
+        dailyPlansHistory, setDailyPlansHistory,
+        bioStats, setBioStats,
+        dailyQuote, setDailyQuote,
+        streakData, setStreakData,
         fullReset, clearReportsAndLogs, clearChatHistory, clearGamification,
         initialize
     } = useJeeStore();
@@ -132,9 +137,11 @@ const App: React.FC = () => {
     }, [reportsWithMetrics, questionLogs, globalFilter]);
 
     // --- Achievements Logic ---
+    const toastCounter = useRef(0);
     const handleAchievementToast = useCallback((toast: Omit<Toast, 'id'>) => {
         if (notificationPreferences.achievements) {
-            setToasts(p => [...p, { ...toast, id: Date.now() }]);
+            toastCounter.current += 1;
+            setToasts(p => [...p, { ...toast, id: Date.now() + toastCounter.current }]);
         }
     }, [notificationPreferences.achievements]);
 
@@ -162,7 +169,8 @@ const App: React.FC = () => {
     useEffect(() => {
         if (testReports.length > lastReportCountRef.current) {
             if (testReports.length % 3 === 0) {
-                setToasts(prev => [...prev, { id: Date.now(), title: 'Backup Recommended', message: 'You have added significant data. Consider backing up your progress in Settings.', icon: '💾' }]);
+                toastCounter.current += 1;
+                setToasts(prev => [...prev, { id: Date.now() + toastCounter.current, title: 'Backup Recommended', message: 'You have added significant data. Consider backing up your progress in Settings.', icon: '💾' }]);
             }
         }
         lastReportCountRef.current = testReports.length;
@@ -223,8 +231,9 @@ const App: React.FC = () => {
              effort: TaskEffort.Medium
         }));
         setDailyTasks(prev => [...newTasks, ...prev]);
+        toastCounter.current += 1;
         setToasts(p => [...p, {
-            id: Date.now(),
+            id: Date.now() + toastCounter.current,
             title: 'Tasks Added!',
             message: `${tasks.length} task${tasks.length > 1 ? 's have' : ' has'} been added to your Daily Planner.`,
             icon: '🧠'
@@ -272,7 +281,8 @@ const App: React.FC = () => {
     const handleDeleteReport = (reportId: string) => {
         setTestReports(prev => prev.filter(r => r.id !== reportId));
         setQuestionLogs(prev => prev.filter(l => l.testId !== reportId));
-        setToasts(p => [...p, { id: Date.now(), title: 'Report Deleted', message: 'Test report and logs have been removed.', icon: '🗑️' }]);
+        toastCounter.current += 1;
+        setToasts(p => [...p, { id: Date.now() + toastCounter.current, title: 'Report Deleted', message: 'Test report and logs have been removed.', icon: '🗑️' }]);
     };
 
     const handleDataSync = (data: any) => {
@@ -286,7 +296,12 @@ const App: React.FC = () => {
         if (data.notificationPreferences) setNotificationPreferences(data.notificationPreferences);
         if (data.appearancePreferences) setAppearancePreferences(data.appearancePreferences);
         if (data.chatHistory) setChatHistory(data.chatHistory);
-        setToasts(p => [...p, { id: Date.now(), title: 'Restore Complete', message: 'All data restored.', icon: '✅' }]);
+        if (data.dailyTasks) setDailyTasks(data.dailyTasks);
+        if (data.reflections) setReflections(data.reflections);
+        if (data.endOfDaySummaries) useJeeStore.getState().setEndOfDaySummaries(data.endOfDaySummaries);
+        if (data.dailyPlansHistory) useJeeStore.getState().setDailyPlansHistory(data.dailyPlansHistory);
+        toastCounter.current += 1;
+        setToasts(p => [...p, { id: Date.now() + toastCounter.current, title: 'Restore Complete', message: 'All data restored.', icon: '✅' }]);
         setView('dashboard');
     };
 
@@ -312,7 +327,7 @@ const App: React.FC = () => {
                 setToasts={setToasts}
             >
                 <Suspense fallback={<PageLoader />}>
-                    {view === 'daily-planner' && <DailyPlanner goals={studyGoals} setGoals={setStudyGoals} apiKey={apiKey} logs={questionLogs} proactiveInsight={proactiveInsight} onAcceptPlan={handleAcceptPlan} onDismissInsight={handleDismissInsight} addXp={() => addXp('completeTask')} userProfile={userProfile} prefilledTask={prefilledTask} setPrefilledTask={setPrefilledTask} dailyTasks={dailyTasks} setDailyTasks={setDailyTasks} modelName={aiPreferences.model} />}
+                    {view === 'daily-planner' && <DailyPlanner goals={studyGoals} setGoals={setStudyGoals} apiKey={apiKey || ''} logs={questionLogs} proactiveInsight={proactiveInsight} onAcceptPlan={handleAcceptPlan} onDismissInsight={handleDismissInsight} addXp={() => addXp('completeTask')} userProfile={userProfile} prefilledTask={prefilledTask} setPrefilledTask={setPrefilledTask} dailyTasks={dailyTasks} setDailyTasks={setDailyTasks} modelName={aiPreferences.model} bioStats={bioStats} setBioStats={setBioStats} dailyQuote={dailyQuote} setDailyQuote={setDailyQuote} streakData={streakData} setStreakData={setStreakData} endOfDaySummaries={endOfDaySummaries} setEndOfDaySummaries={setEndOfDaySummaries} dailyPlansHistory={dailyPlansHistory} setDailyPlansHistory={setDailyPlansHistory} />}
                     {view === 'dashboard' && <Dashboard reports={filteredReports} logs={filteredLogs} apiKey={apiKey} setView={setView} setRootCauseFilter={setRootCauseFilter} onStartFocusSession={handleStartFocusSession} longTermGoals={longTermGoals} modelName={aiPreferences.model} userProfile={userProfile} onUpdateProfile={updateUserProfile} />}
                     {view === 'syllabus' && <Syllabus userProfile={userProfile} setUserProfile={updateUserProfile} questionLogs={questionLogs} reports={filteredReports} apiKey={apiKey} onStartFocusSession={handleStartFocusSession} setView={setView} addTasksToPlanner={addTasksToPlanner} modelName={aiPreferences.model} />}
                     {view === 'detailed-reports' && <DetailedReportsView allReports={testReports} filteredReports={filteredReports} setReports={setTestReports} onViewQuestionLog={handleViewQuestionLogForTest} onDeleteReport={handleDeleteReport} apiKey={apiKey} logs={questionLogs} />}
@@ -345,7 +360,10 @@ const App: React.FC = () => {
                             setUserProfile={updateUserProfile} 
                             theme={theme} 
                             setTheme={setTheme} 
-                            addToast={(toast: any) => setToasts(p => [...p, { ...toast, id: Date.now() }])} 
+                            addToast={(toast: any) => {
+                                toastCounter.current += 1;
+                                setToasts(p => [...p, { ...toast, id: Date.now() + toastCounter.current }]);
+                            }} 
                             reports={testReports} 
                             logs={questionLogs} 
                             onSyncData={handleDataSync} 
@@ -354,6 +372,10 @@ const App: React.FC = () => {
                             gamificationState={gamificationState}
                             studyGoals={studyGoals}
                             chatHistory={chatHistory}
+                            dailyTasks={dailyTasks}
+                            reflections={reflections}
+                            endOfDaySummaries={endOfDaySummaries}
+                            dailyPlansHistory={dailyPlansHistory}
                         />
                     )}
                 </Suspense>

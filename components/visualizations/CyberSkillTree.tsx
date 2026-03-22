@@ -102,7 +102,7 @@ export const CyberSkillTree: React.FC<CyberSkillTreeProps> = ({ userProfile, mas
     };
 
     return (
-        <div className="w-full bg-[#0b1121] rounded-xl border border-slate-700/50 shadow-2xl overflow-hidden relative group select-none">
+        <div className="w-full glass-panel rounded-2xl shadow-2xl overflow-hidden relative group select-none">
             {/* Background Cyber-Grid */}
             <div 
                 className="absolute inset-0 opacity-10 pointer-events-none" 
@@ -266,7 +266,7 @@ export const CyberSkillTree: React.FC<CyberSkillTreeProps> = ({ userProfile, mas
                             top: scrollContainerRef.current?.getBoundingClientRect().top! + hoveredNode.y 
                         }}
                     >
-                        <div className="bg-slate-900/90 backdrop-blur-xl border border-cyan-500/30 p-3 rounded-lg shadow-[0_0_20px_rgba(6,182,212,0.3)] min-w-[180px]">
+                        <div className="glass-panel border-cyan-500/30 p-3 rounded-xl shadow-[0_0_20px_rgba(6,182,212,0.3)] min-w-[180px]">
                             <div className="flex justify-between items-start mb-2 border-b border-cyan-900/50 pb-2">
                                 <span className="text-xs font-bold text-cyan-300 uppercase tracking-wider">{hoveredNode.subject}</span>
                                 <span className="text-[9px] text-slate-400">ID: {hoveredNode.id.substring(0, 3).toUpperCase()}</span>

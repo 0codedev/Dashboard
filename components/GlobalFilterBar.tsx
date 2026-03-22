@@ -16,7 +16,7 @@ interface GlobalFilterBarProps {
 
 export const GlobalFilterBar: React.FC<GlobalFilterBarProps> = ({ filter, setFilter, testTypes, subTypes }) => {
     return (
-        <div className="flex items-center gap-3 text-xs bg-slate-800/50 p-1.5 rounded-lg border border-slate-800/50">
+        <div className="flex items-center gap-3 text-xs glass-panel p-1.5 rounded-xl">
             <div className="flex items-center gap-1.5">
                 <span className="text-slate-500 font-medium px-1">Type</span>
                 <Select

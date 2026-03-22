@@ -334,7 +334,7 @@ export const GeminiShowcase: React.FC<GeminiShowcaseProps> = ({ apiKey }) => {
 
             {activeTab === 'imageGen' && (
                 <div className="space-y-8">
-                    <div className="bg-slate-800 p-6 rounded-xl border border-slate-700">
+                    <div className="glass-panel p-6 rounded-2xl">
                         <h2 className="text-xl font-bold mb-4">Nano Banana Pro (gemini-3-pro-image-preview)</h2>
                         <div className="flex gap-4 mb-4">
                             <input type="text" value={imagePrompt} onChange={e => setImagePrompt(e.target.value)} placeholder="Enter image prompt..." className="flex-1 bg-slate-700 p-2 rounded" />
@@ -350,7 +350,7 @@ export const GeminiShowcase: React.FC<GeminiShowcaseProps> = ({ apiKey }) => {
                         {generatedImage && <img src={generatedImage} alt="Generated" className="max-w-md rounded-lg shadow-lg" />}
                     </div>
 
-                    <div className="bg-slate-800 p-6 rounded-xl border border-slate-700">
+                    <div className="glass-panel p-6 rounded-2xl">
                         <h2 className="text-xl font-bold mb-4">Nano Banana 2 (gemini-3.1-flash-image-preview)</h2>
                         <div className="flex gap-4 mb-4">
                             <input type="text" value={imagePrompt2} onChange={e => setImagePrompt2(e.target.value)} placeholder="Enter image prompt..." className="flex-1 bg-slate-700 p-2 rounded" />
@@ -364,7 +364,7 @@ export const GeminiShowcase: React.FC<GeminiShowcaseProps> = ({ apiKey }) => {
             )}
 
             {activeTab === 'search' && (
-                <div className="bg-slate-800 p-6 rounded-xl border border-slate-700">
+                <div className="glass-panel p-6 rounded-2xl">
                     <h2 className="text-xl font-bold mb-4">Search Grounding (gemini-3-flash-preview)</h2>
                     <div className="flex gap-4 mb-4">
                         <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Ask something about recent events..." className="flex-1 bg-slate-700 p-2 rounded" />
@@ -378,7 +378,7 @@ export const GeminiShowcase: React.FC<GeminiShowcaseProps> = ({ apiKey }) => {
 
             {activeTab === 'chat' && (
                 <div className="space-y-8">
-                    <div className="bg-slate-800 p-6 rounded-xl border border-slate-700">
+                    <div className="glass-panel p-6 rounded-2xl">
                         <h2 className="text-xl font-bold mb-4">AI Chatbot (gemini-3.1-pro-preview)</h2>
                         <div className="flex gap-4 mb-4">
                             <input type="text" value={chatQuery} onChange={e => setChatQuery(e.target.value)} placeholder="Ask a complex question..." className="flex-1 bg-slate-700 p-2 rounded" />
@@ -389,7 +389,7 @@ export const GeminiShowcase: React.FC<GeminiShowcaseProps> = ({ apiKey }) => {
                         {chatResult && <div className="bg-slate-900 p-4 rounded whitespace-pre-wrap">{chatResult}</div>}
                     </div>
 
-                    <div className="bg-slate-800 p-6 rounded-xl border border-slate-700">
+                    <div className="glass-panel p-6 rounded-2xl">
                         <h2 className="text-xl font-bold mb-4">Fast Chat (gemini-3.1-flash-lite-preview)</h2>
                         <div className="flex gap-4 mb-4">
                             <input type="text" value={fastQuery} onChange={e => setFastQuery(e.target.value)} placeholder="Ask a quick question..." className="flex-1 bg-slate-700 p-2 rounded" />
@@ -400,7 +400,7 @@ export const GeminiShowcase: React.FC<GeminiShowcaseProps> = ({ apiKey }) => {
                         {fastResult && <div className="bg-slate-900 p-4 rounded whitespace-pre-wrap">{fastResult}</div>}
                     </div>
 
-                    <div className="bg-slate-800 p-6 rounded-xl border border-slate-700">
+                    <div className="glass-panel p-6 rounded-2xl">
                         <h2 className="text-xl font-bold mb-4">Thinking Mode (gemini-3.1-pro-preview)</h2>
                         <div className="flex gap-4 mb-4">
                             <input type="text" value={thinkQuery} onChange={e => setThinkQuery(e.target.value)} placeholder="Ask a logic puzzle..." className="flex-1 bg-slate-700 p-2 rounded" />
@@ -415,7 +415,7 @@ export const GeminiShowcase: React.FC<GeminiShowcaseProps> = ({ apiKey }) => {
 
             {activeTab === 'audio' && (
                 <div className="space-y-8">
-                    <div className="bg-slate-800 p-6 rounded-xl border border-slate-700">
+                    <div className="glass-panel p-6 rounded-2xl">
                         <h2 className="text-xl font-bold mb-4">Audio Transcription (gemini-3-flash-preview)</h2>
                         <div className="flex gap-4 mb-4">
                             <button onMouseDown={startRecording} onMouseUp={stopRecording} onMouseLeave={stopRecording} className={`px-4 py-2 rounded ${isRecording ? 'bg-red-600' : 'bg-cyan-600'}`}>
@@ -425,7 +425,7 @@ export const GeminiShowcase: React.FC<GeminiShowcaseProps> = ({ apiKey }) => {
                         {transcription && <div className="bg-slate-900 p-4 rounded whitespace-pre-wrap">{transcription}</div>}
                     </div>
 
-                    <div className="bg-slate-800 p-6 rounded-xl border border-slate-700">
+                    <div className="glass-panel p-6 rounded-2xl">
                         <h2 className="text-xl font-bold mb-4">Text to Speech (gemini-2.5-flash-preview-tts)</h2>
                         <div className="flex gap-4 mb-4">
                             <input type="text" value={ttsText} onChange={e => setTtsText(e.target.value)} placeholder="Enter text to speak..." className="flex-1 bg-slate-700 p-2 rounded" />
@@ -440,7 +440,7 @@ export const GeminiShowcase: React.FC<GeminiShowcaseProps> = ({ apiKey }) => {
 
             {activeTab === 'vision' && (
                 <div className="space-y-8">
-                    <div className="bg-slate-800 p-6 rounded-xl border border-slate-700">
+                    <div className="glass-panel p-6 rounded-2xl">
                         <h2 className="text-xl font-bold mb-4">Image Understanding (gemini-3.1-pro-preview)</h2>
                         <div className="flex gap-4 mb-4">
                             <input type="file" accept="image/*" onChange={e => setImageFile(e.target.files?.[0] || null)} className="bg-slate-700 p-2 rounded" />
@@ -451,7 +451,7 @@ export const GeminiShowcase: React.FC<GeminiShowcaseProps> = ({ apiKey }) => {
                         {imageAnalysis && <div className="bg-slate-900 p-4 rounded whitespace-pre-wrap">{imageAnalysis}</div>}
                     </div>
 
-                    <div className="bg-slate-800 p-6 rounded-xl border border-slate-700">
+                    <div className="glass-panel p-6 rounded-2xl">
                         <h2 className="text-xl font-bold mb-4">Video Understanding (gemini-3.1-pro-preview)</h2>
                         <div className="flex gap-4 mb-4">
                             <input type="file" accept="video/*" onChange={e => setVideoFile(e.target.files?.[0] || null)} className="bg-slate-700 p-2 rounded" />

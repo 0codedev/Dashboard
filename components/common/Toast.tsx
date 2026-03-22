@@ -29,7 +29,18 @@ const ToastMessage: React.FC<ToastProps> = ({ toast, onDismiss }) => {
         <h3 className="font-bold text-cyan-300">{toast.title}</h3>
         <p className="text-sm text-gray-300">{toast.message}</p>
       </div>
-      <button onClick={() => onDismiss(toast.id)} aria-label="Dismiss notification" className="text-gray-500 hover:text-white">&times;</button>
+      <button 
+        onClick={(e) => {
+          e.stopPropagation();
+          onDismiss(toast.id);
+        }} 
+        aria-label="Dismiss notification" 
+        className="text-gray-500 hover:text-white p-2 -mr-2 -mt-2 transition-colors"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
     </div>
   );
 };
@@ -40,9 +51,9 @@ interface ToastContainerProps {
 }
 
 export const ToastContainer: React.FC<ToastContainerProps> = ({ toasts, setToasts }) => {
-  const handleDismiss = (id: number) => {
+  const handleDismiss = React.useCallback((id: number) => {
     setToasts(currentToasts => currentToasts.filter(t => t.id !== id));
-  };
+  }, [setToasts]);
 
   return (
     <div className="fixed top-4 right-4 z-50 w-full max-w-sm space-y-2">

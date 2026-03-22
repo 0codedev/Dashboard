@@ -49,10 +49,13 @@ export const useAchievements = (
     
     if (newlyUnlocked.length > 0) {
       const updatedAchievements = { ...gamificationState.unlockedAchievements };
-      newlyUnlocked.forEach(id => {
+      newlyUnlocked.forEach((id, index) => {
         updatedAchievements[id] = { unlockedAt: now };
         const config = ACHIEVEMENT_CONFIG[id];
-        addToast({ title: 'Achievement Unlocked!', message: config.title, icon: config.icon });
+        // Batch toasts to prevent overwhelming the UI
+        setTimeout(() => {
+          addToast({ title: 'Achievement Unlocked!', message: config.title, icon: config.icon });
+        }, index * 300); // 300ms delay between toasts
       });
       setGamificationState(prev => ({ ...prev, unlockedAchievements: updatedAchievements }));
     }

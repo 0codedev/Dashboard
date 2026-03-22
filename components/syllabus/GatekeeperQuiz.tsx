@@ -12,7 +12,7 @@ export const GatekeeperQuiz: React.FC<GatekeeperQuizProps> = ({ quizState, setQu
 
     if (quizState?.loading) {
         return (
-            <div className="flex flex-col items-center justify-center p-12 bg-slate-900/80 backdrop-blur-xl border border-cyan-500/30 rounded-2xl shadow-[0_0_50px_rgba(6,182,212,0.15)]">
+            <div className="flex flex-col items-center justify-center p-12 glass-panel border-cyan-500/30 rounded-2xl shadow-[0_0_50px_rgba(6,182,212,0.15)]">
                 <div className="relative w-16 h-16 mb-6">
                     <div className="absolute inset-0 border-4 border-cyan-500/20 rounded-full"></div>
                     <div className="absolute inset-0 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
@@ -26,7 +26,7 @@ export const GatekeeperQuiz: React.FC<GatekeeperQuizProps> = ({ quizState, setQu
 
     if (!quizState?.questions) {
         return (
-            <div className="text-center p-8 bg-slate-900/80 backdrop-blur-xl border border-red-500/30 rounded-2xl">
+            <div className="text-center p-8 glass-panel border-red-500/30 rounded-2xl">
                 <div className="text-red-400 mb-2">⚠️ Connection Error</div>
                 <p className="text-gray-400 text-sm">The Gatekeeper could not be reached. Please try again.</p>
             </div>
@@ -66,7 +66,7 @@ export const GatekeeperQuiz: React.FC<GatekeeperQuizProps> = ({ quizState, setQu
     const allCorrect = isSubmitted && quizState.result?.every(Boolean);
 
     return (
-        <div className="relative overflow-hidden bg-slate-950/90 backdrop-blur-2xl border border-slate-800 rounded-2xl shadow-2xl">
+        <div className="relative overflow-hidden glass-panel rounded-2xl shadow-2xl">
             {/* Ambient Glow */}
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-32 bg-cyan-500/10 blur-[100px] pointer-events-none"></div>
             
@@ -82,10 +82,10 @@ export const GatekeeperQuiz: React.FC<GatekeeperQuizProps> = ({ quizState, setQu
                         const userAnswer = quizState.userAnswers?.[i];
 
                         return (
-                            <div key={i} className={`relative p-6 rounded-xl border backdrop-blur-sm transition-all duration-300 ${
+                            <div key={i} className={`relative p-6 rounded-2xl transition-all duration-300 ${
                                 isSubmitted 
-                                    ? (isCorrect ? 'border-emerald-500/30 bg-emerald-950/20 shadow-[0_0_30px_rgba(16,185,129,0.05)]' : 'border-rose-500/30 bg-rose-950/20 shadow-[0_0_30px_rgba(244,63,94,0.05)]') 
-                                    : 'border-slate-700/50 bg-slate-900/50 hover:border-slate-600/50'
+                                    ? (isCorrect ? 'glass-panel border-emerald-500/30 shadow-[0_0_30px_rgba(16,185,129,0.05)]' : 'glass-panel border-rose-500/30 shadow-[0_0_30px_rgba(244,63,94,0.05)]') 
+                                    : 'glass-panel hover:border-slate-600/50'
                             }`}>
                                 {/* Question Number Badge */}
                                 <div className={`absolute -top-3 -left-3 w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold border ${
@@ -103,11 +103,11 @@ export const GatekeeperQuiz: React.FC<GatekeeperQuizProps> = ({ quizState, setQu
                                         const isSelected = userAnswer === key;
                                         const isCorrectAnswer = q.answer === key;
                                         
-                                        let buttonClass = "bg-slate-800/50 border-slate-700/50 text-slate-300 hover:bg-slate-700/50 hover:border-slate-600";
+                                        let buttonClass = "glass-panel text-slate-300 hover:bg-white/5";
                                         if (isSubmitted) {
                                             if (isCorrectAnswer) buttonClass = "bg-emerald-900/40 border-emerald-500/50 text-emerald-200";
                                             else if (isSelected) buttonClass = "bg-rose-900/40 border-rose-500/50 text-rose-200";
-                                            else buttonClass = "bg-slate-900/30 border-slate-800/50 text-slate-500 opacity-50";
+                                            else buttonClass = "glass-panel text-slate-500 opacity-50";
                                         } else if (isSelected) {
                                             buttonClass = "bg-cyan-900/40 border-cyan-500/50 text-cyan-200 shadow-[0_0_15px_rgba(6,182,212,0.15)]";
                                         }
@@ -130,7 +130,7 @@ export const GatekeeperQuiz: React.FC<GatekeeperQuizProps> = ({ quizState, setQu
                                     })}
                                 </div>
                                 {isSubmitted && !isCorrect && (
-                                    <div className="mt-6 p-4 bg-rose-950/30 rounded-lg border border-rose-500/20">
+                                    <div className="mt-6 p-4 glass-panel border-rose-500/20 rounded-xl">
                                         <div className="flex items-center gap-2 mb-2">
                                             <span className="text-rose-400 font-bold text-sm uppercase tracking-wider">Gatekeeper Analysis</span>
                                         </div>
@@ -152,7 +152,7 @@ export const GatekeeperQuiz: React.FC<GatekeeperQuizProps> = ({ quizState, setQu
                             Submit Analysis
                         </button>
                     ) : allCorrect ? (
-                        <div className="text-center p-6 bg-emerald-950/30 border border-emerald-500/30 rounded-xl shadow-[0_0_30px_rgba(16,185,129,0.1)]">
+                        <div className="text-center p-6 glass-panel border-emerald-500/30 rounded-xl shadow-[0_0_30px_rgba(16,185,129,0.1)]">
                             <div className="w-12 h-12 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
                                 <svg className="w-6 h-6 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -162,7 +162,7 @@ export const GatekeeperQuiz: React.FC<GatekeeperQuizProps> = ({ quizState, setQu
                             <p className="text-emerald-500/70 text-sm">Access granted. Updating neural pathways...</p>
                         </div>
                     ) : (
-                        <div className="text-center p-6 bg-rose-950/30 border border-rose-500/30 rounded-xl">
+                        <div className="text-center p-6 glass-panel border-rose-500/30 rounded-xl">
                             <div className="w-12 h-12 bg-rose-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
                                 <svg className="w-6 h-6 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

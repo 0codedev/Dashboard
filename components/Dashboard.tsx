@@ -324,7 +324,7 @@ const ChartCard: React.FC<{
     onMouseLeave?: () => void;
 }> = ({ title, children, isEditing, isDragging, onChartClick, actionButton, onInfoClick, headerControls, onHide, onResize, className, insightText, isInsightLoading, onMouseEnter, onMouseLeave }) => (
     <div
-        className={`bg-slate-800/30 backdrop-blur-md p-4 rounded-2xl shadow-lg flex flex-col h-full transition-all duration-300 relative ${isDragging ? 'shadow-[rgba(var(--color-primary-rgb),0.5)] opacity-50' : ''} ${!isEditing && onChartClick ? 'cursor-pointer hover:shadow-[rgba(var(--color-primary-rgb),0.2)] hover:-translate-y-1' : ''} ${isEditing ? 'ring-2 ring-dashed ring-slate-500 cursor-move' : ''} ${className || ''}`}
+        className={`glass-panel p-4 rounded-2xl flex flex-col h-full transition-all duration-300 relative ${isDragging ? 'shadow-[rgba(var(--color-primary-rgb),0.5)] opacity-50' : ''} ${!isEditing && onChartClick ? 'cursor-pointer hover:shadow-[rgba(var(--color-primary-rgb),0.2)] hover:-translate-y-1' : ''} ${isEditing ? 'ring-2 ring-dashed ring-slate-500 cursor-move' : ''} ${className || ''}`}
         onClick={() => { if (!isEditing && onChartClick) onChartClick(); }}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}

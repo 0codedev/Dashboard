@@ -82,7 +82,7 @@ export const ReflectionsTab: React.FC<ReflectionsTabProps> = ({ apiKey, reflecti
     return (
         <div className="flex h-[calc(100vh-8rem)] gap-6">
             {/* Sidebar List */}
-            <div className="w-1/3 bg-slate-800/50 rounded-xl border border-slate-700 flex flex-col overflow-hidden">
+            <div className="w-1/3 glass-panel rounded-2xl flex flex-col overflow-hidden">
                 <div className="p-4 border-b border-slate-700">
                     <div className="flex justify-between items-center mb-4">
                         <h2 className="text-xl font-bold text-white flex items-center gap-2">
@@ -144,7 +144,7 @@ export const ReflectionsTab: React.FC<ReflectionsTabProps> = ({ apiKey, reflecti
             </div>
 
             {/* Main Content Area */}
-            <div className="flex-1 bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden flex flex-col">
+            <div className="flex-1 glass-panel rounded-2xl overflow-hidden flex flex-col">
                 {isCreating ? (
                     <div className="p-6 flex flex-col h-full">
                         <div className="flex justify-between items-center mb-4">

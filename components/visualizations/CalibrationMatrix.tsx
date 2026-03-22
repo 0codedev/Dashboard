@@ -50,7 +50,7 @@ export const CalibrationMatrix: React.FC<CalibrationMatrixProps> = ({ logs }) =>
             else if (calibration < -20) { status = 'Underconfident (Imposter)'; color = 'text-yellow-400'; }
 
             return (
-                <div className="bg-slate-900 border border-slate-600 p-3 rounded-lg shadow-xl text-xs z-50">
+                <div className="glass-panel border-slate-600 p-3 rounded-xl shadow-xl text-xs z-50">
                     <p className="font-bold text-white mb-1">{data.topic}</p>
                     <p className="text-gray-400">Attempts: {data.attempts}</p>
                     <div className="my-2 h-px bg-slate-700"></div>
@@ -65,7 +65,7 @@ export const CalibrationMatrix: React.FC<CalibrationMatrixProps> = ({ logs }) =>
 
     return (
         <div className="h-full flex flex-col">
-            <div className="flex justify-between items-center px-4 py-2 text-[10px] text-gray-500 bg-slate-900/30 rounded-t-lg">
+            <div className="flex justify-between items-center px-4 py-2 text-[10px] text-gray-500 glass-panel rounded-t-2xl border-b-0">
                 <div className="flex gap-4">
                     <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500"></span> Blind Spot (High Conf, Low Skill)</span>
                     <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> Mastery (High Conf, High Skill)</span>
@@ -76,7 +76,7 @@ export const CalibrationMatrix: React.FC<CalibrationMatrixProps> = ({ logs }) =>
                 </div>
             </div>
             
-            <div className="flex-grow min-h-0 bg-slate-800/20">
+            <div className="flex-grow min-h-0 bg-transparent">
                 <ResponsiveContainer width="100%" height="100%">
                     <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 10 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#334155" />

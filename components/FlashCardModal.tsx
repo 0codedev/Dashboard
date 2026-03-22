@@ -110,11 +110,11 @@ export const FlashCardModal: React.FC<FlashCardModalProps> = ({ isOpen, onClose,
                     <p className="text-cyan-400 mb-6 font-mono text-sm">Neural Pathways Reinforced.</p>
                     
                     <div className="grid grid-cols-2 gap-4 mb-8">
-                        <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+                        <div className="glass-panel p-4 rounded-2xl">
                             <p className="text-xs text-gray-400 uppercase">Mastery</p>
                             <p className="text-2xl font-bold text-white">{flashcardSession.masteredCards}/{flashcardSession.deck.length}</p>
                         </div>
-                        <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+                        <div className="glass-panel p-4 rounded-2xl">
                             <p className="text-xs text-gray-400 uppercase">Max Streak</p>
                             <p className="text-2xl font-bold text-amber-400">{flashcardSession.streak}🔥</p>
                         </div>

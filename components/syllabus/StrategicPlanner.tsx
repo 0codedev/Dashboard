@@ -75,7 +75,7 @@ export const StrategicPlanner: React.FC<{ userProfile: UserProfile }> = ({ userP
     const currentStatus = statusConfig[isOnTrack || 'null'];
 
     return (
-        <div className="glass-panel p-4 rounded-xl mb-6 relative overflow-hidden transition-all text-center">
+        <div className="glass-panel p-4 rounded-2xl mb-6 relative overflow-hidden transition-all text-center">
              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 items-center justify-around relative z-10">
                 <div><p className="text-xs text-gray-400">Actual Velocity</p><p className="text-2xl font-bold text-white tabular-nums">{velocity.toFixed(1)} <span className="text-sm text-gray-400">ch/wk</span></p></div>
                 <div><p className="text-xs text-gray-400">Required Velocity</p><p className="text-2xl font-bold text-white tabular-nums">{requiredVelocity === null ? 'N/A' : isFinite(requiredVelocity) ? requiredVelocity.toFixed(1) : '∞'} <span className="text-sm text-gray-400">ch/wk</span></p></div>

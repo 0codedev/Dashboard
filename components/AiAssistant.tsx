@@ -7,6 +7,7 @@ import { MODEL_REGISTRY, AIModel } from '../services/llm/models';
 import { generateTextOpenAI } from '../services/llm/providers';
 import { llmPipeline } from '../services/llm'; 
 import { MarkdownRenderer } from './common/MarkdownRenderer';
+import { downloadChatHistoryAsJSON } from '../services/backupService';
 
 // --- NEW AI ARCHITECTURE IMPORTS ---
 import { classifyIntent } from '../services/ai/Router';
@@ -629,7 +630,7 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
     };
 
     return (
-        <div className="flex h-[calc(100vh-120px)] bg-slate-800/50 rounded-lg shadow-lg border border-slate-700 overflow-hidden relative">
+        <div className="flex h-[calc(100vh-120px)] glass-panel rounded-2xl overflow-hidden relative">
             {/* Sidebar Overlay for Mobile */}
             {isSidebarOpen && (
                 <div className="absolute inset-0 bg-black/50 z-30 lg:hidden" onClick={() => setIsSidebarOpen(false)} />
@@ -642,10 +643,14 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
                     </button>
                 </div>
-                <div className="p-2 min-w-[16rem]">
+                <div className="p-2 min-w-[16rem] space-y-2">
                     <button onClick={handleNewChat} className="w-full flex items-center justify-center gap-2 bg-cyan-600/20 hover:bg-cyan-600/40 text-cyan-400 border border-cyan-500/30 rounded-lg py-2 text-sm font-bold transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" /></svg>
                         New Chat
+                    </button>
+                    <button onClick={() => downloadChatHistoryAsJSON(chatHistory)} className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-gray-300 border border-slate-600 rounded-lg py-2 text-sm font-bold transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                        Export Backup
                     </button>
                 </div>
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1 min-w-[16rem]">
@@ -755,10 +760,10 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
             {activeTab === 'chat' ? (
                 <div className="flex-grow relative flex flex-col overflow-hidden">
                     <div ref={chatContainerRef} className={`flex-grow p-4 overflow-y-auto space-y-6 custom-scrollbar ${isInputExpanded ? 'pb-44' : 'pb-20'} transition-all duration-300`}>
-                        {chatHistory.length === 0 && <div className="flex flex-col items-center justify-center h-full text-gray-500 opacity-50"><div className="w-16 h-16 bg-slate-800 rounded-2xl flex items-center justify-center mb-4 text-4xl grayscale">{currentModel.name.includes('Gemma') ? '🤖' : '⚡'}</div><p className="text-lg font-medium mb-2">How can I help you ace JEE?</p></div>}
+                        {chatHistory.length === 0 && <div className="flex flex-col items-center justify-center h-full text-gray-500 opacity-50"><div className="w-16 h-16 glass-panel rounded-2xl flex items-center justify-center mb-4 text-4xl grayscale">{currentModel.name.includes('Gemma') ? '🤖' : '⚡'}</div><p className="text-lg font-medium mb-2">How can I help you ace JEE?</p></div>}
                         {chatHistory.map((msg, index) => (
                             <div key={index} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} animate-fade-in`}>
-                                <div className={`p-4 rounded-2xl max-w-[90%] lg:max-w-[75%] shadow-sm ${msg.role === 'user' ? 'bg-slate-800 text-gray-100 rounded-br-sm' : 'bg-transparent text-gray-200 pl-0'}`}>
+                                <div className={`p-4 rounded-2xl max-w-[90%] lg:max-w-[75%] shadow-sm ${msg.role === 'user' ? 'glass-panel text-gray-100 rounded-br-sm' : 'bg-transparent text-gray-200 pl-0'}`}>
                                     {msg.role === 'model' && <div className="flex items-center gap-2 mb-1 text-xs font-bold text-cyan-400"><span>{currentModel.name.includes('Gemma') ? '🤖' : '⚡'}</span> AI Coach</div>}
                                     {renderMessageContent(msg)}
                                 </div>
@@ -769,7 +774,7 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
                     {/* ... (Input Area Unchanged) ... */}
                     <div className={`absolute bottom-0 left-0 right-0 z-20 transition-transform duration-500 ease-[cubic-bezier(0.19,1,0.22,1)] ${isInputExpanded ? 'translate-y-0' : 'translate-y-[calc(100%-20px)] opacity-0 pointer-events-none'}`}>
                         <div className="p-4 bg-gradient-to-t from-slate-900 via-slate-900/90 to-transparent pt-10">
-                            {isInputExpanded && chatHistory.length < 2 && <div className="flex gap-2 mb-3 overflow-x-auto pb-2 hide-scrollbar px-2">{suggestions.map((s, i) => (<button key={i} onClick={() => handleSuggestionClick(s)} className="whitespace-nowrap px-4 py-2 bg-slate-800/80 hover:bg-slate-700 border border-slate-700/50 hover:border-cyan-500/30 text-xs text-gray-300 hover:text-white rounded-full transition-all shadow-sm backdrop-blur-sm">{s}</button>))}</div>}
+                            {isInputExpanded && chatHistory.length < 2 && <div className="flex gap-2 mb-3 overflow-x-auto pb-2 hide-scrollbar px-2">{suggestions.map((s, i) => (<button key={i} onClick={() => handleSuggestionClick(s)} className="whitespace-nowrap px-4 py-2 glass-panel hover:bg-slate-700/50 border-slate-700/50 hover:border-cyan-500/30 text-xs text-gray-300 hover:text-white rounded-full transition-all shadow-sm">{s}</button>))}</div>}
                             {attachedImage && <div className="mx-2 mb-2 flex items-center gap-3 bg-slate-800/80 p-2 rounded-xl border border-slate-700/50 w-fit animate-scale-in backdrop-blur-sm"><div className="w-10 h-10 bg-slate-700 rounded-lg overflow-hidden flex items-center justify-center text-lg shadow-inner">🖼️</div><div className="flex flex-col"><span className="text-xs text-white font-medium truncate max-w-[150px]">{attachedImage.name}</span><span className="text-[10px] text-gray-400">{(attachedImage.size / 1024).toFixed(1)} KB</span></div><button type="button" onClick={handleRemoveImage} className="ml-1 w-6 h-6 flex items-center justify-center rounded-full hover:bg-slate-700 text-gray-400 hover:text-red-400 transition-colors">×</button></div>}
                             {attachedAudio && <div className="mx-2 mb-2 flex items-center gap-3 bg-slate-800/80 p-2 rounded-xl border border-slate-700/50 w-fit animate-scale-in backdrop-blur-sm"><div className="w-10 h-10 bg-slate-700 rounded-lg overflow-hidden flex items-center justify-center text-lg shadow-inner">🎵</div><div className="flex flex-col"><span className="text-xs text-white font-medium truncate max-w-[150px]">{attachedAudio.name}</span><span className="text-[10px] text-gray-400">{(attachedAudio.size / 1024).toFixed(1)} KB</span></div><button type="button" onClick={handleRemoveAudio} className="ml-1 w-6 h-6 flex items-center justify-center rounded-full hover:bg-slate-700 text-gray-400 hover:text-red-400 transition-colors">×</button></div>}
                             <form onSubmit={handleSendMessage} className="relative bg-slate-900/50 border border-slate-700/50 backdrop-blur-xl rounded-3xl shadow-2xl transition-all focus-within:border-cyan-500/50 focus-within:shadow-[0_0_20px_rgba(34,211,238,0.1)]">

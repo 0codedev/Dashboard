@@ -23,12 +23,16 @@ interface SubjectSyllabusProps {
     onPredictHurdles: (topic: string) => void;
     isHurdleLoading: boolean;
     currentHurdleTopic: string | null;
+    onGeneratePath?: (topic: string) => void;
+    isGeneratingPath?: boolean;
+    currentPathTopic?: string | null;
 }
 
 export const SubjectSyllabus: React.FC<SubjectSyllabusProps> = ({ 
     subject, userProfile, onSyllabusChange, questionLogs, reports, onStartFocusSession, 
     onExplainTopic, searchQuery, activeUnitFilter, onTriggerQuiz, onCompletionEffect, 
-    chapterCardRefs, quizLoadingState, onNodeClick, onPredictHurdles, isHurdleLoading, currentHurdleTopic 
+    chapterCardRefs, quizLoadingState, onNodeClick, onPredictHurdles, isHurdleLoading, 
+    currentHurdleTopic, onGeneratePath, isGeneratingPath, currentPathTopic
 }) => {
     const [filter, setFilter] = useState<{ status: string, strength: string }>({ status: 'all', strength: 'all' });
     const [sort, setSort] = useState<string>('default');
@@ -99,7 +103,7 @@ export const SubjectSyllabus: React.FC<SubjectSyllabusProps> = ({
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-wrap items-center gap-4 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+            <div className="flex flex-wrap items-center gap-4 p-4 glass-panel rounded-2xl">
                  <div className="flex items-center gap-2">
                     <span className="text-sm text-gray-400">Status:</span>
                     <select value={filter.status} onChange={e => setFilter(prev => ({...prev, status: e.target.value}))} className="bg-slate-700 text-sm p-1 rounded border border-slate-600 focus:outline-none focus:ring-1 focus:ring-cyan-500">
@@ -165,6 +169,9 @@ export const SubjectSyllabus: React.FC<SubjectSyllabusProps> = ({
                                             onCardClick={() => onNodeClick(chapter.name)}
                                             onPredictHurdles={onPredictHurdles}
                                             isHurdleLoading={isHurdleLoading && currentHurdleTopic === chapter.name}
+                                            onGeneratePath={onGeneratePath}
+                                            isGeneratingPath={isGeneratingPath && currentPathTopic === chapter.name}
+                                            showAIPath={true}
                                         />
                                     </div>
                                 )})}

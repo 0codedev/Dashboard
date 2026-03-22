@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import type { AiAssistantPreferences, NotificationPreferences, UserProfile, Theme, AppearancePreferences, TestReport, QuestionLog, LongTermGoal, GamificationState, StudyGoal, ChatMessage, LlmTaskCategory, TargetExam } from '../types';
+import type { AiAssistantPreferences, NotificationPreferences, UserProfile, Theme, AppearancePreferences, TestReport, QuestionLog, LongTermGoal, GamificationState, StudyGoal, ChatMessage, LlmTaskCategory, TargetExam, DailyTask, Reflection } from '../types';
 import { getDailyQuote } from '../services/geminiService';
 import { MODEL_REGISTRY, TASK_DEFAULTS, AIModel } from '../services/llm/models';
 import Modal from './common/Modal';
@@ -51,6 +51,10 @@ interface SettingsProps {
     gamificationState: GamificationState;
     studyGoals: StudyGoal[];
     chatHistory: ChatMessage[];
+    dailyTasks: DailyTask[];
+    reflections: Reflection[];
+    endOfDaySummaries: Record<string, string>;
+    dailyPlansHistory: Record<string, DailyTask[]>;
 }
 
 type SettingsCategory = 'profile' | 'appearance' | 'ai' | 'connectivity' | 'data';
@@ -90,7 +94,7 @@ const ProfileSettings: React.FC<Pick<SettingsProps, 'userProfile' | 'setUserProf
 
     return (
         <div className="space-y-8 animate-fade-in">
-            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
+            <div className="glass-panel p-6 rounded-2xl">
                 <h3 className="text-lg font-bold text-cyan-400 mb-6 flex items-center gap-2">
                     <span className="text-xl">👤</span> Identity & Goals
                 </h3>
@@ -153,7 +157,7 @@ const ProfileSettings: React.FC<Pick<SettingsProps, 'userProfile' | 'setUserProf
                 </div>
             </div>
             
-            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
+            <div className="glass-panel p-6 rounded-2xl">
                  <h3 className="text-lg font-bold text-cyan-400 mb-6 flex items-center gap-2">
                     <span className="text-xl">👥</span> Cohort Calibration
                 </h3>
@@ -180,7 +184,7 @@ const ProfileSettings: React.FC<Pick<SettingsProps, 'userProfile' | 'setUserProf
                 </div>
             </div>
 
-            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
+            <div className="glass-panel p-6 rounded-2xl">
                  <h3 className="text-lg font-bold text-cyan-400 mb-6 flex items-center gap-2">
                     <span className="text-xl">⏱️</span> Pace Strategy (Target Time/Q)
                 </h3>
@@ -211,7 +215,7 @@ const ProfileSettings: React.FC<Pick<SettingsProps, 'userProfile' | 'setUserProf
                 </div>
             </div>
 
-            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
+            <div className="glass-panel p-6 rounded-2xl">
                 <h3 className="text-lg font-bold text-cyan-400 mb-6 flex items-center gap-2">
                     <span className="text-xl">📅</span> Study Routine
                 </h3>
@@ -229,7 +233,7 @@ const ProfileSettings: React.FC<Pick<SettingsProps, 'userProfile' | 'setUserProf
                 </div>
             </div>
 
-            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
+            <div className="glass-panel p-6 rounded-2xl">
                 <h3 className="text-lg font-bold text-cyan-400 mb-6 flex items-center gap-2">
                     <span className="text-xl">🔭</span> Vision Board
                 </h3>
@@ -266,7 +270,7 @@ const AppearanceSettings: React.FC<Pick<SettingsProps, 'theme' | 'setTheme' | 'a
 
     return (
         <div className="space-y-8 animate-fade-in">
-            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
+            <div className="glass-panel p-6 rounded-2xl">
                 <h3 className="text-lg font-bold text-[rgb(var(--color-primary-rgb))] mb-6 flex items-center gap-2">
                     <span className="text-xl">🎨</span> Interface Theme
                 </h3>
@@ -294,7 +298,7 @@ const AppearanceSettings: React.FC<Pick<SettingsProps, 'theme' | 'setTheme' | 'a
                 </div>
             </div>
 
-            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
+            <div className="glass-panel p-6 rounded-2xl">
                 <h3 className="text-lg font-bold text-[rgb(var(--color-primary-rgb))] mb-6 flex items-center gap-2">
                     <span className="text-xl">👁️</span> Visual Comfort
                 </h3>
@@ -521,7 +525,7 @@ const AiSettings: React.FC<Pick<SettingsProps, 'aiPreferences' | 'setAiPreferenc
                 onUpdate={setAiPreferences} 
             />
 
-            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
+            <div className="glass-panel p-6 rounded-2xl">
                 <div className="flex justify-between items-center mb-6 border-b border-slate-700/50 pb-4">
                     <h3 className="text-lg font-bold text-[rgb(var(--color-primary-rgb))] flex items-center gap-2">
                         <span className="text-xl">🤖</span> Cognitive Settings
@@ -589,7 +593,7 @@ const AiSettings: React.FC<Pick<SettingsProps, 'aiPreferences' | 'setAiPreferenc
                 </div>
             </div>
 
-            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
+            <div className="glass-panel p-6 rounded-2xl">
                 <h3 className="text-lg font-bold text-[rgb(var(--color-primary-rgb))] mb-6 flex items-center gap-2">
                     <span className="text-xl">🔔</span> Proactive Insights
                 </h3>
@@ -640,7 +644,7 @@ const ConnectivitySettings: React.FC<Pick<SettingsProps, 'onClearKey' | 'apiKey'
     
     return (
         <div className="space-y-8 animate-fade-in">
-            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
+            <div className="glass-panel p-6 rounded-2xl">
                  <h3 className="text-lg font-bold text-[rgb(var(--color-primary-rgb))] mb-2 flex items-center gap-2">
                     <span className="text-xl">🔌</span> API Gateways
                 </h3>
@@ -775,9 +779,9 @@ const DriveBackupModal: React.FC<{
 };
 
 // --- 5. DATA SETTINGS ---
-const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleReportsReset' | 'handleChatReset' | 'handleGamificationReset' | 'onSyncData' | 'reports' | 'logs' | 'userProfile' | 'aiPreferences' | 'notificationPreferences' | 'appearancePreferences' | 'gamificationState' | 'studyGoals' | 'longTermGoals' | 'chatHistory' | 'addToast'>> = ({ 
+const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleReportsReset' | 'handleChatReset' | 'handleGamificationReset' | 'onSyncData' | 'reports' | 'logs' | 'userProfile' | 'aiPreferences' | 'notificationPreferences' | 'appearancePreferences' | 'gamificationState' | 'studyGoals' | 'longTermGoals' | 'chatHistory' | 'dailyTasks' | 'reflections' | 'endOfDaySummaries' | 'dailyPlansHistory' | 'addToast'>> = ({ 
     handleFullReset, handleReportsReset, handleChatReset, handleGamificationReset, onSyncData,
-    reports, logs, userProfile, aiPreferences, notificationPreferences, appearancePreferences, gamificationState, studyGoals, longTermGoals, chatHistory, addToast
+    reports, logs, userProfile, aiPreferences, notificationPreferences, appearancePreferences, gamificationState, studyGoals, longTermGoals, chatHistory, dailyTasks, reflections, endOfDaySummaries, dailyPlansHistory, addToast
 }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const reportsCsvRef = useRef<HTMLInputElement>(null);
@@ -816,7 +820,7 @@ const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleRepo
     const getExportData = () => ({
         version: 1,
         date: new Date().toISOString(),
-        reports, logs, userProfile, aiPreferences, notificationPreferences, appearancePreferences, gamificationState, studyGoals, longTermGoals, chatHistory
+        reports, logs, userProfile, aiPreferences, notificationPreferences, appearancePreferences, gamificationState, studyGoals, longTermGoals, chatHistory, dailyTasks, reflections, endOfDaySummaries, dailyPlansHistory
     });
 
     const handleBackup = () => {
@@ -989,7 +993,7 @@ const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleRepo
                 addToast={addToast}
             />
 
-            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm">
+            <div className="glass-panel p-6 rounded-2xl">
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="text-lg font-bold text-[rgb(var(--color-primary-rgb))] flex items-center gap-2">
                         <span className="text-xl">💾</span> Sync & Backup
@@ -1130,7 +1134,7 @@ const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleRepo
                 </div>
             </div>
 
-            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm mt-6">
+            <div className="glass-panel p-6 rounded-2xl mt-6">
                  <div className="flex justify-between items-center mb-2">
                     <h3 className="text-lg font-bold text-[rgb(var(--color-primary-rgb))] flex items-center gap-2">
                         <span className="text-xl">🩺</span> Data Health Monitor
@@ -1140,7 +1144,7 @@ const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleRepo
                 <p className="text-xs text-slate-400">Click 'Run Scan' to check for data integrity issues like orphaned question logs.</p>
             </div>
             
-            <div className="bg-slate-800/40 p-6 rounded-xl border border-slate-700/50 shadow-sm mt-6">
+            <div className="glass-panel p-6 rounded-2xl mt-6">
                 <div className="bg-red-900/10 p-6 rounded-xl border border-red-900/30">
                     <h4 className="text-sm font-bold text-red-400 mb-4 flex items-center gap-2"><span className="text-lg">☢️</span> Danger Zone</h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1214,7 +1218,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
         <div className="space-y-8 animate-fade-in pb-20">
             <div className="flex flex-col lg:flex-row gap-8">
                 <nav className="lg:w-64 flex-shrink-0">
-                    <h2 className="text-2xl font-bold text-[rgb(var(--color-primary-accent-rgb))] mb-6 pl-2">Control Center</h2>
+                    <h2 className="text-2xl font-bold text-cyan-300 mb-6 pl-2">Control Center</h2>
                     <ul className="space-y-2">
                         {categories.map(cat => (
                             <li key={cat.id}>

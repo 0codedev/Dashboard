@@ -334,7 +334,7 @@ export const ErrorVaccinator: React.FC<ErrorVaccinatorProps> = ({ logs, reports,
             `}</style>
 
             {/* Header / Control Panel */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-slate-900/80 backdrop-blur-xl p-6 rounded-2xl border border-slate-700 shadow-2xl relative overflow-hidden">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center glass-panel p-6 rounded-2xl shadow-2xl relative overflow-hidden">
                 <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 pointer-events-none"></div>
                 <div className="relative z-10 mb-4 md:mb-0">
                     <h2 className="text-3xl font-black text-white tracking-tighter flex items-center gap-3">

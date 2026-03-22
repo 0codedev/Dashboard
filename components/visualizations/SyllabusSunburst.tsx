@@ -100,7 +100,7 @@ export const SyllabusSunburst: React.FC<SyllabusSunburstProps> = ({ userProfile,
     };
 
     return (
-        <div className="w-full h-[400px] relative bg-slate-900/30 rounded-xl border border-slate-700/50 flex flex-col items-center justify-center p-4 animate-fade-in">
+        <div className="w-full h-[400px] relative glass-panel rounded-2xl flex flex-col items-center justify-center p-4 animate-fade-in">
             <ResponsiveContainer width="100%" height="100%">
                 <PieChart onMouseLeave={onPieLeave}>
                     <Tooltip 
@@ -119,7 +119,7 @@ export const SyllabusSunburst: React.FC<SyllabusSunburstProps> = ({ userProfile,
                                 const isUnit = d.subject !== undefined; // Unit data has 'subject' property, Subject data does not in this context structure
 
                                 return (
-                                    <div className="bg-slate-800/90 border border-slate-600 p-3 rounded-lg shadow-xl text-xs z-50 backdrop-blur-sm">
+                                    <div className="glass-panel border-slate-600 p-3 rounded-xl shadow-xl text-xs z-50">
                                         <p className="font-bold text-white text-sm mb-1">{d.name}</p>
                                         {isUnit ? (
                                             <div className="space-y-1">
@@ -188,7 +188,7 @@ export const SyllabusSunburst: React.FC<SyllabusSunburstProps> = ({ userProfile,
                     </PieComponent>
                 </PieChart>
             </ResponsiveContainer>
-            <div className="absolute bottom-4 right-4 text-[10px] text-gray-500 pointer-events-none bg-slate-900/80 px-2 py-1 rounded border border-slate-700">
+            <div className="absolute bottom-4 right-4 text-[10px] text-gray-500 pointer-events-none glass-panel px-2 py-1 rounded-lg">
                 <span className="inline-block w-2 h-2 rounded-full bg-gray-500 opacity-50 mr-1"></span>
                 Outer opacity = Completion %
             </div>

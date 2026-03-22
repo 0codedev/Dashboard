@@ -23,7 +23,7 @@ import { useAppStore } from './useAppStore';
 import { useDataStore } from './useDataStore';
 import { useAIStore } from './useAIStore';
 
-interface JeeState {
+export interface JeeState {
     // Session State (Flashcards)
     flashcardSession: FlashcardSession;
     isFlashcardModalOpen: boolean;
@@ -62,7 +62,7 @@ interface JeeState {
     theme: 'cyan' | 'indigo' | 'green' | 'red';
 }
 
-interface JeeActions {
+export interface JeeActions {
     // Initialization
     initialize: () => Promise<void>;
     

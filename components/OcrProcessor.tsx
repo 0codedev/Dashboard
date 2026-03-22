@@ -405,9 +405,9 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey, m
   const title = entryMode === 'ocr' ? 'Automated Data Input (OCR)' : entryMode === 'manual' ? 'Manual Data Input' : 'Add New Report';
 
   return (
-    <div className="p-4 bg-gradient-to-br from-gray-800 to-gray-900 border border-gray-700 rounded-lg shadow-2xl">
+    <div className="glass-panel p-4 rounded-2xl">
       <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold mb-6 text-[rgb(var(--color-primary-accent-rgb))]">{title}</h2>
+        <h2 className="text-2xl font-bold mb-6 text-cyan-300">{title}</h2>
         {entryMode && (
             <button onClick={handleReset} className="text-sm bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded-md">Start Over</button>
         )}

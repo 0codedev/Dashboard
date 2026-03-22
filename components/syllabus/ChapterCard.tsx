@@ -114,10 +114,10 @@ const DependencyIndicator: React.FC<{ topic: string, userProfile: UserProfile }>
 }
 
 const statusColors: Record<SyllabusStatus, string> = {
-    [SyllabusStatus.Completed]: "bg-green-500/10 border-green-500/30",
-    [SyllabusStatus.Revising]: "bg-blue-500/10 border-blue-500/30",
-    [SyllabusStatus.InProgress]: "bg-yellow-500/10 border-yellow-500/30",
-    [SyllabusStatus.NotStarted]: "bg-slate-700/50 border-slate-700/80",
+    [SyllabusStatus.Completed]: "bg-green-500/10 border-green-500/30 backdrop-blur-md",
+    [SyllabusStatus.Revising]: "bg-blue-500/10 border-blue-500/30 backdrop-blur-md",
+    [SyllabusStatus.InProgress]: "bg-yellow-500/10 border-yellow-500/30 backdrop-blur-md",
+    [SyllabusStatus.NotStarted]: "bg-slate-700/50 border-slate-700/80 backdrop-blur-md",
 };
 
 const COLORS_PIE: Record<string, string> = {
@@ -146,7 +146,7 @@ interface ChapterCardProps {
     isQuizLoading?: boolean;
     forceExpanded?: boolean;
     showAIPath?: boolean;
-    onGeneratePath?: () => void;
+    onGeneratePath?: (topic: string) => void;
     isGeneratingPath?: boolean;
     onCardClick?: (topic: string) => void;
     onPredictHurdles: (topic: string) => void;
@@ -459,7 +459,7 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
                                     <div className="bg-indigo-900/20 p-3 rounded-lg border border-indigo-500/30 text-sm">
                                         <p className="text-gray-300 mb-3 text-xs">Generate a personalized checklist based on your weaknesses and prerequisites.</p>
                                         <button 
-                                            onClick={onGeneratePath} 
+                                            onClick={() => onGeneratePath?.(chapter.name)} 
                                             disabled={isGeneratingPath}
                                             className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-4 rounded shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                         >

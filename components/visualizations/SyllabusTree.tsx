@@ -96,7 +96,7 @@ export const SyllabusTree: React.FC<SyllabusTreeProps> = React.memo(({ userProfi
     }, [userProfile.syllabus]);
     
     return (
-        <div className="w-full min-h-[600px] bg-slate-900/80 rounded-xl border border-slate-700 p-4">
+        <div className="w-full min-h-[600px] glass-panel rounded-2xl p-4">
             <h3 className="text-xl font-bold text-slate-200 mb-4">Structured Syllabus Tree</h3>
             <div className="space-y-1">
                 {(['physics', 'chemistry', 'maths'] as const).map(subject => {
@@ -110,7 +110,7 @@ export const SyllabusTree: React.FC<SyllabusTreeProps> = React.memo(({ userProfi
                         <div key={subjectId}>
                             <div 
                                 onClick={() => toggleExpand(subjectId)} 
-                                className="flex items-center gap-2 p-3 rounded-lg cursor-pointer hover:bg-slate-800"
+                                className="flex items-center gap-2 p-3 rounded-lg cursor-pointer hover:bg-white/5"
                                 style={{ color: SUBJECT_COLORS[subject] }}
                             >
                                 <span className={`transition-transform text-sm ${isSubjectExpanded ? 'rotate-90' : ''}`}>▶</span>
@@ -129,7 +129,7 @@ export const SyllabusTree: React.FC<SyllabusTreeProps> = React.memo(({ userProfi
 
                                         return (
                                             <div key={unitId} className="my-1">
-                                                <div onClick={() => toggleExpand(unitId)} className="flex items-center gap-2 py-2.5 px-2 rounded-md cursor-pointer hover:bg-slate-800/50 text-slate-300">
+                                                <div onClick={() => toggleExpand(unitId)} className="flex items-center gap-2 py-2.5 px-2 rounded-md cursor-pointer hover:bg-white/5 text-slate-300">
                                                     <span className={`transition-transform text-base ${isUnitExpanded ? 'rotate-90' : ''}`}>▶</span>
                                                     <FolderIcon isOpen={isUnitExpanded} />
                                                     <span className="font-semibold flex-grow text-lg">{unit.unit}</span>
@@ -148,7 +148,7 @@ export const SyllabusTree: React.FC<SyllabusTreeProps> = React.memo(({ userProfi
                                                                 <div key={chapterId} className="my-1">
                                                                     <div 
                                                                         onClick={() => toggleExpand(chapterId)} 
-                                                                        className="flex items-center gap-2 py-2.5 pl-2 pr-1 rounded-md cursor-pointer hover:bg-slate-700/50 text-slate-300"
+                                                                        className="flex items-center gap-2 py-2.5 pl-2 pr-1 rounded-md cursor-pointer hover:bg-white/5 text-slate-300"
                                                                     >
                                                                         <span className={`transition-transform text-base ${isChapterExpanded ? 'rotate-90' : ''}`}>▶</span>
                                                                         <FolderIcon isOpen={isChapterExpanded} />
@@ -162,7 +162,7 @@ export const SyllabusTree: React.FC<SyllabusTreeProps> = React.memo(({ userProfi
                                                                             {chapter.subTopics.map((subTopic: string) => {
                                                                                 const isChecked = !!userProfile.syllabus[chapter.name]?.subTopicStatus?.[subTopic];
                                                                                 return (
-                                                                                    <label key={subTopic} className="flex items-center gap-3 py-2 pl-2 rounded-md cursor-pointer hover:bg-slate-700/30">
+                                                                                    <label key={subTopic} className="flex items-center gap-3 py-2 pl-2 rounded-md cursor-pointer hover:bg-white/5">
                                                                                         <input 
                                                                                             type="checkbox" 
                                                                                             checked={isChecked} 

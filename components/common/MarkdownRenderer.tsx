@@ -1,15 +1,14 @@
 
 import React, { useRef, useState } from 'react';
-import { Download, FileText, Loader2 } from 'lucide-react';
+import { Download, Loader2 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
-
-// Declare KaTeX on window object since it's loaded via CDN
-declare global {
-    interface Window {
-        katex: any;
-    }
-}
+import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import rehypeRaw from 'rehype-raw';
+import 'katex/dist/katex.min.css';
 
 interface MarkdownRendererProps {
     content: string;
@@ -99,215 +98,6 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         }
     };
 
-    const renderInline = (text: string) => {
-        // Updated Regex for better matching:
-        // 1. Code: `...`
-        // 2. Block Math: $$...$$
-        // 3. Inline Math: $...$
-        // 4. Bold: **...** (Using .*? for non-greedy match allowing internal characters)
-        // 5. Italic: *...*
-        const parts = text.split(/(`[^`]+`|\$\$[^$]+\$\$|\$[^$]+\$|\*\*.*?\*\*|\*[^*]+\*)/g).filter(Boolean);
-        
-        return parts.map((part, index) => {
-            // Code
-            if (part.startsWith('`') && part.endsWith('`')) {
-                return <code key={index} className="bg-slate-800 text-amber-300 px-1.5 py-0.5 rounded text-xs font-mono border border-slate-700 shadow-sm">{part.slice(1, -1)}</code>;
-            }
-            // Block Math
-            if (part.startsWith('$$') && part.endsWith('$$')) {
-                const math = part.slice(2, -2);
-                try {
-                    if (window.katex) {
-                        const html = window.katex.renderToString(math, { 
-                            throwOnError: false, 
-                            displayMode: true 
-                        });
-                        return <span key={index} dangerouslySetInnerHTML={{ __html: html }} className="block my-2 text-center" />;
-                    }
-                } catch (e) {
-                    console.error("KaTeX error", e);
-                }
-                return <div key={index} className="font-mono text-cyan-200 bg-slate-900 p-2 rounded text-center">{math}</div>; // Fallback
-            }
-            // Inline Math
-            if (part.startsWith('$') && part.endsWith('$')) {
-                const math = part.slice(1, -1);
-                try {
-                    if (window.katex) {
-                        const html = window.katex.renderToString(math, { 
-                            throwOnError: false, 
-                            displayMode: false 
-                        });
-                        return <span key={index} dangerouslySetInnerHTML={{ __html: html }} className="mx-1" />;
-                    }
-                } catch (e) {
-                    console.error("KaTeX error", e);
-                }
-                return <span key={index} className="font-mono text-cyan-200">{part}</span>; // Fallback
-            }
-            // Bold
-            if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
-                return <strong key={index} className="text-white font-bold tracking-wide">{part.slice(2, -2)}</strong>;
-            }
-            // Italic
-            if (part.startsWith('*') && part.endsWith('*') && part.length >= 2) {
-                return <em key={index} className="text-indigo-200 italic font-medium">{part.slice(1, -1)}</em>;
-            }
-            // Regular Text
-            return <span key={index}>{part}</span>;
-        });
-    };
-
-    const renderTable = (rows: string[], keyIndex: number) => {
-        // Basic Markdown Table Parser
-        if (rows.length < 2) return null; // Need at least header and separator
-
-        // Filter out empty strings that result from split if there are leading/trailing pipes
-        const cleanRow = (r: string) => {
-            // Remove leading/trailing pipes if present
-            let content = r.trim();
-            if (content.startsWith('|')) content = content.substring(1);
-            if (content.endsWith('|')) content = content.substring(0, content.length - 1);
-            return content.split('|').map(c => c.trim());
-        };
-
-        const headers = cleanRow(rows[0]);
-        // rows[1] is the separator line (e.g. |---|), skip it
-        const bodyRows = rows.slice(2).map(cleanRow);
-
-        return (
-            <div key={`table-${keyIndex}`} className="overflow-x-auto my-4 rounded-lg border border-slate-700/50 shadow-sm">
-                <table className="min-w-full text-sm text-left">
-                    <thead className="bg-slate-800 text-slate-200 font-bold uppercase tracking-wider text-xs">
-                        <tr>
-                            {headers.map((h, idx) => (
-                                <th key={idx} className="px-4 py-3 border-b border-slate-700 whitespace-nowrap bg-slate-800/80">{renderInline(h)}</th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-700/50 bg-slate-900/30 text-slate-300">
-                        {bodyRows.map((row, rIdx) => (
-                            <tr key={rIdx} className="hover:bg-slate-800/30 transition-colors">
-                                {row.map((cell, cIdx) => (
-                                    <td key={cIdx} className="px-4 py-2 border-r border-slate-700/30 last:border-r-0">{renderInline(cell)}</td>
-                                ))}
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-        );
-    };
-
-    const lines = content.split('\n');
-    const elements: React.ReactNode[] = [];
-    let listStack: React.ReactNode[] = [];
-    let inList = false;
-    let tableBuffer: string[] = [];
-    let inTable = false;
-
-    const flushList = (keyPrefix: number) => {
-        if (listStack.length > 0) {
-            elements.push(<ul key={`ul-${keyPrefix}`} className="space-y-2 my-4 pl-2">{listStack}</ul>);
-            listStack = [];
-        }
-        inList = false;
-    };
-
-    const flushTable = (keyPrefix: number) => {
-        if (tableBuffer.length > 0) {
-            elements.push(renderTable(tableBuffer, keyPrefix));
-            tableBuffer = [];
-        }
-        inTable = false;
-    };
-
-    lines.forEach((line, i) => {
-        const trimmed = line.trim();
-        
-        // Handle Table Detection
-        if (trimmed.startsWith('|')) {
-            if (!inTable) {
-                flushList(i); // Close any open list
-                inTable = true;
-            }
-            tableBuffer.push(trimmed);
-            return;
-        } else if (inTable) {
-            flushTable(i);
-        }
-
-        // Handle Injected HTML (e.g. Footer)
-        if (trimmed.startsWith('<div')) {
-             if (inList) flushList(i);
-             elements.push(<div key={i} dangerouslySetInnerHTML={{ __html: line }} />);
-             return;
-        }
-
-        // Handle Lists
-        if (trimmed.startsWith('- ') || trimmed.startsWith('* ') || /^\d+\.\s/.test(trimmed)) {
-            const isOrdered = /^\d+\.\s/.test(trimmed);
-            const content = trimmed.replace(/^[-*]\s|^\d+\.\s/, '');
-            
-            listStack.push(
-                <li key={`li-${i}`} className={`ml-4 pl-2 relative ${isOrdered ? 'list-decimal text-slate-400 marker:text-cyan-500 marker:font-bold' : 'list-none'}`}>
-                    {!isOrdered && (
-                        <span className="absolute left-[-1.2rem] top-[0.6rem] w-1.5 h-1.5 bg-cyan-500 rounded-full shadow-[0_0_8px_rgba(6,182,212,0.5)]"></span>
-                    )}
-                    <span className={`${baseTextColor} leading-relaxed block`}>{renderInline(content)}</span>
-                </li>
-            );
-            inList = true;
-            return;
-        }
-
-        // Close list if we encounter non-list item
-        if (inList) flushList(i);
-
-        // Headers
-        if (trimmed.startsWith('###')) {
-            elements.push(
-                <h3 key={i} className="text-lg font-bold text-cyan-400 mt-6 mb-3 border-b border-slate-700/50 pb-2 flex items-center gap-2 group">
-                    <span className="text-cyan-500/30 text-sm group-hover:text-cyan-500/60 transition-colors">#</span> 
-                    {renderInline(trimmed.replace(/^#+\s/, ''))}
-                </h3>
-            );
-        } else if (trimmed.startsWith('##')) {
-            elements.push(
-                <h2 key={i} className="text-xl font-bold text-white mt-8 mb-4 pb-2 border-b border-slate-600 flex items-center gap-2">
-                    <span className="w-1 h-6 bg-cyan-500 rounded-full"></span>
-                    {renderInline(trimmed.replace(/^#+\s/, ''))}
-                </h2>
-            );
-        } 
-        // Blockquotes
-        else if (trimmed.startsWith('>')) {
-            elements.push(
-                <blockquote key={i} className="border-l-4 border-indigo-500 pl-4 py-3 my-5 bg-gradient-to-r from-indigo-900/20 to-transparent rounded-r-lg italic text-indigo-100/90 text-sm leading-relaxed shadow-sm">
-                    <span className="text-indigo-400 font-bold mr-2">💡 Insight:</span>
-                    {renderInline(trimmed.replace(/^>\s?/, ''))}
-                </blockquote>
-            );
-        } 
-        // Horizontal Rule
-        else if (trimmed === '---' || trimmed === '***') {
-            elements.push(<hr key={i} className="border-slate-700 my-6" />);
-        }
-        // Paragraphs
-        else if (trimmed.length > 0) {
-            // Simplified paragraph rendering to handle markdown keys correctly.
-            // Previous key-value split logic was breaking bold tags like **Key:**
-            elements.push(<p key={i} className={`${baseTextColor} ${baseTextSize} leading-relaxed my-2 font-normal tracking-wide`}>{renderInline(trimmed)}</p>);
-        } else {
-            // Empty line spacing
-            elements.push(<div key={i} className="h-2"></div>);
-        }
-    });
-
-    // Flush remaining structures
-    if (inList) flushList(lines.length);
-    if (inTable) flushTable(lines.length);
-
     return (
         <div className={`relative group/md ${className}`}>
             {showExport && (
@@ -325,8 +115,65 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                     <span>PDF</span>
                 </button>
             )}
-            <div ref={contentRef} className="font-sans">
-                {elements}
+            <div ref={contentRef} className={`font-sans ${baseTextColor} ${baseTextSize}`}>
+                <Markdown
+                    remarkPlugins={[remarkGfm, remarkMath]}
+                    rehypePlugins={[rehypeRaw, rehypeKatex]}
+                    components={{
+                        h1: ({node, ...props}) => (
+                            <h1 className="text-xl md:text-2xl font-bold text-white bg-gradient-to-r from-indigo-900/80 to-slate-900/80 border-l-4 border-indigo-500 p-4 rounded-r-xl mb-8 shadow-lg shadow-indigo-500/10 tracking-tight" {...props} />
+                        ),
+                        h2: ({node, ...props}) => (
+                            <h2 className="text-lg md:text-xl font-bold text-indigo-300 bg-slate-800/50 border border-slate-700/50 px-4 py-2.5 rounded-lg mt-10 mb-5 flex items-center gap-3 shadow-sm w-full" {...props} />
+                        ),
+                        h3: ({node, ...props}) => (
+                            <h3 className="text-base md:text-lg font-bold text-cyan-400 mt-8 mb-3 flex items-center gap-2" {...props} />
+                        ),
+                        p: ({node, ...props}) => <p className="mb-5 leading-relaxed text-slate-300 opacity-95" {...props} />,
+                        hr: ({node, ...props}) => <hr className="my-8 border-slate-700/50" {...props} />,
+                        div: ({node, ...props}) => <div {...props} />,
+                        footer: ({node, ...props}) => <footer {...props} />,
+                        ul: ({node, ...props}) => <ul className="space-y-4 my-6" {...props} />,
+                        ol: ({node, ...props}) => <ol className="list-decimal space-y-4 my-6 pl-8 text-indigo-400 font-bold" {...props} />,
+                        li: ({node, ordered, ...props}: any) => {
+                            if (ordered) {
+                                return <li className="pl-2 text-slate-300 font-normal" {...props} />;
+                            }
+                            return (
+                                <li className="bg-slate-800/30 border border-slate-700/30 p-4 rounded-xl flex gap-4 transition-all hover:bg-slate-800/50 hover:border-slate-600/50 group/li">
+                                    <div className="mt-1.5 shrink-0 w-2 h-2 bg-cyan-500 rounded-full shadow-[0_0_10px_rgba(6,182,212,0.6)] group-hover/li:scale-125 transition-transform"></div>
+                                    <div className="leading-relaxed text-slate-200">{props.children}</div>
+                                </li>
+                            );
+                        },
+                        strong: ({node, ...props}) => <strong className="text-indigo-200 font-bold" {...props} />,
+                        blockquote: ({node, ...props}) => (
+                            <div className="my-8 p-5 bg-indigo-500/5 border border-indigo-500/20 rounded-2xl relative overflow-hidden group/quote">
+                                <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
+                                <div className="flex items-center gap-2 mb-2 text-indigo-400 font-bold text-xs uppercase tracking-widest">
+                                    <span className="text-base">💡</span>
+                                    <span>Strategic Insight</span>
+                                </div>
+                                <blockquote className="italic text-indigo-100/90 leading-relaxed" {...props} />
+                            </div>
+                        ),
+                        table: ({node, ...props}) => (
+                            <div className="overflow-x-auto my-8 rounded-xl border border-slate-700/50 shadow-xl">
+                                <table className="min-w-full text-sm text-left border-collapse" {...props} />
+                            </div>
+                        ),
+                        thead: ({node, ...props}) => <thead className="bg-slate-800 text-slate-200 font-bold uppercase tracking-wider text-xs" {...props} />,
+                        th: ({node, ...props}) => <th className="px-4 py-3 border-b border-slate-700 whitespace-nowrap bg-slate-800/80" {...props} />,
+                        td: ({node, ...props}) => <td className="px-4 py-2 border-r border-slate-700/30 last:border-r-0 bg-slate-900/20" {...props} />,
+                        code: ({node, inline, ...props}: any) => (
+                            inline ? 
+                            <code className="bg-slate-800 text-amber-300 px-1.5 py-0.5 rounded text-xs font-mono border border-slate-700 shadow-sm" {...props} /> :
+                            <code className="block bg-slate-900 text-emerald-400 p-4 rounded-lg border border-slate-800 font-mono text-sm my-4 overflow-x-auto" {...props} />
+                        )
+                    }}
+                >
+                    {content}
+                </Markdown>
             </div>
         </div>
     );

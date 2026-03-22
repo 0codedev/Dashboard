@@ -28,7 +28,7 @@ export const SyllabusOverviewWidget: React.FC<{ userProfile: UserProfile; questi
             </div>
 
             {/* Revision Stack Visualization */}
-            <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700 shadow-xl">
+            <div className="glass-panel p-6 rounded-2xl">
                 <div className="flex justify-between items-center mb-6">
                     <div>
                         <h3 className="text-xl font-bold text-white flex items-center gap-2">
@@ -45,10 +45,10 @@ export const SyllabusOverviewWidget: React.FC<{ userProfile: UserProfile; questi
                     {revisionStack.slice(0, 5).map((topic, index) => (
                         <div 
                             key={topic.name}
-                            className="group relative flex items-center gap-4 p-4 bg-slate-900/50 hover:bg-slate-900 rounded-lg border border-slate-700 transition-all hover:translate-x-1"
+                            className="group relative flex items-center gap-4 p-4 glass-panel hover:bg-white/5 rounded-xl transition-all hover:translate-x-1"
                             style={{ opacity: 1 - index * 0.15 }}
                         >
-                            <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold text-indigo-400 border border-slate-700">
+                            <div className="w-8 h-8 rounded-full glass-panel flex items-center justify-center text-xs font-bold text-indigo-400">
                                 {index + 1}
                             </div>
                             <div className="flex-grow">
@@ -70,7 +70,7 @@ export const SyllabusOverviewWidget: React.FC<{ userProfile: UserProfile; questi
                         </div>
                     ))}
                     {revisionStack.length === 0 && (
-                        <div className="py-12 text-center text-slate-500 italic border-2 border-dashed border-slate-800 rounded-lg">
+                        <div className="py-12 text-center text-slate-500 italic border-2 border-dashed border-slate-700/50 rounded-xl">
                             No topics currently require urgent revision. Great job!
                         </div>
                     )}

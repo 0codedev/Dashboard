@@ -157,12 +157,16 @@ export const retrieveRelevantContext = async (query: string, logs: QuestionLog[]
     }
 };
 
-const getMockPrefs = (apiKey: string): AiAssistantPreferences => {
+const getMockPrefs = (apiKey: string, modelName?: string): AiAssistantPreferences => {
     try {
         const stored = localStorage.getItem('aiAssistantPreferences_v1');
-        if (stored) return JSON.parse(stored);
+        if (stored) {
+            const prefs = JSON.parse(stored);
+            if (modelName) prefs.model = modelName;
+            return prefs;
+        }
     } catch {}
-    return { model: 'gemini-3.1-flash-lite-preview', responseLength: 'medium', tone: 'neutral' };
+    return { model: modelName || 'gemini-3.1-flash-lite-preview', responseLength: 'medium', tone: 'neutral' };
 }
 
 // ... (Other exports: validateOCRData, inferTestMetadata, getAIAnalysis, generateStudyPlan...)
@@ -186,13 +190,13 @@ export const inferTestMetadata = async (testName: string, apiKey: string): Promi
 export const getAIAnalysis = async (reports: TestReport[], logs: QuestionLog[], apiKey: string, modelName?: string): Promise<string> => {
     const historySummary = summarizeTestHistory(reports);
     const prompt = `Analyze this JEE student performance. ${historySummary} Weak Topics Sample: ${JSON.stringify(logs.slice(-20))}. Provide comprehensive Markdown report with strategy.`;
-    return await llmPipeline({ task: 'analysis_deep', prompt, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey, includeFooter: true });
+    return await llmPipeline({ task: 'analysis_deep', prompt, userPreferences: getMockPrefs(apiKey, modelName), googleApiKey: apiKey, includeFooter: true });
 };
 
 export const generateStudyPlan = async (reports: TestReport[], logs: QuestionLog[], apiKey: string, modelName?: string): Promise<string> => {
     const historySummary = summarizeTestHistory(reports);
     const prompt = `Create a 7-day JEE study plan based on this data. Output Markdown. ${historySummary}`;
-    return await llmPipeline({ task: 'planning_routine', prompt, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey, includeFooter: true });
+    return await llmPipeline({ task: 'planning_routine', prompt, userPreferences: getMockPrefs(apiKey, modelName), googleApiKey: apiKey, includeFooter: true });
 };
 
 export const generateContextualInsight = async (promptData: string, apiKey: string): Promise<string> => {
@@ -228,11 +232,37 @@ export const generateTestAnalysis = async (report: TestReport, apiKey: string, m
     const prompt = `Act as an elite JEE academic strategist and performance psychologist. 
     Analyze this test report: ${JSON.stringify(report)}.
     
-    Provide a deep-dive analysis in Markdown format with the following sections:
-    1. **Executive Summary**: A high-level overview of the performance (Marks: ${report.total.marks}, Rank: ${report.total.rank}).
-    2. **Subject-Wise Breakdown**: Detailed insights into Physics, Chemistry, and Maths performance. Highlight where the student excelled and where they struggled.
-    3. **Behavioral Patterns**: Analyze metrics like Accuracy (${report.totalMetrics?.accuracy.toFixed(1)}%), Attempt Rate, and SPAQ to identify psychological or behavioral hurdles (e.g., "Over-attempting in Physics led to high negative marks").
-    4. **The "Vaccination" Action Plan**: 3-5 highly specific, actionable steps the student must take in the next 48 hours to fix the most critical leaks.
+    Provide a deep-dive analysis in Markdown format with the following structure to ensure beautiful rendering:
+    
+    # 📊 Performance Deep-Dive: ${report.testName}
+    
+    ## 🎯 Executive Summary
+    Provide a high-level overview of the performance. 
+    - **Total Marks**: ${report.total.marks}
+    - **Rank**: ${report.total.rank}
+    - **Overall Accuracy**: ${report.totalMetrics?.accuracy.toFixed(1)}%
+    
+    > **Strategic Insight**: Provide a high-impact, psychological or strategic observation here using a blockquote.
+    
+    ## 🧬 Subject-Wise Breakdown
+    | Subject | Marks | Accuracy | Status |
+    | :--- | :--- | :--- | :--- |
+    | Physics | ${report.physics.marks} | ${(report.physics.correct / (report.physics.correct + report.physics.wrong) * 100 || 0).toFixed(1)}% | ${report.physics.marks > 50 ? 'Strong' : 'Needs Work'} |
+    | Chemistry | ${report.chemistry.marks} | ${(report.chemistry.correct / (report.chemistry.correct + report.chemistry.wrong) * 100 || 0).toFixed(1)}% | ${report.chemistry.marks > 50 ? 'Strong' : 'Needs Work'} |
+    | Maths | ${report.maths.marks} | ${(report.maths.correct / (report.maths.correct + report.maths.wrong) * 100 || 0).toFixed(1)}% | ${report.maths.marks > 50 ? 'Strong' : 'Needs Work'} |
+    
+    Detailed insights into Physics, Chemistry, and Maths performance. Highlight where the student excelled and where they struggled.
+    
+    ## 🧠 Behavioral Patterns & SPAQ Analysis
+    Analyze metrics like Accuracy, Attempt Rate, and SPAQ to identify psychological or behavioral hurdles.
+    - **Pattern 1**: Describe a specific behavior (e.g., "Over-attempting in Physics").
+    - **Pattern 2**: Describe another behavior (e.g., "Time management in Maths").
+    
+    ## 💉 The "Vaccination" Action Plan
+    3-5 highly specific, actionable steps the student must take in the next 48 hours to fix the most critical leaks.
+    1. **Step 1**: Specific topic and action.
+    2. **Step 2**: Specific topic and action.
+    3. **Step 3**: Specific topic and action.
     
     Use a professional, encouraging, yet firm tone. Use bolding and lists for readability.`;
     return await llmPipeline({ task: 'analysis_deep', prompt, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
@@ -290,7 +320,7 @@ export const generateVaccinePlan = async (logs: QuestionLog[], apiKey: string, m
     - **Day 7: Simulation & Review**: How to test if the "vaccine" worked.
     
     Include specific "Dos and Don'ts" for each day. Be highly specific to the topics and errors found in the logs.`;
-    return await llmPipeline({ task: 'planning_routine', prompt, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
+    return await llmPipeline({ task: 'planning_routine', prompt, userPreferences: getMockPrefs(apiKey, model), googleApiKey: apiKey });
 };
 
 export const getAIChiefAnalystSummary = async (weakTopics: any, errorReasons: any, correlations: any, apiKey: string, improvise: boolean, model?: string): Promise<string> => {
@@ -304,21 +334,21 @@ export const getAIChiefAnalystSummary = async (weakTopics: any, errorReasons: an
         : "Provide a high-level executive summary. Identify the single biggest 'bottleneck' holding the student back and suggest a high-impact strategic shift."}
     
     Format the output in Markdown. Be concise but profound.`;
-    return await llmPipeline({ task: 'analysis_briefing', prompt, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey, includeFooter: true });
+    return await llmPipeline({ task: 'analysis_briefing', prompt, userPreferences: getMockPrefs(apiKey, model), googleApiKey: apiKey, includeFooter: true });
 };
 
 export const generateFocusedStudyPlan = async (subject: string, weakTopics: string[], apiKey: string, model?: string): Promise<string> => {
-    return await llmPipeline({ task: 'planning_routine', prompt: `Create 3-day recovery plan for ${subject}. Weakness: ${weakTopics.join(', ')}. Markdown format.`, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey, includeFooter: true });
+    return await llmPipeline({ task: 'planning_routine', prompt: `Create 3-day recovery plan for ${subject}. Weakness: ${weakTopics.join(', ')}. Markdown format.`, userPreferences: getMockPrefs(apiKey, model), googleApiKey: apiKey, includeFooter: true });
 };
 
 export const explainTopic = async (topic: string, apiKey: string, complexity: 'standard'|'simple', model?: string): Promise<string> => {
-    return await llmPipeline({ task: 'stem_core', prompt: `Explain '${topic}' for JEE student. Complexity: ${complexity}. Markdown.`, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey, includeFooter: true });
+    return await llmPipeline({ task: 'stem_core', prompt: `Explain '${topic}' for JEE student. Complexity: ${complexity}. Markdown.`, userPreferences: getMockPrefs(apiKey, model), googleApiKey: apiKey, includeFooter: true });
 };
 
 export const generateGatekeeperQuiz = async (topic: string, apiKey: string, model?: string): Promise<QuizQuestion[]> => {
     const prompt = `Generate 3 conceptual MCQ for '${topic}' JEE level. Return JSON { quiz: [{question, options:{A,B,C,D}, answer: "A", explanation}] }`;
     try {
-        const res = await llmPipeline({ task: 'stem_core', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
+        const res = await llmPipeline({ task: 'stem_core', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey, model), googleApiKey: apiKey });
         return JSON.parse(res).quiz || [];
     } catch { return []; }
 };
@@ -326,7 +356,7 @@ export const generateGatekeeperQuiz = async (topic: string, apiKey: string, mode
 export const generateTasksFromGoal = async (goalText: string, apiKey: string, model?: string): Promise<{ task: string, time: number }[]> => {
     const prompt = `Break goal '${goalText}' into 3 tasks with time. Return JSON { tasks: [{task, time}] }`;
     try {
-        const res = await llmPipeline({ task: 'planning_routine', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
+        const res = await llmPipeline({ task: 'planning_routine', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey, model), googleApiKey: apiKey });
         return JSON.parse(res).tasks || [];
     } catch { return []; }
 };
@@ -335,7 +365,7 @@ export const generateSmartTasks = async (weakTopics: string[], bioStats: { sleep
     const bioContext = bioStats ? `User energy: ${bioStats.energy}/10, stress: ${bioStats.stress}/10, sleep: ${bioStats.sleep}h. Adjust task difficulty and duration accordingly.` : '';
     const prompt = `Suggest 3 tasks for weak topics: ${weakTopics.join(', ')}. ${bioContext} Return JSON { tasks: [{task, time, topic}] }`;
     try {
-        const res = await llmPipeline({ task: 'planning_routine', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
+        const res = await llmPipeline({ task: 'planning_routine', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey, model), googleApiKey: apiKey });
         return JSON.parse(res).tasks || [];
     } catch { return []; }
 };
@@ -344,7 +374,7 @@ export const generateSmartTaskOrder = async (tasks: DailyTask[], userProfile: Us
     const bioContext = bioStats ? `User energy: ${bioStats.energy}/10, stress: ${bioStats.stress}/10, sleep: ${bioStats.sleep}h.` : '';
     const prompt = `Reorder tasks for max efficiency. ${bioContext} Profile: ${JSON.stringify(userProfile.studyTimes)}. Tasks: ${JSON.stringify(tasks)}. Return JSON { orderedIds: string[] }`;
     try {
-        const res = await llmPipeline({ task: 'planning_sorting', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
+        const res = await llmPipeline({ task: 'planning_sorting', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey, model), googleApiKey: apiKey });
         return JSON.parse(res).orderedIds || tasks.map(t => t.id);
     } catch { return tasks.map(t => t.id); }
 };
@@ -352,7 +382,7 @@ export const generateSmartTaskOrder = async (tasks: DailyTask[], userProfile: Us
 export const generateLearningPath = async (topic: string, weaknesses: string[], apiKey: string, model?: string): Promise<{ task: string; time: number; topic: string; }[]> => {
     const prompt = `Create learning path for '${topic}'. Weak prerequisites: ${weaknesses.join(', ')}. Return JSON { path: [{task, time, topic}] }`;
     try {
-        const res = await llmPipeline({ task: 'planning_routine', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
+        const res = await llmPipeline({ task: 'planning_routine', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey, model), googleApiKey: apiKey });
         return JSON.parse(res).path || [];
     } catch { return []; }
 };
@@ -360,13 +390,13 @@ export const generateLearningPath = async (topic: string, weaknesses: string[], 
 export const generateNextWhy = async (context: string, prevAnswer: string, step: number, apiKey: string, model?: string): Promise<{ question: string; isFinal: boolean; solution?: string }> => {
     const prompt = `Socratic 5 Whys. Context: ${context}. Prev: ${prevAnswer}. Step ${step}/5. Return JSON { question, isFinal, solution? }`;
     try {
-        const res = await llmPipeline({ task: 'analysis_root_cause', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
+        const res = await llmPipeline({ task: 'analysis_root_cause', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey, model), googleApiKey: apiKey });
         return JSON.parse(res);
     } catch { return { question: "Why?", isFinal: false }; }
 };
 
 export const generatePreMortem = async (topic: string, prereqs: string[], errors: string[], apiKey: string, model?: string): Promise<string> => {
-    return await llmPipeline({ task: 'analysis_deep', prompt: `Pre-mortem for '${topic}'. Prereq errors: ${errors.join('; ')}. Predict hurdles.`, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey, includeFooter: true });
+    return await llmPipeline({ task: 'analysis_deep', prompt: `Pre-mortem for '${topic}'. Prereq errors: ${errors.join('; ')}. Predict hurdles.`, userPreferences: getMockPrefs(apiKey, model), googleApiKey: apiKey, includeFooter: true });
 };
 
 export const generateOracleDrill = async (errorStats: { topic: string; reason: string; count: number }[], apiKey: string, model?: string): Promise<QuizQuestion[]> => {
@@ -374,7 +404,7 @@ export const generateOracleDrill = async (errorStats: { topic: string; reason: s
     const topicsContext = topWeaknesses.map(w => `${w.topic} (Failure Pattern: ${w.reason})`).join(', ');
     const prompt = `Generate a 'Predictive Drill' of 5 JEE Advanced level Multiple Choice Questions. Focus specifically on these student weaknesses: ${topicsContext}. Design questions that trap the student into making the specific errors listed. Return strictly JSON: { "quiz": [ { "question": "", "options": {"A":"", "B":""...}, "answer": "A", "explanation": "" } ] }`;
     try {
-        const res = await llmPipeline({ task: 'stem_core', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
+        const res = await llmPipeline({ task: 'stem_core', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey, model), googleApiKey: apiKey });
         return JSON.parse(res).quiz || [];
     } catch (e) { console.error("Oracle Generation Failed", e); return []; }
 };
@@ -402,10 +432,10 @@ export const analyzeReflection = async (content: string, apiKey: string): Promis
     }
 };
 
-export const generateFlashcards = async (topics: string[], apiKey: string): Promise<Flashcard[]> => {
+export const generateFlashcards = async (topics: string[], apiKey: string, model?: string): Promise<Flashcard[]> => {
     const prompt = `Generate 3 conceptual JEE flashcards for: ${topics.join(', ')}. Return JSON array: [ { "topic": "", "front": "", "back": "", "difficulty": "Medium" } ]`;
     try {
-        const res = await llmPipeline({ task: 'flashcard_gen', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey), googleApiKey: apiKey });
+        const res = await llmPipeline({ task: 'flashcard_gen', prompt, expectJson: true, userPreferences: getMockPrefs(apiKey, model), googleApiKey: apiKey });
         const parsed = JSON.parse(res);
         return (parsed.flashcards || parsed || []).map((card: any, index: number) => ({
             id: `fc-${Date.now()}-${index}`,
@@ -427,7 +457,7 @@ export const generateFlashcards = async (topics: string[], apiKey: string): Prom
 
 
 // ... (Rest of file including generateCardSolution and exports remains unchanged)
-export const generateCardSolution = async (cardContext: { topic: string, front: string }, apiKey: string): Promise<{ solution: string; mutation?: any; visual_aid?: any }> => {
+export const generateCardSolution = async (cardContext: { topic: string, front: string }, apiKey: string, model?: string): Promise<{ solution: string; mutation?: any; visual_aid?: any }> => {
     const prompt = `
     A JEE student made a mistake.
     **Topic:** ${cardContext.topic}
@@ -466,7 +496,7 @@ export const generateCardSolution = async (cardContext: { topic: string, front: 
             task: 'flashcard_gen', 
             prompt,
             expectJson: true,
-            userPreferences: getMockPrefs(apiKey),
+            userPreferences: getMockPrefs(apiKey, model),
             googleApiKey: apiKey
         });
         
@@ -476,7 +506,7 @@ export const generateCardSolution = async (cardContext: { topic: string, front: 
         const fallbackText = await llmPipeline({
              task: 'flashcard_gen',
              prompt: `Explain solution for ${cardContext.front} in Markdown.`,
-             userPreferences: getMockPrefs(apiKey),
+             userPreferences: getMockPrefs(apiKey, model),
              googleApiKey: apiKey
         });
         return { solution: fallbackText };

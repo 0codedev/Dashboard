@@ -49,7 +49,7 @@ const ViewControl: React.FC<{ mode: string; setMode: (m: any) => void }> = ({ mo
     ];
 
     return (
-        <div className="flex bg-slate-800 p-1 rounded-lg border border-slate-700 shadow-lg">
+        <div className="flex glass-panel p-1 rounded-2xl shadow-lg">
             {modes.map(m => (
                 <button
                     key={m.id}
@@ -57,7 +57,7 @@ const ViewControl: React.FC<{ mode: string; setMode: (m: any) => void }> = ({ mo
                     className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${
                         mode === m.id 
                         ? 'bg-cyan-600 text-white shadow-md' 
-                        : 'text-gray-400 hover:text-white hover:bg-slate-700'
+                        : 'text-gray-400 hover:text-white hover:bg-white/5'
                     }`}
                     title={m.label}
                 >
@@ -81,6 +81,7 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
     
     const [selectedChapterForModal, setSelectedChapterForModal] = useState<string | null>(null);
     const [isGeneratingPath, setIsGeneratingPath] = useState(false);
+    const [currentPathTopic, setCurrentPathTopic] = useState<string | null>(null);
 
     const [hurdleData, setHurdleData] = useState<{ topic: string, content: string } | null>(null);
     const [isHurdleLoading, setIsHurdleLoading] = useState(false);
@@ -223,25 +224,33 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
         }
     }, [apiKey, modelName]);
 
-    const handleGenerateLearningPath = async () => {
-        if (!selectedChapterForModal || !apiKey) return;
+    const handleGenerateLearningPath = async (topic: string) => {
+        if (!topic || !apiKey) return;
         setIsGeneratingPath(true);
+        setCurrentPathTopic(topic);
         try {
-            const prereqs = TOPIC_DEPENDENCIES[selectedChapterForModal] || [];
+            const prereqs = TOPIC_DEPENDENCIES[topic] || [];
             const weakPrereqs = prereqs.filter(p => {
                 const mastery = allMasteryScores[p];
                 return !mastery || mastery.score < 1200;
             });
 
-            const path = await generateLearningPath(selectedChapterForModal, weakPrereqs, apiKey, modelName);
+            const path = await generateLearningPath(topic, weakPrereqs, apiKey, modelName);
             if (addTasksToPlanner) {
                 addTasksToPlanner(path);
             }
+            setExplainModalData({ 
+                topic: `Learning Path: ${topic}`, 
+                content: `### AI Recommended Path\n\nI've added the following tasks to your Daily Planner:\n\n${path.map(p => `- **${p.task}** (${p.time} mins)`).join('\n')}`, 
+                loading: false, 
+                complexity: 'standard' 
+            });
         } catch (e) {
             console.error(e);
             alert("Failed to generate learning path.");
         } finally {
             setIsGeneratingPath(false);
+            setCurrentPathTopic(null);
         }
     };
 
@@ -361,7 +370,7 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
             <StrategicPlanner userProfile={userProfile} />
 
             <div className="flex justify-between items-center flex-wrap gap-4">
-                <h2 className="text-2xl font-bold text-[rgb(var(--color-primary-accent-rgb))]">Syllabus Tracker</h2>
+                <h2 className="text-2xl font-bold text-cyan-300">Syllabus Tracker</h2>
                 
                 <div className="flex items-center gap-4">
                     <button 
@@ -439,6 +448,9 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
                     onPredictHurdles={handlePredictHurdles}
                     isHurdleLoading={isHurdleLoading}
                     currentHurdleTopic={currentHurdleTopic}
+                    onGeneratePath={handleGenerateLearningPath}
+                    isGeneratingPath={isGeneratingPath}
+                    currentPathTopic={currentPathTopic}
                 />
             )}
             

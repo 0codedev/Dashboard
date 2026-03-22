@@ -138,7 +138,7 @@ export const OracleChamber: React.FC<OracleChamberProps> = ({ questions, onClose
 
             {/* Question Card */}
             <div className="flex-grow flex flex-col justify-center min-h-0">
-                <div className="bg-slate-800/50 p-6 md:p-10 rounded-2xl border border-slate-700 shadow-2xl relative overflow-y-auto custom-scrollbar group">
+                <div className="glass-panel p-6 md:p-10 rounded-2xl relative overflow-y-auto custom-scrollbar group">
                     <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-indigo-500 to-purple-600"></div>
                     <span className="text-[8rem] text-slate-700 absolute -right-6 -bottom-16 font-black opacity-10 pointer-events-none select-none leading-none">
                         {currentIndex + 1}

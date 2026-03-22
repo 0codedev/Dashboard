@@ -115,9 +115,9 @@ const ScoreContributionWidget: React.FC<{ reports: TestReport[] }> = ({ reports 
         if (totalScore === 0) return [];
 
         return [
-            { name: 'Physics', value: totals.physics, color: SUBJECT_COLORS.physics },
-            { name: 'Chemistry', value: totals.chemistry, color: SUBJECT_COLORS.chemistry },
-            { name: 'Maths', value: totals.maths, color: SUBJECT_COLORS.maths },
+            { name: 'Physics', value: totals.physics, percentage: ((totals.physics / totalScore) * 100).toFixed(1), color: SUBJECT_COLORS.physics },
+            { name: 'Chemistry', value: totals.chemistry, percentage: ((totals.chemistry / totalScore) * 100).toFixed(1), color: SUBJECT_COLORS.chemistry },
+            { name: 'Maths', value: totals.maths, percentage: ((totals.maths / totalScore) * 100).toFixed(1), color: SUBJECT_COLORS.maths },
         ];
     }, [reports, localTestId]);
 
@@ -162,7 +162,7 @@ const ScoreContributionWidget: React.FC<{ reports: TestReport[] }> = ({ reports 
                                 className="fill-gray-400 text-xs" 
                             />
                         </Pie>
-                        <Tooltip content={<CustomTooltip />} />
+                        <Tooltip content={<CustomTooltip formatter={(value: number, name: string, props: any) => `${value} marks (${props.payload.percentage}%)`} />} />
                         <Legend verticalAlign="bottom" height={36} iconType="circle" />
                     </PieChart>
                 </ResponsiveContainer>
@@ -996,7 +996,7 @@ const ChartCard: React.FC<{
     className?: string;
 }> = ({ title, children, isEditing, isDragging, onChartClick, actionButton, onInfoClick, headerControls, onHide, onResize, className }) => (
     <div
-        className={`bg-slate-800/50 p-4 rounded-lg shadow-lg border border-slate-700 flex flex-col h-full transition-all duration-300 relative ${isDragging ? 'shadow-[rgba(var(--color-primary-rgb),0.5)] opacity-50' : ''} ${!isEditing && onChartClick ? 'cursor-pointer hover:shadow-[rgba(var(--color-primary-rgb),0.2)] hover:-translate-y-1' : ''} ${isEditing ? 'ring-2 ring-dashed ring-slate-500 cursor-move' : ''} ${className || ''}`}
+        className={`glass-panel p-4 rounded-2xl flex flex-col h-full transition-all duration-300 relative ${isDragging ? 'shadow-[rgba(var(--color-primary-rgb),0.5)] opacity-50' : ''} ${!isEditing && onChartClick ? 'cursor-pointer hover:shadow-[rgba(var(--color-primary-rgb),0.2)] hover:-translate-y-1' : ''} ${isEditing ? 'ring-2 ring-dashed ring-slate-500 cursor-move' : ''} ${className || ''}`}
         onClick={() => { if (!isEditing && onChartClick) onChartClick(); }}
     >
          {isEditing && (
@@ -1437,7 +1437,7 @@ export const RootCause: React.FC<RootCauseProps> = ({ logs, reports, rootCauseFi
     return (
         <div className="space-y-6 pb-20">
             <div className="flex justify-between items-center flex-wrap gap-4">
-                <h2 className="text-2xl font-bold text-[rgb(var(--color-primary-accent-rgb))]">Root Cause Analysis</h2>
+                <h2 className="text-2xl font-bold text-cyan-300">Root Cause Analysis</h2>
                 <div className="flex items-center gap-4 flex-wrap">
                     {/* View Toggle */}
                     <div className="bg-slate-800 p-1 rounded-lg border border-slate-700 flex">

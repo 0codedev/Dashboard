@@ -106,7 +106,7 @@ export const SubjectDonutCard: React.FC<SubjectDonutCardProps> = React.memo(({ s
             const percent = totalChapters > 0 ? (dataPoint.value / totalChapters) * 100 : 0;
 
             return (
-                <div className="glass-panel p-2 rounded-lg shadow-xl text-xs z-50 pointer-events-none border border-slate-600/50 bg-slate-900/90 backdrop-blur-md transition-opacity duration-200">
+                <div className="glass-panel p-2 rounded-xl shadow-xl text-xs z-50 pointer-events-none border border-slate-600/50 transition-opacity duration-200">
                     <p className="font-bold text-white mb-1 flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full shadow-sm" style={{ backgroundColor: dataPoint.color, boxShadow: `0 0 5px ${dataPoint.color}` }}></span>
                         {dataPoint.name}
@@ -125,7 +125,7 @@ export const SubjectDonutCard: React.FC<SubjectDonutCardProps> = React.memo(({ s
     };
 
     return (
-        <div className="bg-slate-800 border border-slate-600 shadow-lg rounded-xl p-4 flex flex-col h-full animate-fade-in">
+        <div className="glass-panel rounded-2xl p-4 flex flex-col h-full animate-fade-in">
             <h4 className="text-lg font-bold text-center mb-2 capitalize" style={{ color: SUBJECT_CONFIG[subject]?.color || 'white' }}>{subject}</h4>
             
             <div className="flex-grow relative min-h-[200px]">

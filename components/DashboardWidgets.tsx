@@ -15,7 +15,7 @@ const CustomRadarTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
         const data = payload[0].payload;
         return (
-            <div className="p-3 bg-white/5 backdrop-blur-sm border border-white/5 rounded-lg shadow-xl text-sm z-50">
+            <div className="p-3 glass-panel border-white/5 rounded-lg shadow-xl text-sm z-50">
                 <p className="font-bold text-white mb-2">{data.subject}</p>
                 <div className="space-y-1">
                     <p className="text-cyan-400 flex justify-between gap-4"><span>Avg Marks:</span> <span>{formatNumber(data.A)}</span></p>
@@ -30,7 +30,7 @@ const CustomScatterTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
         const data = payload[0].payload;
         return (
-            <div className="p-3 bg-black/20 border border-white/5 rounded-lg shadow-xl text-xs z-50 max-w-[200px]">
+            <div className="p-3 glass-panel border-white/5 rounded-lg shadow-xl text-xs z-50 max-w-[200px]">
                 <p className="font-bold text-white mb-1 truncate">{data.topic}</p>
                 <span className={`inline-block px-2 py-0.5 rounded mb-2 text-[10px] font-semibold ${data.quadrant === 'Quick Wins' ? 'bg-green-900 text-green-300' :
                     data.quadrant === 'Big Bets' ? 'bg-amber-900 text-amber-300' :
@@ -52,7 +52,7 @@ const CustomScatterTooltip = ({ active, payload }: any) => {
 const AiChartFooter: React.FC<{ summary?: string }> = ({ summary }) => {
     if (!summary) return null;
     return (
-        <div className="mt-2 p-2 bg-black/20 border-t border-white/10 text-xs text-cyan-200 flex items-start gap-2 animate-fade-in">
+        <div className="mt-2 p-2 glass-panel border-t border-white/10 text-xs text-cyan-200 flex items-start gap-2 animate-fade-in">
             <span className="text-lg">✨</span>
             <span className="italic leading-relaxed">{summary}</span>
         </div>
@@ -237,7 +237,7 @@ export const PaperStrategyWidget: React.FC<{
 
             <div className="flex-grow grid grid-cols-1 md:grid-cols-3 gap-4 overflow-y-auto pr-2 custom-scrollbar">
                 {stats.subjectStats.map((stat, idx) => (
-                    <div key={stat.subject} className="bg-black/20 p-3 rounded border border-white/10 relative group">
+                    <div key={stat.subject} className="glass-panel p-3 rounded-xl border-white/10 relative group">
                         <div className="absolute top-2 right-2 flex gap-1">
                             <button onClick={() => moveLeft(idx)} disabled={idx === 0} className="text-[10px] bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white w-5 h-5 rounded flex items-center justify-center disabled:opacity-30">{'<'}</button>
                             <span className="text-[10px] font-bold text-gray-500 w-4 text-center">#{idx + 1}</span>

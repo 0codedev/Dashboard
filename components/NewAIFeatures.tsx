@@ -37,7 +37,7 @@ export const NewAIFeatures: React.FC = () => {
 
     return (
         <div className="flex h-full gap-4">
-            <div className="w-64 bg-slate-800 rounded-xl p-4 overflow-y-auto border border-slate-700">
+            <div className="w-64 glass-panel rounded-2xl p-4 overflow-y-auto">
                 <h2 className="text-lg font-bold text-white mb-4">New AI Features</h2>
                 <div className="flex flex-col gap-2">
                     {features.map(f => (
@@ -52,7 +52,7 @@ export const NewAIFeatures: React.FC = () => {
                     ))}
                 </div>
             </div>
-            <div className="flex-1 bg-slate-800 rounded-xl p-6 border border-slate-700 overflow-y-auto">
+            <div className="flex-1 glass-panel rounded-2xl p-6 overflow-y-auto">
                 {!activeFeature ? (
                     <div className="h-full flex items-center justify-center text-slate-400">
                         Select a feature from the sidebar to test it.
@@ -244,7 +244,7 @@ const FeatureSandbox: React.FC<{
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             
             const sessionPromise = ai.live.connect({
-                model: "gemini-3.1-flash-lite-preview",
+                model: "gemini-2.5-flash-native-audio-preview-12-2025",
                 callbacks: {
                     onopen: () => {
                         setIsLiveConnected(true);
@@ -256,7 +256,7 @@ const FeatureSandbox: React.FC<{
                                 const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
                                 sessionPromise.then(session => {
                                     session.sendRealtimeInput({
-                                        media: { data: base64, mimeType: 'audio/webm;codecs=opus' }
+                                        audio: { data: base64, mimeType: 'audio/webm;codecs=opus' }
                                     });
                                 });
                             }

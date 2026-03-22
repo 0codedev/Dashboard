@@ -13,7 +13,7 @@ const CustomTooltip = ({ active, payload, label, formatter }: any) => {
                     
                     return (
                         <p key={i} style={{ color: p.color || p.fill }}>
-                            {`${p.name}: ${formatter ? formatter(p.value) : p.value}`}
+                            {`${p.name}: ${formatter ? formatter(p.value, p.name, p) : p.value}`}
                         </p>
                     );
                 })}

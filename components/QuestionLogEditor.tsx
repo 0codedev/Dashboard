@@ -686,7 +686,7 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
     ];
 
     return (
-        <div className="bg-slate-800/50 p-4 rounded-lg shadow-lg border border-slate-700 relative">
+        <div className="glass-panel p-4 rounded-2xl relative">
             <datalist id="topic-suggestions">
                 {useMemo(() => {
                     const topics = new Set<string>();
@@ -884,7 +884,7 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
             </div>
 
             {/* Floating Bulk Edit Bar (Glassmorphism) */}
-            <div className={`fixed bottom-0 left-0 right-0 z-30 transition-transform duration-300 ease-in-out ${selectedLogs.size > 0 ? 'translate-y-0' : 'translate-y-full'}`}>
+            <div className={`fixed bottom-0 left-0 right-0 z-30 transition-transform duration-300 ease-in-out ${selectedLogs.size > 0 ? 'translate-y-0' : 'hidden'}`}>
                 <div className="container mx-auto px-4 pb-4">
                     <div className="bg-slate-800/90 backdrop-blur-md p-4 rounded-xl shadow-2xl border border-slate-600/50 flex flex-wrap gap-4 items-center justify-between ring-1 ring-white/10">
                         <p className="font-semibold text-cyan-200 flex items-center gap-2"><span className="bg-cyan-900/50 px-2 py-0.5 rounded border border-cyan-700/50">{selectedLogs.size}</span> logs selected</p>

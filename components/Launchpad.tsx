@@ -67,7 +67,7 @@ export const Launchpad: React.FC = () => {
                         href={tool.url} 
                         target="_blank" 
                         rel="noopener noreferrer"
-                        className="group block p-6 bg-slate-800/50 rounded-2xl border border-slate-700/50 hover:bg-slate-800 hover:border-cyan-500/50 transition-all duration-300 shadow-lg hover:shadow-cyan-900/20"
+                        className="group block p-6 glass-panel rounded-2xl hover:border-cyan-500/50 transition-all duration-300 hover:shadow-cyan-900/20"
                     >
                         <div className="flex items-start gap-4">
                             <div className="flex-shrink-0 w-12 h-12 flex items-center justify-center rounded-xl bg-slate-700/50 group-hover:bg-cyan-500/10 transition-colors text-2xl">

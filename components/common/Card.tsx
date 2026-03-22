@@ -22,7 +22,7 @@ export const Card: React.FC<CardProps> = ({
   actionButton,
 }) => {
   const baseClasses =
-    'glass-panel p-4 rounded-xl flex flex-col transition-all duration-300 tabular-nums';
+    'glass-panel p-4 rounded-2xl flex flex-col transition-all duration-300 tabular-nums';
   
   const interactiveClasses = isInteractive
     ? 'cursor-pointer hover:border-[rgba(var(--color-primary-rgb),0.5)] hover:shadow-[rgba(var(--color-primary-rgb),0.2)] hover:-translate-y-1'
