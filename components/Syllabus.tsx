@@ -404,7 +404,7 @@ export const Syllabus: React.FC<SyllabusProps> = ({ userProfile, setUserProfile,
                 ) : vizMode === 'tree' ? (
                     <SyllabusTree userProfile={userProfile} masteryScores={allMasteryScores} onNodeClick={handleNodeClick} onSyllabusChange={handleSyllabusChange} />
                 ) : ( 
-                    <SyllabusOverviewWidget userProfile={userProfile} questionLogs={questionLogs} reports={reports} />
+                    <SyllabusOverviewWidget userProfile={userProfile} questionLogs={questionLogs} reports={reports} onStartFocusSession={onStartFocusSession} />
                 )}
             </div>
             

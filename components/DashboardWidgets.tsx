@@ -2,7 +2,7 @@
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import {
     LineChart, Line, BarChart, Bar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
-    Radar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, AreaChart, Area, ScatterChart, Scatter, ReferenceLine, ComposedChart, ZAxis
+    Radar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, AreaChart, Area, ScatterChart, Scatter, ReferenceLine, ComposedChart, ZAxis, PieChart, Pie
 } from 'recharts';
 import { SUBJECT_CONFIG } from '../constants';
 import CustomTooltip from './common/CustomTooltip';
@@ -494,9 +494,16 @@ export const CalendarHeatmapWidget: React.FC<{ reports: any[] }> = ({ reports })
     }, []);
 
     const { days, monthLabels, maxScore, cellSize, cellGap } = useMemo(() => {
+        const getLocalDateStr = (date: Date) => {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+
         const dataMap = new Map<string, { count: number; totalScore: number }>();
         reports.forEach(report => {
-            const date = new Date(report.testDate + "T00:00:00").toISOString().split('T')[0];
+            const date = report.testDate; // Assuming testDate is already YYYY-MM-DD
             const existing = dataMap.get(date) || { count: 0, totalScore: 0 };
             existing.count++;
             existing.totalScore += report.total.marks;
@@ -522,7 +529,7 @@ export const CalendarHeatmapWidget: React.FC<{ reports: any[] }> = ({ reports })
 
         const days = [];
         for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-            const dateStr = d.toISOString().split('T')[0];
+            const dateStr = getLocalDateStr(d);
             const data = dataMap.get(dateStr);
             days.push({ date: new Date(d), data: data ? { ...data, avgScore: data.totalScore / data.count } : null });
         }
@@ -687,6 +694,80 @@ export const ReflectionsWidget: React.FC<{ reflections: Reflection[] }> = ({ ref
     );
 };
 
+// --- NEW WIDGET: Weakness Heatmap ---
+export const WeaknessHeatmapWidget: React.FC<{ logs: any[] }> = ({ logs }) => {
+    const topicStats = useMemo(() => {
+        const stats = new Map<string, { attempts: number, wrong: number, subject: string }>();
+        logs.forEach(log => {
+            if (log.topic && log.topic !== 'N/A') {
+                const curr = stats.get(log.topic) || { attempts: 0, wrong: 0, subject: log.subject };
+                curr.attempts++;
+                if (log.status === 'Wrong' || log.status === 'Partially Correct') {
+                    curr.wrong++;
+                }
+                stats.set(log.topic, curr);
+            }
+        });
+
+        const topics = Array.from(stats.entries())
+            .filter(([_, data]) => data.attempts >= 3)
+            .map(([topic, data]) => ({
+                topic,
+                subject: data.subject,
+                errorRate: data.wrong / data.attempts,
+                attempts: data.attempts
+            }))
+            .sort((a, b) => b.errorRate - a.errorRate)
+            .slice(0, 15); // Show top 15 weaknesses
+
+        return topics;
+    }, [logs]);
+
+    if (topicStats.length === 0) {
+        return (
+            <div className="flex items-center justify-center h-full text-gray-500 text-sm italic">
+                Not enough data to generate weakness heatmap. Attempt more questions!
+            </div>
+        );
+    }
+
+    const getColor = (rate: number) => {
+        if (rate > 0.7) return 'bg-red-500/80 border-red-500 text-white';
+        if (rate > 0.4) return 'bg-orange-500/80 border-orange-500 text-white';
+        if (rate > 0.2) return 'bg-yellow-500/80 border-yellow-500 text-black';
+        return 'bg-green-500/80 border-green-500 text-white';
+    };
+
+    return (
+        <div className="h-full flex flex-col">
+            <div className="flex-grow overflow-y-auto pr-2 custom-scrollbar">
+                <div className="flex flex-wrap gap-2">
+                    {topicStats.map(t => (
+                        <div 
+                            key={t.topic} 
+                            className={`px-3 py-2 rounded-lg border text-xs font-medium flex flex-col gap-1 transition-transform hover:scale-105 cursor-default ${getColor(t.errorRate)}`}
+                            title={`${t.subject}: ${(t.errorRate * 100).toFixed(0)}% Error Rate (${t.attempts} attempts)`}
+                        >
+                            <span className="truncate max-w-[120px]">{t.topic}</span>
+                            <span className="opacity-80 text-[10px]">{(t.errorRate * 100).toFixed(0)}% Error</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+            <div className="mt-4 flex items-center justify-between text-[10px] text-gray-400 border-t border-slate-700/50 pt-2">
+                <span>Low Error</span>
+                <div className="flex gap-1">
+                    <div className="w-3 h-3 rounded bg-green-500/80"></div>
+                    <div className="w-3 h-3 rounded bg-yellow-500/80"></div>
+                    <div className="w-3 h-3 rounded bg-orange-500/80"></div>
+                    <div className="w-3 h-3 rounded bg-red-500/80"></div>
+                </div>
+                <span>High Error</span>
+            </div>
+        </div>
+    );
+};
+
 // --- NEW WIDGET: Goal Progress ---
 export const GoalProgressWidget: React.FC<{ goals: LongTermGoal[] }> = ({ goals }) => {
     if (goals.length === 0) return <div className="flex items-center justify-center h-full text-gray-500 text-sm italic">No long term goals set in Settings.</div>;
@@ -713,6 +794,357 @@ export const GoalProgressWidget: React.FC<{ goals: LongTermGoal[] }> = ({ goals 
                         )}
                     </div>
                 ))}
+            </div>
+        </div>
+    );
+};
+
+// --- Custom Tooltips for New Widgets ---
+const CustomAvgMarksTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+        const data = payload[0].payload;
+        return (
+            <div className="p-3 glass-panel border-white/5 rounded-lg shadow-xl text-sm z-50">
+                <p className="font-bold text-white mb-2">{label}</p>
+                <div className="space-y-1">
+                    <p className="text-cyan-400 flex justify-between gap-4"><span>Avg Marks:</span> <span className="font-mono text-white">{data.avg}</span></p>
+                    <p className="text-gray-400 flex justify-between gap-4 text-xs"><span>Total Marks:</span> <span className="font-mono text-white">{data.total}</span></p>
+                    <p className="text-gray-400 flex justify-between gap-4 text-xs"><span>Tests Taken:</span> <span className="font-mono text-white">{data.count}</span></p>
+                </div>
+            </div>
+        );
+    }
+    return null;
+};
+
+const CustomTimeAllocationTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+        // Recharts PieChart payload structure can be nested
+        const data = payload[0].payload.payload || payload[0].payload;
+        return (
+            <div className="p-3 glass-panel border-white/5 rounded-lg shadow-xl text-sm z-50">
+                <p className="font-bold text-white mb-2">{data.name}</p>
+                <div className="space-y-1">
+                    <p className="text-cyan-400 flex justify-between gap-4"><span>Time Spent:</span> <span className="font-mono text-white">{Math.round(data.value / 60)} mins</span></p>
+                    {data.totalTime > 0 && (
+                        <p className="text-gray-400 flex justify-between gap-4 text-xs"><span>% of Total:</span> <span className="font-mono text-white">{Math.round((data.value / data.totalTime) * 100)}%</span></p>
+                    )}
+                </div>
+            </div>
+        );
+    }
+    return null;
+};
+
+const CustomNegativeMarksTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+        const data = payload[0].payload;
+        return (
+            <div className="p-3 glass-panel border-white/5 rounded-lg shadow-xl text-sm z-50">
+                <p className="font-bold text-white mb-2">{data.date}</p>
+                <div className="space-y-1">
+                    <p className="text-red-400 flex justify-between gap-4"><span>Marks Lost:</span> <span className="font-mono text-white">{data.lostMarks}</span></p>
+                    <p className="text-gray-400 flex justify-between gap-4 text-xs"><span>Test:</span> <span className="font-mono text-white">{data.testName}</span></p>
+                </div>
+            </div>
+        );
+    }
+    return null;
+};
+
+// --- NEW WIDGET: Subject Relativity ---
+export const SubjectRelativityWidget: React.FC<{ reports: any[] }> = ({ reports }) => {
+    const stats = useMemo(() => {
+        if (reports.length === 0) return null;
+        let p = 0, c = 0, m = 0;
+        reports.forEach(r => {
+            p += (r.physics?.marks || 0);
+            c += (r.chemistry?.marks || 0);
+            m += (r.maths?.marks || 0);
+        });
+        const total = p + c + m;
+        if (total === 0) return null;
+        return { p, c, m };
+    }, [reports]);
+
+    if (!stats) return <div className="flex items-center justify-center h-full text-gray-500 text-sm italic">Not enough data.</div>;
+
+    const { p, c, m } = stats;
+    
+    const getRatio = (val1: number, val2: number) => {
+        if (val2 === 0) return '∞';
+        return (val1 / val2).toFixed(1);
+    };
+
+    return (
+        <div className="h-full flex flex-col justify-center p-4">
+            <h4 className="text-sm font-semibold text-gray-300 mb-4 text-center">Score Multipliers</h4>
+            <div className="space-y-4">
+                <div className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/10">
+                    <span className="text-cyan-400 font-bold">Maths vs Physics</span>
+                    <span className="text-xl font-black text-white">{getRatio(m, p)}x</span>
+                </div>
+                <div className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/10">
+                    <span className="text-purple-400 font-bold">Physics vs Chem</span>
+                    <span className="text-xl font-black text-white">{getRatio(p, c)}x</span>
+                </div>
+                <div className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/10">
+                    <span className="text-emerald-400 font-bold">Chem vs Maths</span>
+                    <span className="text-xl font-black text-white">{getRatio(c, m)}x</span>
+                </div>
+            </div>
+            <div className="mt-4 text-xs text-gray-400 text-center italic">
+                Based on total marks across all tests.
+            </div>
+        </div>
+    );
+};
+
+// --- NEW WIDGET: Avg Marks Bar Graph ---
+export const AvgMarksBarWidget: React.FC<{ reports: any[] }> = ({ reports }) => {
+    const data = useMemo(() => {
+        if (reports.length === 0) return [];
+        let p = 0, c = 0, m = 0;
+        reports.forEach(r => {
+            p += (r.physics?.marks || 0);
+            c += (r.chemistry?.marks || 0);
+            m += (r.maths?.marks || 0);
+        });
+        const count = reports.length;
+        return [
+            { subject: 'Physics', avg: Math.round(p / count), total: p, count, fill: SUBJECT_CONFIG.physics.color },
+            { subject: 'Chemistry', avg: Math.round(c / count), total: c, count, fill: SUBJECT_CONFIG.chemistry.color },
+            { subject: 'Maths', avg: Math.round(m / count), total: m, count, fill: SUBJECT_CONFIG.maths.color }
+        ];
+    }, [reports]);
+
+    if (data.length === 0) return <div className="flex items-center justify-center h-full text-gray-500 text-sm italic">Not enough data.</div>;
+
+    return (
+        <div className="h-full w-full">
+            <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data} margin={{ top: 20, right: 20, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+                    <XAxis dataKey="subject" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
+                    <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
+                    <Tooltip content={<CustomAvgMarksTooltip />} cursor={{ fill: 'rgba(255,255,255,0.05)' }} />
+                    <Bar dataKey="avg" radius={[4, 4, 0, 0]}>
+                        {data.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                    </Bar>
+                </BarChart>
+            </ResponsiveContainer>
+        </div>
+    );
+};
+
+// --- NEW WIDGET: Weakest Link Analysis ---
+export const WeakestLinkWidget: React.FC<{ reports: any[] }> = ({ reports }) => {
+    const analysis = useMemo(() => {
+        if (reports.length === 0) return null;
+        let p = 0, c = 0, m = 0;
+        let pNeg = 0, cNeg = 0, mNeg = 0;
+        reports.forEach(r => {
+            p += (r.physics?.marks || 0);
+            c += (r.chemistry?.marks || 0);
+            m += (r.maths?.marks || 0);
+            pNeg += (r.physics?.wrong || 0);
+            cNeg += (r.chemistry?.wrong || 0);
+            mNeg += (r.maths?.wrong || 0);
+        });
+        
+        const subjects = [
+            { name: 'Physics', marks: p, neg: pNeg, color: 'text-purple-400', bg: 'bg-purple-500/20' },
+            { name: 'Chemistry', marks: c, neg: cNeg, color: 'text-emerald-400', bg: 'bg-emerald-500/20' },
+            { name: 'Maths', marks: m, neg: mNeg, color: 'text-cyan-400', bg: 'bg-cyan-500/20' }
+        ];
+        
+        subjects.sort((a, b) => a.marks - b.marks);
+        const weakest = subjects[0];
+        
+        let reason = "Low overall accuracy.";
+        if (weakest.neg > (reports.length * 5)) {
+            reason = "High negative marking is dragging your score down.";
+        } else if (weakest.marks < (reports.length * 10)) {
+            reason = "Very low attempt rate or conceptual gaps.";
+        }
+
+        return { weakest, reason };
+    }, [reports]);
+
+    if (!analysis) return <div className="flex items-center justify-center h-full text-gray-500 text-sm italic">Not enough data.</div>;
+
+    return (
+        <div className="h-full flex flex-col items-center justify-center p-4 text-center">
+            <div className={`w-20 h-20 rounded-full ${analysis.weakest.bg} flex items-center justify-center mb-4 border border-white/10`}>
+                <span className="text-3xl">⚠️</span>
+            </div>
+            <h3 className="text-xl font-bold text-white mb-1">Bottleneck: <span className={analysis.weakest.color}>{analysis.weakest.name}</span></h3>
+            <p className="text-sm text-gray-400 mb-4">{analysis.reason}</p>
+            
+            <div className="w-full bg-black/20 rounded-lg p-3 border border-white/5">
+                <div className="flex justify-between text-xs mb-1">
+                    <span className="text-gray-400">Total Marks</span>
+                    <span className="font-bold text-white">{analysis.weakest.marks}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                    <span className="text-gray-400">Total Negatives</span>
+                    <span className="font-bold text-red-400">-{analysis.weakest.neg}</span>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// --- NEW WIDGET: Time Allocation ---
+export const TimeAllocationWidget: React.FC<{ logs: QuestionLog[] }> = ({ logs }) => {
+    const data = useMemo(() => {
+        if (logs.length === 0) return [];
+        let p = 0, c = 0, m = 0;
+        logs.forEach(log => {
+            if (log.subject === 'physics') p += (log.timeSpent || 0);
+            if (log.subject === 'chemistry') c += (log.timeSpent || 0);
+            if (log.subject === 'maths') m += (log.timeSpent || 0);
+        });
+        if (p === 0 && c === 0 && m === 0) return [];
+        const totalTime = p + c + m;
+        return [
+            { name: 'Physics', value: p, totalTime, fill: SUBJECT_CONFIG.physics.color },
+            { name: 'Chemistry', value: c, totalTime, fill: SUBJECT_CONFIG.chemistry.color },
+            { name: 'Maths', value: m, totalTime, fill: SUBJECT_CONFIG.maths.color }
+        ];
+    }, [logs]);
+
+    if (data.length === 0) return <div className="flex items-center justify-center h-full text-gray-500 text-sm italic">Not enough time data.</div>;
+
+    return (
+        <div className="h-full w-full flex items-center justify-center">
+            <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                    <Pie
+                        data={data}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={40}
+                        outerRadius={70}
+                        paddingAngle={5}
+                        dataKey="value"
+                    >
+                        {data.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                    </Pie>
+                    <Tooltip content={<CustomTimeAllocationTooltip />} />
+                    <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
+                </PieChart>
+            </ResponsiveContainer>
+        </div>
+    );
+};
+
+// --- NEW WIDGET: Negative Marks Impact ---
+export const NegativeMarksWidget: React.FC<{ reports: any[] }> = ({ reports }) => {
+    const data = useMemo(() => {
+        if (reports.length === 0) return [];
+        return reports.slice(-5).map((r, i) => {
+            const totalNegative = (r.physics?.wrong || 0) + (r.chemistry?.wrong || 0) + (r.maths?.wrong || 0);
+            return {
+                name: `T${i + 1}`,
+                lostMarks: totalNegative, // Assuming 1 mark lost per incorrect
+                date: new Date(r.testDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+                testName: r.testName
+            };
+        });
+    }, [reports]);
+
+    if (data.length === 0) return <div className="flex items-center justify-center h-full text-gray-500 text-sm italic">Not enough data.</div>;
+
+    return (
+        <div className="h-full w-full">
+            <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={data} margin={{ top: 20, right: 20, left: -20, bottom: 0 }}>
+                    <defs>
+                        <linearGradient id="colorLost" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3}/>
+                            <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                        </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+                    <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
+                    <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
+                    <Tooltip content={<CustomNegativeMarksTooltip />} />
+                    <Area type="monotone" dataKey="lostMarks" name="Marks Lost" stroke="#ef4444" fillOpacity={1} fill="url(#colorLost)" />
+                </AreaChart>
+            </ResponsiveContainer>
+        </div>
+    );
+};
+
+// --- NEW WIDGET: Peer Comparison ---
+export const PeerComparisonWidget: React.FC<{ logs: QuestionLog[] }> = ({ logs }) => {
+    const data = useMemo(() => {
+        if (logs.length === 0) return null;
+        
+        let userCorrectTime = 0;
+        let peerCorrectTime = 0;
+        let correctCount = 0;
+        
+        let userAccuracy = 0;
+        let peerAccuracy = 0;
+        let totalQuestions = 0;
+
+        logs.forEach(log => {
+            if (log.peerTimeSpent && log.timeSpent && log.status === 'Fully Correct') {
+                userCorrectTime += log.timeSpent;
+                peerCorrectTime += log.peerTimeSpent;
+                correctCount++;
+            }
+            if (log.peerCorrectPercent !== undefined) {
+                userAccuracy += (log.status === 'Fully Correct' ? 100 : 0);
+                peerAccuracy += log.peerCorrectPercent;
+                totalQuestions++;
+            }
+        });
+
+        if (totalQuestions === 0) return null;
+
+        return {
+            avgUserCorrectTime: correctCount > 0 ? Math.round(userCorrectTime / correctCount) : 0,
+            avgPeerCorrectTime: correctCount > 0 ? Math.round(peerCorrectTime / correctCount) : 0,
+            avgUserAccuracy: Math.round(userAccuracy / totalQuestions),
+            avgPeerAccuracy: Math.round(peerAccuracy / totalQuestions),
+        };
+    }, [logs]);
+
+    if (!data) return <div className="flex items-center justify-center h-full text-gray-500 text-sm italic">Not enough peer data.</div>;
+
+    return (
+        <div className="h-full flex flex-col justify-center p-4">
+            <h4 className="text-sm font-semibold text-gray-300 mb-4 text-center">You vs Peers</h4>
+            <div className="space-y-4">
+                <div className="p-3 bg-white/5 rounded-lg border border-white/10">
+                    <div className="flex justify-between mb-1">
+                        <span className="text-gray-400 text-xs">Accuracy</span>
+                        <span className="text-xs font-bold text-white">{data.avgUserAccuracy}% vs {data.avgPeerAccuracy}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden flex">
+                        <div className="bg-cyan-500 h-full" style={{ width: `${data.avgUserAccuracy}%` }}></div>
+                        <div className="bg-purple-500 h-full opacity-50" style={{ width: `${Math.max(0, data.avgPeerAccuracy - data.avgUserAccuracy)}%` }}></div>
+                    </div>
+                </div>
+                <div className="p-3 bg-white/5 rounded-lg border border-white/10">
+                    <div className="flex justify-between mb-1">
+                        <span className="text-gray-400 text-xs">Time on Correct (s)</span>
+                        <span className="text-xs font-bold text-white">{data.avgUserCorrectTime}s vs {data.avgPeerCorrectTime}s</span>
+                    </div>
+                    <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden flex">
+                        <div className="bg-emerald-500 h-full" style={{ width: `${Math.max(data.avgUserCorrectTime, data.avgPeerCorrectTime) > 0 ? Math.min(100, (data.avgUserCorrectTime / Math.max(data.avgUserCorrectTime, data.avgPeerCorrectTime)) * 100) : 0}%` }}></div>
+                    </div>
+                    <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden flex mt-1">
+                         <div className="bg-amber-500 h-full" style={{ width: `${Math.max(data.avgUserCorrectTime, data.avgPeerCorrectTime) > 0 ? Math.min(100, (data.avgPeerCorrectTime / Math.max(data.avgUserCorrectTime, data.avgPeerCorrectTime)) * 100) : 0}%` }}></div>
+                    </div>
+                </div>
             </div>
         </div>
     );

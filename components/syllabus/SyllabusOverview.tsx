@@ -5,7 +5,7 @@ import { SubjectDonutCard } from '../visualizations/SubjectDonutCard';
 import { JEE_SYLLABUS } from '../../constants';
 import { useRevisionStack } from '../../hooks/useSyllabusLogic';
 
-export const SyllabusOverviewWidget: React.FC<{ userProfile: UserProfile; questionLogs: QuestionLog[]; reports: any[] }> = ({ userProfile, questionLogs, reports }) => {
+export const SyllabusOverviewWidget: React.FC<{ userProfile: UserProfile; questionLogs: QuestionLog[]; reports: any[]; onStartFocusSession: (topic: string) => void }> = ({ userProfile, questionLogs, reports, onStartFocusSession }) => {
     const subjects = ['physics', 'chemistry', 'maths'];
     const revisionStack = useRevisionStack(userProfile, questionLogs, reports);
 
@@ -63,7 +63,10 @@ export const SyllabusOverviewWidget: React.FC<{ userProfile: UserProfile; questi
                                 </div>
                             </div>
                             <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button className="text-[10px] bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded-md transition-colors">
+                                <button 
+                                    onClick={() => onStartFocusSession(topic.name)}
+                                    className="text-[10px] bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded-md transition-colors"
+                                >
                                     Revise Now
                                 </button>
                             </div>

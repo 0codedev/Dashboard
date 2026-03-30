@@ -438,7 +438,13 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({
     // Save Daily Plan to History
     useEffect(() => {
         if (dailyTasks.length > 0) {
-            const todayStr = new Date().toISOString().split('T')[0];
+            const getLocalDateStr = (date: Date = new Date()) => {
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            };
+            const todayStr = getLocalDateStr();
             setPlanHistory(prev => ({ ...prev, [todayStr]: dailyTasks }));
         }
     }, [dailyTasks, setPlanHistory]);
@@ -457,7 +463,13 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({
     }, [bioStats]);
 
     const handleBioSave = (data: { sleep: number; stress: number; energy: number }) => {
-        const today = new Date().toISOString().split('T')[0];
+        const getLocalDateStr = (date: Date = new Date()) => {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+        const today = getLocalDateStr();
         setBioStats({ ...data, date: today });
         setShowBioCheck(false);
         
@@ -476,7 +488,13 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({
     };
 
     const handleBioSkip = () => {
-        const today = new Date().toISOString().split('T')[0];
+        const getLocalDateStr = (date: Date = new Date()) => {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+        const today = getLocalDateStr();
         setBioStats({ sleep: 0, stress: 0, energy: 0, date: today, skipped: true });
         setShowBioCheck(false);
     };
@@ -534,7 +552,13 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({
         const fetchQuote = async () => {
             if (quote) return;
             const newQuoteText = await getDailyQuote(apiKey);
-            const today = new Date().toISOString().split('T')[0];
+            const getLocalDateStr = (date: Date = new Date()) => {
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            };
+            const today = getLocalDateStr();
             const newQuote = { text: newQuoteText.replace(/\*/g, '').trim(), date: today };
             setQuote(newQuote);
         };
@@ -543,12 +567,21 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({
 
     useEffect(() => {
         const allComplete = dailyTasks.length > 0 && dailyTasks.every(t => t.completed);
+        
+        const getLocalDateStr = (date: Date = new Date()) => {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+
+        const todayStr = getLocalDateStr();
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = getLocalDateStr(yesterday);
+
         if (allComplete) {
-            const todayStr = new Date().toISOString().split('T')[0];
             if (streakData.date === todayStr) return;
-            
-            const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
-            const yesterdayStr = yesterday.toISOString().split('T')[0];
             
             let newCount = 1;
             if (streakData.date === yesterdayStr) {
@@ -556,6 +589,14 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({
             }
             
             setStreakData({ count: newCount, date: todayStr });
+        } else {
+            // If not all complete, but the streak was already incremented today, we must revert it
+            if (streakData.date === todayStr) {
+                setStreakData({ 
+                    count: Math.max(0, streakData.count - 1), 
+                    date: yesterdayStr 
+                });
+            }
         }
     }, [dailyTasks, streakData.count, streakData.date, setStreakData]);
     
@@ -740,7 +781,13 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({
         try { 
             const checklistSummary = dailyTasks.map(t => ({text: t.text, completed: t.completed})); 
             const result = await generateEndOfDaySummary(goals, checklistSummary, apiKey); 
-            const todayStr = new Date().toISOString().split('T')[0];
+            const getLocalDateStr = (date: Date = new Date()) => {
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            };
+            const todayStr = getLocalDateStr();
             setSummaries(prev => ({ ...prev, [todayStr]: result }));
         } catch (error) { 
             console.error("Failed to generate summary:", error); 

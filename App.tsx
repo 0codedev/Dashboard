@@ -167,12 +167,6 @@ const App: React.FC = () => {
     }, [view]);
 
     useEffect(() => {
-        if (testReports.length > lastReportCountRef.current) {
-            if (testReports.length % 3 === 0) {
-                toastCounter.current += 1;
-                setToasts(prev => [...prev, { id: Date.now() + toastCounter.current, title: 'Backup Recommended', message: 'You have added significant data. Consider backing up your progress in Settings.', icon: '💾' }]);
-            }
-        }
         lastReportCountRef.current = testReports.length;
     }, [testReports]);
 
@@ -202,6 +196,131 @@ const App: React.FC = () => {
             }
         }
     }, [filteredReports, proactiveInsight, notificationPreferences.proactiveInsights]);
+
+    // Flashcard Reminder
+    useEffect(() => {
+        if (!notificationPreferences.flashcardReminders) return;
+        
+        const checkFlashcards = () => {
+            try {
+                const storedCardsStr = localStorage.getItem('errorFlashcards_v1');
+                if (!storedCardsStr) return;
+                const cards = JSON.parse(storedCardsStr);
+                const now = new Date();
+                const dueCount = cards.filter((c: any) => new Date(c.nextReview) <= now && c.back !== '__STUB__').length;
+                
+                if (dueCount > 0) {
+                    toastCounter.current += 1;
+                    setToasts(prev => [...prev, { 
+                        id: Date.now() + toastCounter.current, 
+                        title: 'Flashcards Due', 
+                        message: `You have ${dueCount} flashcard(s) ready for review.`, 
+                        icon: '🎴' 
+                    }]);
+                }
+            } catch (e) {
+                console.error("Failed to check flashcards for reminder", e);
+            }
+        };
+
+        // Check once on mount
+        checkFlashcards();
+        
+        // And check every hour
+        const interval = setInterval(checkFlashcards, 60 * 60 * 1000);
+        return () => clearInterval(interval);
+    }, [notificationPreferences.flashcardReminders]);
+
+    // Bio Check Reminder
+    useEffect(() => {
+        if (!notificationPreferences.bioCheckReminders) return;
+        
+        const checkBio = () => {
+            toastCounter.current += 1;
+            setToasts(prev => [...prev, { 
+                id: Date.now() + toastCounter.current, 
+                title: 'Bio Check', 
+                message: 'Time to stretch, hydrate, and rest your eyes!', 
+                icon: '💧' 
+            }]);
+        };
+
+        // Check every 2 hours
+        const interval = setInterval(checkBio, 2 * 60 * 60 * 1000);
+        return () => clearInterval(interval);
+    }, [notificationPreferences.bioCheckReminders]);
+
+    // Auto-Backup and Unsaved Changes Reminder
+    useEffect(() => {
+        if (!currentUser) return;
+
+        const checkBackupStatus = async () => {
+            const unsavedCountStr = localStorage.getItem('unsaved_changes_count');
+            const unsavedCount = parseInt(unsavedCountStr || '0', 10);
+            const lastBackupStr = localStorage.getItem('last_auto_backup_time');
+            const lastBackup = lastBackupStr ? new Date(lastBackupStr) : new Date(0);
+            const now = new Date();
+            const hoursSinceBackup = (now.getTime() - lastBackup.getTime()) / (1000 * 60 * 60);
+
+            // Reminder for unsaved changes
+            if (unsavedCount > 50) {
+                toastCounter.current += 1;
+                setToasts(prev => [...prev, {
+                    id: Date.now() + toastCounter.current,
+                    title: 'Backup Recommended',
+                    message: 'You have many unsaved changes. Consider backing up your progress in Settings.',
+                    icon: '💾'
+                }]);
+                // Reset counter slightly so it doesn't spam every minute, but will remind again if they keep working
+                localStorage.setItem('unsaved_changes_count', '20');
+            }
+
+            // Auto-backup once a day
+            if (hoursSinceBackup >= 24 && unsavedCount > 0) {
+                try {
+                    const { backupFullDataToFirebase } = await import('./services/backupService');
+                    const exportData = {
+                        version: 1,
+                        date: new Date().toISOString(),
+                        reports: testReports,
+                        logs: questionLogs,
+                        userProfile,
+                        aiPreferences,
+                        notificationPreferences,
+                        appearancePreferences,
+                        gamificationState,
+                        studyGoals,
+                        longTermGoals,
+                        chatHistory,
+                        dailyTasks,
+                        reflections,
+                        endOfDaySummaries,
+                        dailyPlansHistory
+                    };
+                    await backupFullDataToFirebase(exportData);
+                    toastCounter.current += 1;
+                    setToasts(prev => [...prev, {
+                        id: Date.now() + toastCounter.current,
+                        title: 'Auto-Backup Complete',
+                        message: 'Your progress was automatically backed up to Firebase.',
+                        icon: '☁️'
+                    }]);
+                } catch (err) {
+                    console.error("Auto-backup failed:", err);
+                }
+            }
+        };
+
+        // Check every 15 minutes
+        const interval = setInterval(checkBackupStatus, 15 * 60 * 1000);
+        // Also check 1 minute after load
+        const initialTimeout = setTimeout(checkBackupStatus, 60 * 1000);
+
+        return () => {
+            clearInterval(interval);
+            clearTimeout(initialTimeout);
+        };
+    }, [currentUser, testReports, questionLogs, userProfile, aiPreferences, notificationPreferences, appearancePreferences, gamificationState, studyGoals, longTermGoals, chatHistory, dailyTasks, reflections, endOfDaySummaries, dailyPlansHistory]);
 
     // --- Handlers ---
 

@@ -25,11 +25,18 @@ const PerformanceTrendWidget = React.lazy(() => import('./DashboardWidgets').the
 const SubjectComparisonWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.SubjectComparisonWidget })));
 const SubjectRadarWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.SubjectRadarWidget })));
 const CalendarHeatmapWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.CalendarHeatmapWidget })));
+const WeaknessHeatmapWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.WeaknessHeatmapWidget })));
 const RankSimulatorWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.RankSimulatorWidget })));
 const GoalProgressWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.GoalProgressWidget })));
 const OracleWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.OracleWidget })));
 const CalibrationWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.CalibrationWidget })));
 const ReflectionsWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.ReflectionsWidget })));
+const SubjectRelativityWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.SubjectRelativityWidget })));
+const AvgMarksBarWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.AvgMarksBarWidget })));
+const WeakestLinkWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.WeakestLinkWidget })));
+const TimeAllocationWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.TimeAllocationWidget })));
+const NegativeMarksWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.NegativeMarksWidget })));
+const PeerComparisonWidget = React.lazy(() => import('./DashboardWidgets').then(m => ({ default: m.PeerComparisonWidget })));
 
 interface DashboardProps {
   reports: TestReport[];
@@ -44,7 +51,7 @@ interface DashboardProps {
   onUpdateProfile: React.Dispatch<React.SetStateAction<UserProfile>>;
 }
 
-type WidgetId = 'heatmap' | 'performanceTrend' | 'subjectComparison' | 'subjectStrengthsRadar' | 'percentilePredictor' | 'aiAnalysis' | 'strategicROI' | 'paperStrategy' | 'rankPredictor' | 'volatility' | 'rankSimulator' | 'goalProgress' | 'oracle' | 'calibration' | 'competitors' | 'reflections';
+type WidgetId = 'heatmap' | 'weaknessHeatmap' | 'performanceTrend' | 'subjectComparison' | 'subjectStrengthsRadar' | 'percentilePredictor' | 'aiAnalysis' | 'strategicROI' | 'paperStrategy' | 'rankPredictor' | 'volatility' | 'rankSimulator' | 'goalProgress' | 'oracle' | 'calibration' | 'competitors' | 'reflections' | 'subjectRelativity' | 'avgMarksBar' | 'weakestLink' | 'timeAllocation' | 'negativeMarks' | 'peerComparison';
 
 interface WidgetLayout {
     id: WidgetId;
@@ -56,6 +63,13 @@ const DEFAULT_DASHBOARD_LAYOUT: WidgetLayout[] = [
     { id: 'oracle', visible: true, size: 'normal' },
     { id: 'calibration', visible: true, size: 'normal' },
     { id: 'competitors', visible: true, size: 'normal' },
+    { id: 'weakestLink', visible: true, size: 'normal' },
+    { id: 'subjectRelativity', visible: true, size: 'normal' },
+    { id: 'avgMarksBar', visible: true, size: 'normal' },
+    { id: 'timeAllocation', visible: true, size: 'normal' },
+    { id: 'negativeMarks', visible: true, size: 'normal' },
+    { id: 'peerComparison', visible: true, size: 'normal' },
+    { id: 'weaknessHeatmap', visible: true, size: 'wide' },
     { id: 'heatmap', visible: true, size: 'wide' },
     { id: 'volatility', visible: true, size: 'normal' },
     { id: 'performanceTrend', visible: true, size: 'normal' },
@@ -636,7 +650,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
             const result = await getAIAnalysis(reports, logs, apiKey, modelName);
             setAiAnalysis({ content: result, isLoading: false, error: null });
             
-            const todayStr = new Date().toISOString().split('T')[0];
+            const getLocalDateStr = (date: Date = new Date()) => {
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            };
+            const todayStr = getLocalDateStr();
             setAiAnalysisHistory(prev => {
                 const updated = { ...prev, [todayStr]: result };
                 localStorage.setItem('aiAnalysisHistory_v1', JSON.stringify(updated));
@@ -725,6 +745,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
             info: "Compares your latest test score against AI-simulated personas: 'Accuracy Bot' (high accuracy, slow), 'Speedster' (fast, error-prone), and 'AIR 100' (benchmark)."
         },
         heatmap: { title: "Test Activity Heatmap", component: <CalendarHeatmapWidget reports={processedReports} />, getDataForInsight: () => `Analyze activity from ${reports.length} tests over the past year.`, info: "This heatmap shows your test-taking frequency and average score over the past year. Darker shades of cyan indicate higher scores on those days." },
+        weaknessHeatmap: { title: "Weakness Matrix", component: <WeaknessHeatmapWidget logs={logs} />, getDataForInsight: () => `Analyze weakness matrix for ${logs.length} question logs.`, info: "This matrix highlights specific topics where you have the highest error rates. Red indicates >70% error rate, requiring immediate attention." },
         performanceTrend: { title: "Performance Trend (Total Score)", component: <PerformanceTrendWidget data={processedReports} aiSummary={chartSummaries.performance} />, getDataForInsight: () => `Analyze the score trend: ${processedReports.map(r => r.total.marks).join(', ')}.`, info: "This chart tracks your total score across all tests, showing your overall performance trend over time." },
         subjectComparison: { title: "Subject Marks Comparison", component: <SubjectComparisonWidget data={processedReports} aiSummary={chartSummaries.subject} />, getDataForInsight: () => `Analyze subject contributions for the latest test.`, info: "This stacked bar chart shows the contribution of each subject to your total score in every test, helping you see subject-wise performance at a glance." },
         subjectStrengthsRadar: { title: "Average of Subjects", component: <SubjectRadarWidget data={kpiData.radarData} />, getDataForInsight: () => `Radar plot data: ${JSON.stringify(kpiData.radarData)}.`, info: "Shows the average marks scored in each subject over the last 3 tests." },
@@ -736,6 +757,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ reports, logs, apiKey, set
         rankSimulator: { title: "What-If Rank Simulator", component: <RankSimulatorWidget rankModel={kpiData.rankModel} currentAvg={kpiData.avgScores} />, getDataForInsight: () => "Analyze rank simulation potential.", info: "Interactive tool to simulate how improving subject scores impacts your predicted rank." },
         goalProgress: { title: "Goal Tracker", component: <GoalProgressWidget goals={longTermGoals} />, getDataForInsight: () => `Analyze goal progress. Completed: ${longTermGoals.filter(g=>g.completed).length}.`, info: "Tracks your progress towards defined long-term milestones." },
         reflections: { title: "Recent Reflections", component: <ReflectionsWidget reflections={useJeeStore(s => s.reflections)} />, getDataForInsight: () => "Analyze recent reflections.", info: "Shows your most recent journal entries and reflections." },
+        subjectRelativity: { title: "Subject Relativity", component: <SubjectRelativityWidget reports={processedReports} />, getDataForInsight: () => "Analyze the relative score multipliers between subjects.", info: "Shows how many times more marks you score in one subject compared to another." },
+        avgMarksBar: { title: "Average Marks", component: <AvgMarksBarWidget reports={processedReports} />, getDataForInsight: () => "Analyze the average marks across subjects.", info: "Bar chart displaying your average score in Physics, Chemistry, and Maths." },
+        weakestLink: { title: "Weakest Link Analysis", component: <WeakestLinkWidget reports={processedReports} />, getDataForInsight: () => "Analyze the weakest subject and the reason for it.", info: "Identifies your weakest subject based on total marks and negative marking, providing a probable reason." },
+        timeAllocation: { title: "Time Allocation", component: <TimeAllocationWidget logs={logs} />, getDataForInsight: () => "Analyze the time spent on each subject.", info: "Pie chart showing how you distribute your time across Physics, Chemistry, and Maths." },
+        negativeMarks: { title: "Negative Marks Impact", component: <NegativeMarksWidget reports={processedReports} />, getDataForInsight: () => "Analyze the trend of marks lost due to incorrect answers.", info: "Area chart showing the total negative marks accumulated over the last 5 tests." },
+        peerComparison: { title: "Peer Comparison", component: <PeerComparisonWidget logs={logs} />, getDataForInsight: () => "Analyze how the user compares to peers in accuracy and time.", info: "Compares your accuracy and time spent on correct answers with your peers." },
         aiAnalysis: { title: "AI Performance Analysis", component: <AiAnalysisWidget aiAnalysis={aiAnalysis} aiAnalysisHistory={aiAnalysisHistory} handleGenerateAiAnalysis={handleGenerateAiAnalysis} selectedDate={selectedAiAnalysisDate} setSelectedDate={setSelectedAiAnalysisDate} />, getDataForInsight: () => "AI analysis has been requested.", info: "This widget provides a comprehensive performance review generated by AI. It analyzes trends, strengths, weaknesses, and gives actionable recommendations based on all your data." },
     };
     

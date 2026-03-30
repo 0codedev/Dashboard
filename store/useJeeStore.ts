@@ -195,7 +195,13 @@ export const useJeeStore = create<JeeState & JeeActions>((set, get) => ({
         ]);
 
         // Daily Task Reset Logic
-        const today = new Date().toISOString().split('T')[0];
+        const getLocalDateStr = (date: Date = new Date()) => {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+        const today = getLocalDateStr();
         const savedDate = await dbService.get<string>('appState', 'dailyTasksDate');
         
         let currentTasks = tasks;
@@ -227,6 +233,7 @@ export const useJeeStore = create<JeeState & JeeActions>((set, get) => ({
             timerState: savedTimer ? JSON.parse(savedTimer) : appState.timerState,
         });
 
+        const todayStr = getLocalDateStr();
         useDataStore.getState().hydrateData({
             testReports: reports,
             questionLogs: logs,
@@ -234,7 +241,7 @@ export const useJeeStore = create<JeeState & JeeActions>((set, get) => ({
             longTermGoals: longGoals,
             dailyTasks: currentTasks,
             reflections: reflections,
-            bioStats: localStorage.getItem(`bioLog_${new Date().toISOString().split('T')[0]}`) ? JSON.parse(localStorage.getItem(`bioLog_${new Date().toISOString().split('T')[0]}`)!) : null,
+            bioStats: localStorage.getItem(`bioLog_${todayStr}`) ? JSON.parse(localStorage.getItem(`bioLog_${todayStr}`)!) : null,
             dailyQuote: localStorage.getItem('dailyQuote') ? JSON.parse(localStorage.getItem('dailyQuote')!) : null,
             streakData: localStorage.getItem('streakData_v1') ? JSON.parse(localStorage.getItem('streakData_v1')!) : { count: 0, date: '' },
             endOfDaySummaries: localStorage.getItem('endOfDaySummaries_v1') ? JSON.parse(localStorage.getItem('endOfDaySummaries_v1')!) : {},

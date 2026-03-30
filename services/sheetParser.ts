@@ -59,7 +59,11 @@ export const parseReportsFromCsv = (csv: string): TestReport[] => {
                  currentTestDate = `${parts[3]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
             } else if (!isNaN(new Date(dateValue).getTime())) {
                 // If it's a parsable date string (like YYYY-MM-DD), use it directly
-                currentTestDate = new Date(dateValue).toISOString().split('T')[0];
+                const d = new Date(dateValue);
+                const year = d.getFullYear();
+                const month = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                currentTestDate = `${year}-${month}-${day}`;
             }
         }
         

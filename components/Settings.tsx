@@ -17,6 +17,7 @@ import {
 import { auth, db, signInWithGoogle, logout } from '../services/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { onAuthStateChanged, User } from 'firebase/auth';
+import { backupFullDataToFirebase } from '../services/backupService';
 
 interface SettingsProps {
     apiKey: string;
@@ -489,7 +490,26 @@ const AdvancedModelConfig: React.FC<{
 
                                     {openDropdown === task.id && (
                                         <div className="absolute top-full right-0 mt-2 w-80 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 animate-scale-in overflow-hidden max-h-[300px] overflow-y-auto custom-scrollbar">
-                                            {MODEL_REGISTRY.map(model => (
+                                            <div className="px-3 py-2 text-xs font-bold text-gray-500 uppercase bg-slate-900/50 border-b border-slate-700">Google Native</div>
+                                            {MODEL_REGISTRY.filter(m => m.provider === 'google').map(model => (
+                                                <ModelOptionItem 
+                                                    key={model.id}
+                                                    model={model}
+                                                    isSelected={currentModelId === model.id}
+                                                    onClick={() => handleOverrideChange(task.id, model.id)}
+                                                />
+                                            ))}
+                                            <div className="px-3 py-2 text-xs font-bold text-gray-500 uppercase bg-slate-900/50 border-y border-slate-700">Groq (Ultra-Fast)</div>
+                                            {MODEL_REGISTRY.filter(m => m.provider === 'groq').map(model => (
+                                                <ModelOptionItem 
+                                                    key={model.id}
+                                                    model={model}
+                                                    isSelected={currentModelId === model.id}
+                                                    onClick={() => handleOverrideChange(task.id, model.id)}
+                                                />
+                                            ))}
+                                            <div className="px-3 py-2 text-xs font-bold text-gray-500 uppercase bg-slate-900/50 border-y border-slate-700">OpenRouter (Free)</div>
+                                            {MODEL_REGISTRY.filter(m => m.provider === 'openrouter').map(model => (
                                                 <ModelOptionItem 
                                                     key={model.id}
                                                     model={model}
@@ -609,6 +629,20 @@ const AiSettings: React.FC<Pick<SettingsProps, 'aiPreferences' | 'setAiPreferenc
                             <p className="text-sm font-medium text-slate-200">Enable Proactive Drop Detection</p>
                         </div>
                         <ToggleSwitch checked={notificationPreferences.proactiveInsights} onChange={c => setNotificationPreferences(p => ({...p, proactiveInsights: c}))} label=""/>
+                    </div>
+                    <div className="flex items-center justify-between p-3 bg-slate-900/30 rounded-lg">
+                        <div>
+                            <p className="text-sm font-medium text-slate-200">Flashcard Review Reminders</p>
+                            <p className="text-[10px] text-slate-500">Get notified when due cards pile up</p>
+                        </div>
+                        <ToggleSwitch checked={notificationPreferences.flashcardReminders ?? true} onChange={c => setNotificationPreferences(p => ({...p, flashcardReminders: c}))} label=""/>
+                    </div>
+                    <div className="flex items-center justify-between p-3 bg-slate-900/30 rounded-lg">
+                        <div>
+                            <p className="text-sm font-medium text-slate-200">Bio-Check Reminders</p>
+                            <p className="text-[10px] text-slate-500">Periodic check-ins on your focus and energy</p>
+                        </div>
+                        <ToggleSwitch checked={notificationPreferences.bioCheckReminders ?? true} onChange={c => setNotificationPreferences(p => ({...p, bioCheckReminders: c}))} label=""/>
                     </div>
                      <div>
                         <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">Sensitivity Threshold</label>
@@ -871,12 +905,7 @@ const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleRepo
         setIsFirebaseSyncing(true);
         try {
             const data = getExportData();
-            const stringifiedData = JSON.stringify(data);
-            await setDoc(doc(db, 'backups', currentUser.uid), {
-                uid: currentUser.uid,
-                data: stringifiedData,
-                updatedAt: new Date().toISOString()
-            });
+            await backupFullDataToFirebase(data);
             addToast({ title: 'Success', message: 'Backup saved to Firebase Cloud', icon: '✅' });
         } catch (err: any) {
             addToast({ title: 'Error', message: 'Firebase backup failed: ' + err.message, icon: '❌' });
@@ -1065,20 +1094,45 @@ const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleRepo
                             </div>
                             
                             {currentUser ? (
-                                <div className="space-y-4">
-                                    <p className="text-xs text-slate-400">Securely backup and restore your data across devices using Firebase.</p>
-                                    <div className="flex gap-4">
-                                        <Button onClick={handleFirebaseBackup} disabled={isFirebaseSyncing} variant="secondary" className="flex-1 flex items-center justify-center gap-2 py-3 border-slate-600 hover:border-orange-500">
-                                            {isFirebaseSyncing ? <span className="animate-spin">⟳</span> : <span>⬆️</span>} Backup to Cloud
-                                        </Button>
-                                        <Button onClick={handleFirebaseRestore} disabled={isFirebaseSyncing} variant="secondary" className="flex-1 flex items-center justify-center gap-2 py-3 border-slate-600 hover:border-orange-500">
-                                            {isFirebaseSyncing ? <span className="animate-spin">⟳</span> : <span>⬇️</span>} Restore from Cloud
-                                        </Button>
+                                <div className="space-y-6">
+                                    <div className="space-y-4">
+                                        <p className="text-xs text-slate-400">Securely backup and restore your data across devices using Firebase.</p>
+                                        <div className="flex gap-4">
+                                            <Button onClick={handleFirebaseBackup} disabled={isFirebaseSyncing} variant="secondary" className="flex-1 flex items-center justify-center gap-2 py-3 border-slate-600 hover:border-orange-500">
+                                                {isFirebaseSyncing ? <span className="animate-spin">⟳</span> : <span>⬆️</span>} Backup to Cloud
+                                            </Button>
+                                            <Button onClick={handleFirebaseRestore} disabled={isFirebaseSyncing} variant="secondary" className="flex-1 flex items-center justify-center gap-2 py-3 border-slate-600 hover:border-orange-500">
+                                                {isFirebaseSyncing ? <span className="animate-spin">⟳</span> : <span>⬇️</span>} Restore from Cloud
+                                            </Button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="pt-4 border-t border-slate-700">
+                                        <h4 className="text-sm font-bold text-white mb-2 flex items-center gap-2"><span>👥</span> Parent/Mentor Dashboard</h4>
+                                        <p className="text-xs text-slate-400 mb-3">Share a read-only view of your progress with a mentor or parent. They will see the data from your last Firebase backup.</p>
+                                        <div className="flex gap-2">
+                                            <input 
+                                                type="text" 
+                                                readOnly 
+                                                value={`${window.location.origin}?mentorView=${currentUser.uid}`} 
+                                                className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-300 font-mono"
+                                            />
+                                            <Button 
+                                                onClick={() => {
+                                                    navigator.clipboard.writeText(`${window.location.origin}?mentorView=${currentUser.uid}`);
+                                                    addToast({ title: 'Copied', message: 'Mentor link copied to clipboard', icon: '📋' });
+                                                }}
+                                                variant="secondary"
+                                                size="sm"
+                                            >
+                                                Copy Link
+                                            </Button>
+                                        </div>
                                     </div>
                                 </div>
                             ) : (
                                 <div className="text-center py-6 bg-slate-800/50 rounded-lg border border-slate-700/50">
-                                    <p className="text-sm text-slate-400 mb-2">Sign in to enable cross-device cloud sync.</p>
+                                    <p className="text-sm text-slate-400 mb-2">Sign in to enable cross-device cloud sync and mentor sharing.</p>
                                 </div>
                             )}
                         </div>

@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { ChatMessage } from '../types';
 import { dbService } from '../services/dbService';
-import { backupChatHistory } from '../services/backupService';
 
 interface AIState {
     chatHistory: ChatMessage[];
@@ -26,7 +25,6 @@ export const useAIStore = create<AIState & AIActions>((set, get) => ({
         set(state => {
             const newHistory = typeof historyOrFn === 'function' ? historyOrFn(state.chatHistory) : historyOrFn;
             dbService.syncStore('chatHistory', newHistory);
-            backupChatHistory(newHistory);
             return { chatHistory: newHistory };
         });
     },

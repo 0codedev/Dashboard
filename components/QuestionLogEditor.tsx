@@ -369,6 +369,36 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
     const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: SortDirection } | null>({ key: 'date', direction: 'descending' });
     const [smartFilter, setSmartFilter] = useState<string | null>(null);
     
+    const DEFAULT_COLUMNS = [
+        'date', 'testName', 'subject', 'questionNumber', 'questionType', 'difficulty',
+        'status', 'marksAwarded', 'timeSpent', 'peerTimeSpent', 'confidence',
+        'chapter', 'topic', 'reasonForError', 'answered', 'correctOptions', 'peerCorrectPercent'
+    ];
+
+    const HEADER_DEFS: Record<string, { title: string; key: SortKey; width?: string }> = {
+        date: { title: 'Date', key: 'date' },
+        testName: { title: 'Test Name', key: 'testName' },
+        subject: { title: 'Subject', key: 'subject' },
+        questionNumber: { title: 'Q. No.', key: 'questionNumber' },
+        questionType: { title: 'Question Type', key: 'questionType' },
+        difficulty: { title: 'Difficulty', key: 'difficulty' as SortKey },
+        status: { title: 'Status', key: 'status' },
+        marksAwarded: { title: 'Marks Awarded', key: 'marksAwarded' },
+        timeSpent: { title: 'Time (s)', key: 'timeSpent' as SortKey, width: 'w-20' },
+        peerTimeSpent: { title: 'Peer Time (s)', key: 'peerTimeSpent' as SortKey, width: 'w-20' },
+        confidence: { title: 'Confidence', key: 'confidence' as SortKey, width: 'w-20' },
+        chapter: { title: 'Chapter', key: 'chapter' as SortKey },
+        topic: { title: 'Topic', key: 'topic' },
+        reasonForError: { title: 'Reason for Error', key: 'reasonForError' },
+        answered: { title: 'Answered', key: 'answered' as SortKey },
+        correctOptions: { title: 'Correct', key: 'correctOptions' as SortKey },
+        peerCorrectPercent: { title: 'Peer Correct %', key: 'peerCorrectPercent' as SortKey },
+    };
+
+    const [columnOrder, setColumnOrder] = useState<string[]>(DEFAULT_COLUMNS);
+    const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+    const [isColumnEditorOpen, setIsColumnEditorOpen] = useState(false);
+
     const [columnFilters, setColumnFilters] = useState<Record<string, Set<string>>>({});
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(50);
@@ -546,9 +576,19 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
                 aValue = a[sortConfig.key as keyof QuestionLog];
                 bValue = b[sortConfig.key as keyof QuestionLog];
             }
-            if (sortConfig.key === 'date') return sortConfig.direction === 'ascending' ? new Date(aValue).getTime() - new Date(bValue).getTime() : new Date(bValue).getTime() - new Date(aValue).getTime();
-            if (typeof aValue === 'number' && typeof bValue === 'number') return sortConfig.direction === 'ascending' ? aValue - bValue : bValue - aValue;
-            return sortConfig.direction === 'ascending' ? String(aValue).localeCompare(String(bValue)) : String(bValue).localeCompare(String(aValue));
+            if (sortConfig.key === 'date') {
+                const diff = sortConfig.direction === 'ascending' ? new Date(aValue).getTime() - new Date(bValue).getTime() : new Date(bValue).getTime() - new Date(aValue).getTime();
+                if (diff === 0) return (a.questionNumber || 0) - (b.questionNumber || 0);
+                return diff;
+            }
+            if (typeof aValue === 'number' && typeof bValue === 'number') {
+                const diff = sortConfig.direction === 'ascending' ? aValue - bValue : bValue - aValue;
+                if (diff === 0) return (a.questionNumber || 0) - (b.questionNumber || 0);
+                return diff;
+            }
+            const strDiff = sortConfig.direction === 'ascending' ? String(aValue).localeCompare(String(bValue)) : String(bValue).localeCompare(String(aValue));
+            if (strDiff === 0) return (a.questionNumber || 0) - (b.questionNumber || 0);
+            return strDiff;
         });
     }, [filteredLogs, sortConfig, getTestInfo]);
     
@@ -671,19 +711,7 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
         return true;
     };
 
-    const headers: { title: string; key: SortKey; width?: string }[] = [
-        { title: 'Date', key: 'date' },
-        { title: 'Test Name', key: 'testName' },
-        { title: 'Subject', key: 'subject' },
-        { title: 'Q. No.', key: 'questionNumber' },
-        { title: 'Question Type', key: 'questionType' },
-        { title: 'Status', key: 'status' },
-        { title: 'Marks Awarded', key: 'marksAwarded' },
-        { title: 'Time (s)', key: 'timeSpent' as SortKey, width: 'w-20' },
-        { title: 'Confidence', key: 'confidence' as SortKey, width: 'w-20' },
-        { title: 'Topic / Chapter', key: 'topic' },
-        { title: 'Reason for Error', key: 'reasonForError' },
-    ];
+    const visibleColumns = columnOrder.filter(key => !hiddenColumns.has(key));
 
     return (
         <div className="glass-panel p-4 rounded-2xl relative">
@@ -692,6 +720,13 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
                     const topics = new Set<string>();
                     logs.forEach(l => { if (l.topic && l.topic !== 'N/A') topics.add(l.topic); });
                     return Array.from(topics).sort().map(t => <option key={t} value={t} />);
+                }, [logs])}
+            </datalist>
+            <datalist id="chapter-suggestions">
+                {useMemo(() => {
+                    const chapters = new Set<string>();
+                    logs.forEach(l => { if (l.chapter && l.chapter !== 'N/A') chapters.add(l.chapter); });
+                    return Array.from(chapters).sort().map(c => <option key={c} value={c} />);
                 }, [logs])}
             </datalist>
 
@@ -730,7 +765,65 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
                         </button>
                      )}
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 relative">
+                    <button onClick={() => setIsColumnEditorOpen(!isColumnEditorOpen)} className="p-2 bg-slate-700 hover:bg-cyan-600 text-gray-400 hover:text-white rounded border border-slate-600 flex items-center gap-1" title="Edit Columns">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" /></svg>
+                        <span className="text-xs font-bold hidden sm:inline">Columns</span>
+                    </button>
+                    {isColumnEditorOpen && (
+                        <div className="absolute top-full right-0 mt-2 w-64 bg-slate-800 border border-slate-600 rounded-lg shadow-xl z-50 p-4">
+                            <div className="flex justify-between items-center mb-3">
+                                <h3 className="text-sm font-bold text-gray-200">Edit Columns</h3>
+                                <button onClick={() => setIsColumnEditorOpen(false)} className="text-gray-400 hover:text-white">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
+                            </div>
+                            <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
+                                {columnOrder.map((key, index) => (
+                                    <div key={key} className="flex items-center justify-between bg-slate-700/50 p-2 rounded">
+                                        <div className="flex items-center gap-2">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={!hiddenColumns.has(key)} 
+                                                onChange={() => {
+                                                    const newHidden = new Set(hiddenColumns);
+                                                    if (newHidden.has(key)) newHidden.delete(key);
+                                                    else newHidden.add(key);
+                                                    setHiddenColumns(newHidden);
+                                                }}
+                                                className="form-checkbox h-3 w-3 bg-slate-600 border-slate-500 text-cyan-500 rounded focus:ring-cyan-500 cursor-pointer"
+                                            />
+                                            <span className="text-xs text-gray-300">{HEADER_DEFS[key].title}</span>
+                                        </div>
+                                        <div className="flex gap-1">
+                                            <button 
+                                                disabled={index === 0}
+                                                onClick={() => {
+                                                    const newOrder = [...columnOrder];
+                                                    [newOrder[index - 1], newOrder[index]] = [newOrder[index], newOrder[index - 1]];
+                                                    setColumnOrder(newOrder);
+                                                }}
+                                                className="text-gray-400 hover:text-white disabled:opacity-30"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
+                                            </button>
+                                            <button 
+                                                disabled={index === columnOrder.length - 1}
+                                                onClick={() => {
+                                                    const newOrder = [...columnOrder];
+                                                    [newOrder[index + 1], newOrder[index]] = [newOrder[index], newOrder[index + 1]];
+                                                    setColumnOrder(newOrder);
+                                                }}
+                                                className="text-gray-400 hover:text-white disabled:opacity-30"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                     <button onClick={handleRecalculateMarks} className="p-2 bg-slate-700 hover:bg-cyan-600 text-gray-400 hover:text-white rounded border border-slate-600 flex items-center gap-1" title="Recalculate Marks & Auto-fill Missing">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                         <span className="text-xs font-bold hidden sm:inline">Recalculate</span>
@@ -761,7 +854,9 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
                                     className="form-checkbox h-4 w-4 bg-slate-600 border-slate-500 text-cyan-500 rounded focus:ring-cyan-500"
                                 />
                             </th>
-                           {headers.map(header => (
+                           {visibleColumns.map(key => {
+                               const header = HEADER_DEFS[key];
+                               return (
                                <AdvancedHeader
                                     key={header.key}
                                     title={header.title}
@@ -773,7 +868,8 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
                                     activeFilters={columnFilters[header.key] || new Set()}
                                     width={header.width}
                                />
-                           ))}
+                               );
+                           })}
                            <th className="p-3 font-semibold text-gray-300 text-center w-14" title="Positive Marks">+ve</th>
                            <th className="p-3 font-semibold text-gray-300 text-center w-14" title="Negative Marks">-ve</th>
                         </tr>
@@ -785,56 +881,78 @@ export const QuestionLogEditor: React.FC<QuestionLogEditorProps> = ({ logs, repo
                             const isSelected = selectedLogs.has(logId);
                             const isValid = isRowValid(log);
 
+                            const renderCell = (key: string) => {
+                                switch (key) {
+                                    case 'date': return <td key={key} className="p-2 whitespace-nowrap text-center">{testInfo.date ? new Date(testInfo.date).toLocaleDateString() : ''}</td>;
+                                    case 'testName': return <td key={key} className="p-2 whitespace-nowrap text-center">{testInfo.name}</td>;
+                                    case 'subject': return <td key={key} className="p-2 capitalize text-center">{log.subject}</td>;
+                                    case 'questionNumber': return <td key={key} className="p-2 text-center">{log.questionNumber}</td>;
+                                    case 'questionType': return (
+                                        <td key={key} className="p-1 min-w-[180px]">
+                                            <DataListInput value={log.questionType || ''} onChange={v => handleUpdate(log.questionNumber, log.testId, 'questionType', v)} options={uniqueQuestionTypes} />
+                                        </td>
+                                    );
+                                    case 'difficulty': return (
+                                        <td key={key} className="p-2 text-center text-xs">
+                                            <span className={`px-2 py-1 rounded-full ${log.difficulty === 'Hard' ? 'bg-red-900/50 text-red-300' : log.difficulty === 'Medium' ? 'bg-yellow-900/50 text-yellow-300' : log.difficulty === 'Easy' ? 'bg-green-900/50 text-green-300' : 'bg-slate-700 text-gray-400'}`}>
+                                                {log.difficulty || '-'}
+                                            </span>
+                                        </td>
+                                    );
+                                    case 'status': return (
+                                        <td key={key} className="p-1 min-w-[150px]">
+                                             <SelectCell value={log.status} onChange={v => handleUpdate(log.questionNumber, log.testId, 'status', v)} options={Object.values(QuestionStatus)} />
+                                        </td>
+                                    );
+                                    case 'marksAwarded': return (
+                                        <td key={key} className="p-1 w-40">
+                                            <div className="flex items-center gap-2 justify-center">
+                                                <div className="w-12 flex-shrink-0">
+                                                    <EditableCell value={log.marksAwarded} onChange={v => handleUpdate(log.questionNumber, log.testId, 'marksAwarded', v)} type="number" isInvalid={!isValid} />
+                                                </div>
+                                                <div className="flex-grow max-w-[80px]"><MarksBar marks={log.marksAwarded} type={log.questionType} log={log} /></div>
+                                            </div>
+                                        </td>
+                                    );
+                                    case 'timeSpent': return (
+                                        <td key={key} className="p-1 min-w-[80px]">
+                                            <EditableCell value={log.timeSpent ?? ''} onChange={v => handleUpdate(log.questionNumber, log.testId, 'timeSpent', v)} type="number" />
+                                        </td>
+                                    );
+                                    case 'peerTimeSpent': return <td key={key} className="p-2 text-center text-gray-400">{log.peerTimeSpent ?? '-'}</td>;
+                                    case 'confidence': return (
+                                        <td key={key} className="p-1 min-w-[80px]">
+                                            <ConfidenceSlider value={log.confidence || 0} onChange={(val) => handleUpdate(log.questionNumber, log.testId, 'confidence', val)} />
+                                        </td>
+                                    );
+                                    case 'chapter': return (
+                                        <td key={key} className="p-1 min-w-[180px]">
+                                            <input type="text" value={log.chapter || ''} onChange={e => handleUpdate(log.questionNumber, log.testId, 'chapter', e.target.value)} list="chapter-suggestions" className="w-full bg-transparent p-1 border border-transparent focus:border-cyan-500 focus:bg-slate-700 rounded-md focus:outline-none text-center" />
+                                        </td>
+                                    );
+                                    case 'topic': return (
+                                        <td key={key} className="p-1 min-w-[180px]">
+                                            <input type="text" value={log.topic || ''} onChange={e => handleUpdate(log.questionNumber, log.testId, 'topic', e.target.value)} list="topic-suggestions" className="w-full bg-transparent p-1 border border-transparent focus:border-cyan-500 focus:bg-slate-700 rounded-md focus:outline-none text-center" />
+                                        </td>
+                                    );
+                                    case 'reasonForError': return (
+                                        <td key={key} className="p-1 min-w-[150px]">
+                                            <DataListInput value={log.reasonForError || ''} onChange={v => handleUpdate(log.questionNumber, log.testId, 'reasonForError', v)} options={uniqueErrorReasons} />
+                                        </td>
+                                    );
+                                    case 'answered': return <td key={key} className="p-2 text-center text-gray-300 font-mono text-xs">{log.answered || '-'}</td>;
+                                    case 'correctOptions': return <td key={key} className="p-2 text-center text-green-400 font-mono text-xs">{log.correctOptions || '-'}</td>;
+                                    case 'peerCorrectPercent': return <td key={key} className="p-2 text-center text-gray-400">{log.peerCorrectPercent !== undefined ? `${log.peerCorrectPercent}%` : '-'}</td>;
+                                    default: return <td key={key}></td>;
+                                }
+                            };
+
                             return (
                                 <tr key={logId} className={`border-b border-slate-700 ${isSelected ? 'bg-cyan-900/20' : 'hover:bg-slate-700/50'}`}>
                                     <td className="p-2 text-center">
                                         <input type="checkbox" checked={isSelected} onClick={(e) => toggleSelectLog(logId, e)} className="form-checkbox h-4 w-4 bg-slate-600 border-slate-500 text-cyan-500 rounded focus:ring-cyan-500 cursor-pointer" readOnly />
                                     </td>
-                                    <td className="p-2 whitespace-nowrap text-center">{testInfo.date ? new Date(testInfo.date).toLocaleDateString() : ''}</td>
-                                    <td className="p-2 whitespace-nowrap text-center">{testInfo.name}</td>
-                                    <td className="p-2 capitalize text-center">{log.subject}</td>
-                                    <td className="p-2 text-center">{log.questionNumber}</td>
-                                    <td className="p-1 min-w-[180px]">
-                                        <DataListInput
-                                            value={log.questionType || ''}
-                                            onChange={v => handleUpdate(log.questionNumber, log.testId, 'questionType', v)}
-                                            options={uniqueQuestionTypes}
-                                        />
-                                    </td>
-                                    <td className="p-1 min-w-[150px]">
-                                         <SelectCell value={log.status} onChange={v => handleUpdate(log.questionNumber, log.testId, 'status', v)} options={Object.values(QuestionStatus)} />
-                                    </td>
-                                    <td className="p-1 w-40">
-                                        <div className="flex items-center gap-2 justify-center">
-                                            <div className="w-12 flex-shrink-0">
-                                                <EditableCell value={log.marksAwarded} onChange={v => handleUpdate(log.questionNumber, log.testId, 'marksAwarded', v)} type="number" isInvalid={!isValid} />
-                                            </div>
-                                            <div className="flex-grow max-w-[80px]"><MarksBar marks={log.marksAwarded} type={log.questionType} log={log} /></div>
-                                        </div>
-                                    </td>
-                                    <td className="p-1 min-w-[80px]">
-                                        <EditableCell 
-                                            value={log.timeSpent ?? ''} 
-                                            onChange={v => handleUpdate(log.questionNumber, log.testId, 'timeSpent', v)} 
-                                            type="number"
-                                        />
-                                    </td>
-                                    <td className="p-1 min-w-[80px]">
-                                        <ConfidenceSlider 
-                                            value={log.confidence || 0}
-                                            onChange={(val) => handleUpdate(log.questionNumber, log.testId, 'confidence', val)}
-                                        />
-                                    </td>
-                                    <td className="p-1 min-w-[180px]">
-                                        <input type="text" value={log.topic} onChange={e => handleUpdate(log.questionNumber, log.testId, 'topic', e.target.value)} list="topic-suggestions" className="w-full bg-transparent p-1 border border-transparent focus:border-cyan-500 focus:bg-slate-700 rounded-md focus:outline-none text-center" />
-                                    </td>
-                                    <td className="p-1 min-w-[150px]">
-                                        <DataListInput 
-                                            value={log.reasonForError || ''} 
-                                            onChange={v => handleUpdate(log.questionNumber, log.testId, 'reasonForError', v)} 
-                                            options={uniqueErrorReasons}
-                                        />
-                                    </td>
+                                    {visibleColumns.map(key => renderCell(key))}
                                     <td className="p-1 w-14">
                                         <EditableCell 
                                             value={log.positiveMarks ?? ''} 

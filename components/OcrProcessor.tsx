@@ -1,10 +1,11 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import type { TestReport, SubjectData, QuestionLog } from '../types';
-import { QuestionType, TestType, TestSubType, QuestionStatus, DifficultyLevel } from '../types';
-import { extractDataFromImage, validateOCRData } from '../services/geminiService';
+import { QuestionType, TestType, TestSubType, QuestionStatus, DifficultyLevel, ErrorReason } from '../types';
+import { extractDataFromImage } from '../services/geminiService';
 import { exportSingleReportToCsv, exportExtractedQuestionsToCsv } from '../services/sheetParser';
 import { calculateMarks, getMarkingScheme } from '../utils/metrics';
+import { ExamGoalJsonImporter } from './ExamGoalJsonImporter';
 
 interface OcrProcessorProps {
   onAddData: (data: { report: TestReport; logs: QuestionLog[] }) => void;
@@ -12,8 +13,15 @@ interface OcrProcessorProps {
   modelName?: string; 
 }
 
+const getLocalDateStr = (date: Date = new Date()) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
 const initialReportState: Partial<TestReport> = {
-  testDate: new Date().toISOString().split('T')[0],
+  testDate: getLocalDateStr(),
   testName: '',
   type: TestType.ChapterTest,
   subType: TestSubType.JEEAdvanced,
@@ -58,15 +66,14 @@ const SubjectInputGroup: React.FC<{
                     </div>
                 )}
             </h3>
-            {Object.keys(data).map((key) => {
-                if (key === 'maxMarks') return null; // Handled in header
+            {(['marks', 'rank', 'correct', 'wrong', 'unanswered', 'partial'] as (keyof SubjectData)[]).map((key) => {
                 return (
                     <div key={key}>
                         <label className="text-sm text-gray-400 capitalize">{key}</label>
                         <input
                             type="number"
-                            value={data[key as keyof SubjectData]}
-                            onChange={(e) => onChange(subjectName, key as keyof SubjectData, parseInt(e.target.value, 10) || 0)}
+                            value={data[key] || 0}
+                            onChange={(e) => onChange(subjectName, key, parseInt(e.target.value, 10) || 0)}
                             className="w-full mt-1 p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-[rgb(var(--color-primary-rgb))] focus:outline-none transition-shadow"
                         />
                     </div>
@@ -112,10 +119,13 @@ const QuestionLogReviewTable: React.FC<{
                             <th className="p-2 text-left">Q.No</th>
                             <th className="p-2 text-left">Subject</th>
                             <th className="p-2 text-left">Status</th>
+                            <th className="p-2 text-center w-16">Marks</th>
                             <th className="p-2 text-left">Type</th>
                             <th className="p-2 text-center w-14" title="Correct Marks">+ve</th>
                             <th className="p-2 text-center w-14" title="Wrong Marks">-ve</th>
+                            <th className="p-2 text-left">Chapter</th>
                             <th className="p-2 text-left">Topic</th>
+                            <th className="p-2 text-left">Error Reason</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-700">
@@ -134,6 +144,14 @@ const QuestionLogReviewTable: React.FC<{
                                 </td>
                                 <td className="p-1 w-40">
                                     <SelectCell value={log.status || ''} onChange={v => handleLogChange(index, 'status', v)} options={Object.values(QuestionStatus)} />
+                                </td>
+                                <td className="p-1 w-16">
+                                    <input 
+                                        type="number"
+                                        value={log.marksAwarded ?? ''}
+                                        onChange={e => handleLogChange(index, 'marksAwarded', parseFloat(e.target.value))}
+                                        className="w-full bg-slate-700 p-1 border border-slate-600 rounded-md text-center font-bold focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                                    />
                                 </td>
                                 <td className="p-1 w-48">
                                     <input
@@ -169,11 +187,23 @@ const QuestionLogReviewTable: React.FC<{
                                 <td className="p-1">
                                     <input
                                         type="text"
+                                        value={log.chapter || ''}
+                                        onChange={e => handleLogChange(index, 'chapter', e.target.value)}
+                                        className="w-full bg-slate-700 p-1 border border-slate-600 rounded-md focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                                        placeholder="e.g., Mechanics"
+                                    />
+                                </td>
+                                <td className="p-1">
+                                    <input
+                                        type="text"
                                         value={log.topic || ''}
                                         onChange={e => handleLogChange(index, 'topic', e.target.value)}
                                         className="w-full bg-slate-700 p-1 border border-slate-600 rounded-md focus:outline-none focus:ring-1 focus:ring-cyan-500"
                                         placeholder="e.g., Rotational Motion"
                                     />
+                                </td>
+                                <td className="p-1">
+                                    <SelectCell value={log.reasonForError || ''} onChange={(v: string) => handleLogChange(index, 'reasonForError', v)} options={['', ...Object.values(ErrorReason) as string[]]} />
                                 </td>
                             </tr>
                         ))}
@@ -303,13 +333,6 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey, m
       setExtractedConfidence(confidence);
       setExtractedLogs(formattedQuestions);
       
-      // Run Sanity Check (Uses Flash internally)
-      setIsValidating(true);
-      validateOCRData(report, formattedQuestions, apiKey).then(warnings => {
-          setValidationWarnings(warnings);
-          setIsValidating(false);
-      });
-
       setWorkflowStep('review');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unknown error occurred.');
@@ -364,27 +387,46 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey, m
     }
     const reportId = `test-${Date.now()}`;
     
-    // Ensure total max marks is updated sum of parts
-    const totalMax = (extractedData.physics?.maxMarks || 0) + (extractedData.chemistry?.maxMarks || 0) + (extractedData.maths?.maxMarks || 0);
-    if(extractedData.total) extractedData.total.maxMarks = totalMax;
+    // Recalculate total from subjects to ensure consistency
+    const subjects: (keyof TestReport)[] = ['physics', 'chemistry', 'maths'];
+    const total: SubjectData = {
+        marks: 0, rank: 0, correct: 0, wrong: 0, unanswered: 0, partial: 0, maxMarks: 0
+    };
+    subjects.forEach(s => {
+        const data = extractedData[s] as SubjectData;
+        if (data) {
+            total.marks += data.marks || 0;
+            total.correct += data.correct || 0;
+            total.wrong += data.wrong || 0;
+            total.unanswered += data.unanswered || 0;
+            total.partial += data.partial || 0;
+            total.maxMarks += data.maxMarks || 0;
+        }
+    });
+    // If AI extracted a rank for total, keep it, otherwise use 0
+    total.rank = extractedData.total?.rank || 0;
+    
+    const finalizedData = {
+        ...extractedData,
+        total
+    };
 
     const newReport: TestReport = {
-        ...(extractedData as Omit<TestReport, 'id'>),
+        ...(finalizedData as Omit<TestReport, 'id'>),
         id: reportId
     };
     
     const newLogs: QuestionLog[] = extractedLogs.map((log, index) => ({
+      ...log,
       testId: reportId,
       subject: log.subject || 'physics',
       questionNumber: log.questionNumber || index + 1,
       // Use the exact string provided by AI/User, do not fallback to default enum unless empty
       questionType: log.questionType || "Single Correct", 
-      positiveMarks: log.positiveMarks,
-      negativeMarks: log.negativeMarks,
       status: log.status || QuestionStatus.Unanswered,
       marksAwarded: log.marksAwarded || 0,
       topic: log.topic || 'N/A',
-    }));
+    } as QuestionLog));
 
     onAddData({ report: newReport, logs: newLogs });
     handleReset();
@@ -402,6 +444,13 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey, m
     exportExtractedQuestionsToCsv(extractedData, extractedLogs);
   };
 
+  const handleImportedData = (data: { report: TestReport; logs: QuestionLog[] }) => {
+    setExtractedData(data.report);
+    setExtractedLogs(data.logs);
+    setEntryMode('ocr');
+    setWorkflowStep('review');
+  };
+
   const title = entryMode === 'ocr' ? 'Automated Data Input (OCR)' : entryMode === 'manual' ? 'Manual Data Input' : 'Add New Report';
 
   return (
@@ -416,16 +465,21 @@ export const OcrProcessor: React.FC<OcrProcessorProps> = ({ onAddData, apiKey, m
       {error && <p className="text-red-400 my-4 bg-red-900/50 p-3 rounded-lg">{error}</p>}
       
       {!entryMode && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in">
-            <div onClick={() => setEntryMode('ocr')} className="p-6 bg-slate-800/50 rounded-lg border border-slate-700 hover:border-[rgb(var(--color-primary-rgb))] hover:scale-105 transition-all cursor-pointer text-center">
-                <div className="text-5xl mb-4">📸</div>
-                <h3 className="text-xl font-bold text-[rgb(var(--color-primary-rgb))]">Automated Entry (OCR)</h3>
-                <p className="text-gray-400 mt-2">Upload an image of your score sheet and let AI extract the data for you.</p>
+        <div className="flex flex-col gap-6 animate-fade-in">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div onClick={() => setEntryMode('ocr')} className="p-6 bg-slate-800/50 rounded-lg border border-slate-700 hover:border-[rgb(var(--color-primary-rgb))] hover:scale-105 transition-all cursor-pointer text-center">
+                    <div className="text-5xl mb-4">📸</div>
+                    <h3 className="text-xl font-bold text-[rgb(var(--color-primary-rgb))]">Automated Entry (OCR)</h3>
+                    <p className="text-gray-400 mt-2">Upload an image of your score sheet and let AI extract the data for you.</p>
+                </div>
+                <div onClick={() => { setEntryMode('manual'); setWorkflowStep('review'); }} className="p-6 bg-slate-800/50 rounded-lg border border-slate-700 hover:border-[rgb(var(--color-primary-rgb))] hover:scale-105 transition-all cursor-pointer text-center">
+                    <div className="text-5xl mb-4">✍️</div>
+                    <h3 className="text-xl font-bold text-[rgb(var(--color-primary-rgb))]">Manual Entry</h3>
+                    <p className="text-gray-400 mt-2">Fill out the report form and question log by hand.</p>
+                </div>
             </div>
-             <div onClick={() => { setEntryMode('manual'); setWorkflowStep('review'); }} className="p-6 bg-slate-800/50 rounded-lg border border-slate-700 hover:border-[rgb(var(--color-primary-rgb))] hover:scale-105 transition-all cursor-pointer text-center">
-                <div className="text-5xl mb-4">✍️</div>
-                <h3 className="text-xl font-bold text-[rgb(var(--color-primary-rgb))]">Manual Entry</h3>
-                <p className="text-gray-400 mt-2">Fill out the report form and question log by hand.</p>
+            <div className="w-full">
+                <ExamGoalJsonImporter onImportedData={handleImportedData} />
             </div>
         </div>
       )}

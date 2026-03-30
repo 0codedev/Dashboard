@@ -369,9 +369,9 @@ const FocusModeModal: React.FC<{
     ] : [], [report]);
 
     const accuracyData = useMemo(() => report ? [
-        { subject: 'Physics', accuracy: report.physicsMetrics?.accuracy || 0, attemptRate: report.physicsMetrics?.attemptRate || 0 },
-        { subject: 'Chemistry', accuracy: report.chemistryMetrics?.accuracy || 0, attemptRate: report.chemistryMetrics?.attemptRate || 0 },
-        { subject: 'Maths', accuracy: report.mathsMetrics?.accuracy || 0, attemptRate: report.mathsMetrics?.attemptRate || 0 }
+        { subject: 'Physics', accuracy: calculateFocusMetrics(report.physics, report.testName).accuracy, attemptRate: calculateFocusMetrics(report.physics, report.testName).attemptRate },
+        { subject: 'Chemistry', accuracy: calculateFocusMetrics(report.chemistry, report.testName).accuracy, attemptRate: calculateFocusMetrics(report.chemistry, report.testName).attemptRate },
+        { subject: 'Maths', accuracy: calculateFocusMetrics(report.maths, report.testName).accuracy, attemptRate: calculateFocusMetrics(report.maths, report.testName).attemptRate }
     ] : [], [report]);
 
     const radarData = useMemo(() => report ? [
@@ -379,6 +379,64 @@ const FocusModeModal: React.FC<{
         { subject: 'Chemistry', score: calculateFocusMetrics(report.chemistry, report.testName).scorePotential, fullMark: 100 },
         { subject: 'Maths', score: calculateFocusMetrics(report.maths, report.testName).scorePotential, fullMark: 100 }
     ] : [], [report]);
+
+    const currentTestLogs = useMemo(() => {
+        return report ? logs.filter(l => l.testId === report.id) : [];
+    }, [report, logs]);
+
+    const errorTypologyData = useMemo(() => {
+        if (!currentTestLogs.length) return [];
+        const errorCounts: Record<string, number> = {};
+        currentTestLogs.forEach(log => {
+            if ((log.status === 'Wrong' || log.status === 'Partially Correct') && log.reasonForError && log.reasonForError !== 'N/A') {
+                errorCounts[log.reasonForError] = (errorCounts[log.reasonForError] || 0) + 1;
+            }
+        });
+        const colors = ['#f43f5e', '#f59e0b', '#8b5cf6', '#0ea5e9', '#10b981', '#64748b'];
+        return Object.entries(errorCounts)
+            .sort((a, b) => b[1] - a[1])
+            .map(([name, value], index) => ({ name, value, fill: colors[index % colors.length] }));
+    }, [currentTestLogs]);
+
+    const topicPerformanceData = useMemo(() => {
+        if (!currentTestLogs.length) return [];
+        const topicStats: Record<string, { correct: number, wrong: number, marks: number }> = {};
+        currentTestLogs.forEach(log => {
+            if (log.topic && log.topic !== 'N/A') {
+                if (!topicStats[log.topic]) topicStats[log.topic] = { correct: 0, wrong: 0, marks: 0 };
+                topicStats[log.topic].marks += log.marksAwarded;
+                if (log.status === 'Fully Correct') topicStats[log.topic].correct++;
+                if (log.status === 'Wrong') topicStats[log.topic].wrong++;
+            }
+        });
+        return Object.entries(topicStats)
+            .map(([topic, stats]) => ({ topic, ...stats }))
+            .sort((a, b) => b.marks - a.marks)
+            .slice(0, 5); // Top 5 topics
+    }, [currentTestLogs]);
+
+    const timeSpentData = useMemo(() => {
+        if (!currentTestLogs.length) return [];
+        let hasTimeData = false;
+        const timeStats = { Physics: 0, Chemistry: 0, Maths: 0 };
+        currentTestLogs.forEach(log => {
+            if (log.timeSpent && log.timeSpent > 0) {
+                hasTimeData = true;
+                const subject = log.subject.charAt(0).toUpperCase() + log.subject.slice(1) as 'Physics' | 'Chemistry' | 'Maths';
+                if (timeStats[subject] !== undefined) {
+                    timeStats[subject] += log.timeSpent;
+                }
+            }
+        });
+        
+        if (!hasTimeData) return [];
+        
+        return [
+            { subject: 'Physics', time: Math.round(timeStats.Physics / 60), fill: SUBJECT_COLORS.physics },
+            { subject: 'Chemistry', time: Math.round(timeStats.Chemistry / 60), fill: SUBJECT_COLORS.chemistry },
+            { subject: 'Maths', time: Math.round(timeStats.Maths / 60), fill: SUBJECT_COLORS.maths }
+        ];
+    }, [currentTestLogs]);
 
     const handleFieldChange = (field: keyof TestReport | 'physics' | 'chemistry' | 'maths' | 'total', value: any) => {
         if (!baseReport) return;
@@ -777,6 +835,80 @@ const FocusModeModal: React.FC<{
                                         <Tooltip content={<CustomTooltip />} />
                                     </RadarChart>
                                 </ResponsiveContainer>
+                            </div>
+                        </div>
+
+                        {/* Error Typology Breakdown */}
+                        <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+                            <h3 className="text-sm font-bold text-gray-300 mb-4 text-center">Error Typology</h3>
+                            <div className="h-64 flex items-center justify-center">
+                                {errorTypologyData.length > 0 ? (
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <PieChart>
+                                            <Pie
+                                                data={errorTypologyData}
+                                                cx="50%"
+                                                cy="50%"
+                                                innerRadius={50}
+                                                outerRadius={80}
+                                                paddingAngle={2}
+                                                dataKey="value"
+                                            >
+                                                {errorTypologyData.map((entry, index) => (
+                                                    <Cell key={`cell-${index}`} fill={entry.fill} />
+                                                ))}
+                                            </Pie>
+                                            <Tooltip content={<CustomTooltip />} />
+                                            <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '11px' }} />
+                                        </PieChart>
+                                    </ResponsiveContainer>
+                                ) : (
+                                    <p className="text-sm text-gray-500 italic">No error logs available.</p>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Top Topics Performance */}
+                        <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+                            <h3 className="text-sm font-bold text-gray-300 mb-4 text-center">Top Topics by Marks</h3>
+                            <div className="h-64 flex items-center justify-center">
+                                {topicPerformanceData.length > 0 ? (
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart data={topicPerformanceData} layout="vertical" margin={{ top: 5, right: 20, left: 40, bottom: 5 }}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
+                                            <XAxis type="number" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
+                                            <YAxis dataKey="topic" type="category" stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} width={100} />
+                                            <Tooltip content={<CustomTooltip />} cursor={{ fill: '#334155', opacity: 0.4 }} />
+                                            <Bar dataKey="marks" name="Marks Gained" fill="#10b981" radius={[0, 4, 4, 0]} />
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                ) : (
+                                    <p className="text-sm text-gray-500 italic">No topic data available.</p>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Time Spent per Subject */}
+                        <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+                            <h3 className="text-sm font-bold text-gray-300 mb-4 text-center">Time Spent per Subject (Mins)</h3>
+                            <div className="h-64 flex items-center justify-center">
+                                {timeSpentData.length > 0 ? (
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart data={timeSpentData}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+                                            <XAxis dataKey="subject" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
+                                            <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
+                                            <Tooltip content={<CustomTooltip />} cursor={{ fill: '#334155', opacity: 0.4 }} />
+                                            <Bar dataKey="time" name="Time (mins)" radius={[4, 4, 0, 0]}>
+                                                {timeSpentData.map((entry, index) => (
+                                                    <Cell key={`cell-${index}`} fill={entry.fill} />
+                                                ))}
+                                            </Bar>
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                ) : (
+                                    <p className="text-sm text-gray-500 italic">No time data available.</p>
+                                )}
                             </div>
                         </div>
                     </div>

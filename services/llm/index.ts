@@ -68,6 +68,7 @@ export const llmPipeline = async (options: GenerationOptions): Promise<string> =
         // Skip if missing key (Exception: Google key is mandatory for app, so we assume it exists if we are here, but good to check)
         if (!currentApiKey) {
             console.warn(`[LLM Pipeline] Skipping ${modelId}: Missing API Key for ${provider}`);
+            lastError = new Error(`Missing API Key for ${provider}`);
             continue;
         }
 
@@ -170,7 +171,8 @@ export const llmPipeline = async (options: GenerationOptions): Promise<string> =
         } else {
              const primaryDef = getModelById(primaryModel);
              const primaryName = primaryDef ? primaryDef.name : primaryModel;
-             footerHtml = `\n\n---\n<footer class="text-xs text-gray-500 mt-6 pt-2 border-t border-gray-700/50 flex items-center gap-1"><span class="text-amber-500">⚠️</span> Fallback to <strong>${modelName}</strong> <span class="text-gray-500">(${primaryName} unavailable)</span></footer>`;
+             const errorMsg = lastError ? ` - ${lastError.message}` : '';
+             footerHtml = `\n\n---\n<footer class="text-xs text-gray-500 mt-6 pt-2 border-t border-gray-700/50 flex items-center gap-1"><span class="text-amber-500">⚠️</span> Fallback to <strong>${modelName}</strong> <span class="text-gray-500">(${primaryName} unavailable${errorMsg})</span></footer>`;
         }
         
         resultText += footerHtml;

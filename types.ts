@@ -145,6 +145,7 @@ export interface QuestionLog {
   negativeMarks?: number; 
   status: QuestionStatus;
   marksAwarded: number;
+  chapter?: string;
   topic: string;
   reasonForError?: string; // Changed to string to allow custom reasons
   answered?: string;
@@ -152,6 +153,17 @@ export interface QuestionLog {
   timeSpent?: number;
   confidence?: number; // 0-100% for Dunning-Kruger Analysis
   timestamp?: number;
+  
+  // ExamGoal Specific Rich Data
+  questionHtml?: string;
+  explanationHtml?: string;
+  optionsHtml?: Array<{ identifier: string; content: string }>;
+  correctOptions?: string[];
+  difficulty?: DifficultyLevel;
+  peerCorrectPercent?: number;
+  peerWrongPercent?: number;
+  peerTimeSpent?: number;
+  optionsDistribution?: Record<string, number>;
 }
 
 // --- Advanced Analysis Types ---
@@ -300,6 +312,8 @@ export interface NotificationPreferences {
   achievements: boolean;
   proactiveInsights: boolean;
   proactiveInsightSensitivity: 'high' | 'medium' | 'low';
+  flashcardReminders: boolean;
+  bioCheckReminders: boolean;
 }
 
 export interface AppearancePreferences {

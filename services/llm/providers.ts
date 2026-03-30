@@ -73,7 +73,7 @@ export const generateTextOpenAI = async (
 
     try {
         const headers: Record<string, string> = {
-            "Authorization": `Bearer ${apiKey}`,
+            "Authorization": `Bearer ${apiKey.trim()}`,
             "Content-Type": "application/json",
         };
 

@@ -7,7 +7,6 @@ import { MODEL_REGISTRY, AIModel } from '../services/llm/models';
 import { generateTextOpenAI } from '../services/llm/providers';
 import { llmPipeline } from '../services/llm'; 
 import { MarkdownRenderer } from './common/MarkdownRenderer';
-import { downloadChatHistoryAsJSON } from '../services/backupService';
 
 // --- NEW AI ARCHITECTURE IMPORTS ---
 import { classifyIntent } from '../services/ai/Router';
@@ -43,8 +42,9 @@ interface AiAssistantProps {
   onAddTasksToPlanner?: (tasks: { task: string, time: number, topic: string }[]) => void; 
 }
 
-const PRIMARY_MODELS = MODEL_REGISTRY.filter(m => m.provider === 'google' && !m.id.includes('image') && !m.id.includes('tts'));
-const SECONDARY_MODELS = MODEL_REGISTRY.filter(m => m.provider !== 'google' && !m.id.includes('image') && !m.id.includes('tts'));
+const GOOGLE_MODELS = MODEL_REGISTRY.filter(m => m.provider === 'google' && !m.id.includes('image') && !m.id.includes('tts'));
+const GROQ_MODELS = MODEL_REGISTRY.filter(m => m.provider === 'groq' && !m.id.includes('image') && !m.id.includes('tts'));
+const OPENROUTER_MODELS = MODEL_REGISTRY.filter(m => m.provider === 'openrouter' && !m.id.includes('image') && !m.id.includes('tts'));
 
 // ... [TestReportCard, VoiceVisualizer, createBlob, ModelDropdownItem - UNCHANGED]
 const TestReportCard: React.FC<{ report: TestReport }> = ({ report }) => {
@@ -141,6 +141,11 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
     const [sessions, setSessions] = useState<ChatSession[]>([]);
     const [isSidebarOpen, setIsSidebarOpen] = useState(typeof window !== 'undefined' ? window.innerWidth >= 1024 : false);
     const isInitialized = useRef(false);
+    const activeSessionIdRef = useRef(activeSessionId);
+    
+    useEffect(() => {
+        activeSessionIdRef.current = activeSessionId;
+    }, [activeSessionId]);
     
     // NEW: Context Scope State
     const [contextScope, setContextScope] = useState<'recent' | 'full'>('recent');
@@ -218,6 +223,7 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
     const handleNewChat = () => {
         setActiveSessionId(Date.now().toString());
         setChatHistory([{ role: 'model', content: "Hello! I'm your AI performance coach. Ask me anything about your test reports, or generate a study plan." }]);
+        setIsStreamingResponse(false);
         if (window.innerWidth < 1024) setIsSidebarOpen(false);
     };
 
@@ -226,6 +232,7 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
         if (session) {
             setActiveSessionId(id);
             setChatHistory(session.messages);
+            setIsStreamingResponse(false);
             if (window.innerWidth < 1024) setIsSidebarOpen(false);
         }
     };
@@ -323,7 +330,7 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
 
     // FIXED: Use MODEL_REGISTRY to find the model so providers other than Google are correctly identified
     const currentModel = MODEL_REGISTRY.find(m => m.id === preferences.model) || { id: 'none', name: 'No Selection', provider: 'google', description: 'Bypass Google models', contextWindow: 0, costCategory: 'free', icon: '○' } as AIModel;
-    const currentSecondary = SECONDARY_MODELS.find(m => m.id === secondaryModelId);
+    const currentSecondary = [...GROQ_MODELS, ...OPENROUTER_MODELS].find(m => m.id === secondaryModelId);
 
     const handleScopeChange = (scope: 'recent' | 'full') => {
         setContextScope(scope);
@@ -349,6 +356,7 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
 
         setChatHistory(prev => [...prev, { role: 'user', content: userMessageContent }]);
         setIsStreamingResponse(true);
+        const currentSessionId = activeSessionIdRef.current;
 
         // --- CORE GENERATION LOGIC ---
         const executeGeneration = async (modelId: string, fallbackFrom?: string) => {
@@ -460,6 +468,9 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
                 let streamedText = '';
 
                 for await (const chunk of response) {
+                    if (activeSessionIdRef.current !== currentSessionId) {
+                        break;
+                    }
                     const toolCall = chunk.functionCalls?.[0];
                     if (toolCall) {
                         let genType: GenUIToolType = 'none';
@@ -500,23 +511,25 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
                 }
 
                 // 7. Append Model Footer (Google Models Only - Manual Logic)
-                const usedModelName = modelDef ? modelDef.name : modelId;
-                let footerHtml = '';
-                
-                if (fallbackFrom && fallbackFrom !== 'none') {
-                    const fallbackName = MODEL_REGISTRY.find(m => m.id === fallbackFrom)?.name || fallbackFrom;
-                    footerHtml = `\n\n<div class="text-[10px] text-slate-400 mt-4 pt-2 border-t border-slate-700/50 flex items-center gap-1"><span class="text-amber-500">⚠️</span> Fallback to <strong>${usedModelName}</strong> <span class="text-slate-500">(${fallbackName} unavailable)</span></div>`;
-                } else {
-                    footerHtml = `\n\n<div class="text-[10px] text-slate-500 mt-4 pt-2 border-t border-slate-700/50 flex items-center gap-1"><span>⚡</span> Generated by <strong>${usedModelName}</strong></div>`;
-                }
-
-                setChatHistory(prev => {
-                    const last = prev[prev.length - 1];
-                    if (last?.role === 'model' && typeof last.content === 'string' && !last.content.includes('Generated by <strong>') && !last.content.includes('Fallback to <strong>')) {
-                         return [...prev.slice(0, -1), { ...last, content: last.content + footerHtml }];
+                if (activeSessionIdRef.current === currentSessionId) {
+                    const usedModelName = modelDef ? modelDef.name : modelId;
+                    let footerHtml = '';
+                    
+                    if (fallbackFrom && fallbackFrom !== 'none') {
+                        const fallbackName = MODEL_REGISTRY.find(m => m.id === fallbackFrom)?.name || fallbackFrom;
+                        footerHtml = `\n\n<div class="text-[10px] text-slate-400 mt-4 pt-2 border-t border-slate-700/50 flex items-center gap-1"><span class="text-amber-500">⚠️</span> Fallback to <strong>${usedModelName}</strong> <span class="text-slate-500">(${fallbackName} unavailable)</span></div>`;
+                    } else {
+                        footerHtml = `\n\n<div class="text-[10px] text-slate-500 mt-4 pt-2 border-t border-slate-700/50 flex items-center gap-1"><span>⚡</span> Generated by <strong>${usedModelName}</strong></div>`;
                     }
-                    return prev;
-                });
+
+                    setChatHistory(prev => {
+                        const last = prev[prev.length - 1];
+                        if (last?.role === 'model' && typeof last.content === 'string' && !last.content.includes('Generated by <strong>') && !last.content.includes('Fallback to <strong>')) {
+                             return [...prev.slice(0, -1), { ...last, content: last.content + footerHtml }];
+                        }
+                        return prev;
+                    });
+                }
 
             } else {
                 // --- EXTERNAL PROVIDER PATH ---
@@ -549,7 +562,9 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
                     }))
                 });
 
-                setChatHistory(prev => [...prev, { role: 'model', content: responseText }]);
+                if (activeSessionIdRef.current === currentSessionId) {
+                    setChatHistory(prev => [...prev, { role: 'model', content: responseText }]);
+                }
             }
         };
 
@@ -579,14 +594,20 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
                     await executeGeneration(backupModelId, primaryModelId);
                 } catch (fallbackErr) {
                     console.error("Fallback generation error:", fallbackErr);
-                    setChatHistory(prev => [...prev, { role: 'model', content: `Error generating response.\nPrimary (${primaryModelId}) failed: ${(err as Error).message}\nFallback (${backupModelId}) failed: ${(fallbackErr as Error).message}` }]);
+                    if (activeSessionIdRef.current === currentSessionId) {
+                        setChatHistory(prev => [...prev, { role: 'model', content: `Error generating response.\nPrimary (${primaryModelId}) failed: ${(err as Error).message}\nFallback (${backupModelId}) failed: ${(fallbackErr as Error).message}` }]);
+                    }
                 }
             } else {
-                setChatHistory(prev => [...prev, { role: 'model', content: `Error generating response.\nDetails: ${(err as Error).message}` }]);
+                if (activeSessionIdRef.current === currentSessionId) {
+                    setChatHistory(prev => [...prev, { role: 'model', content: `Error generating response.\nDetails: ${(err as Error).message}` }]);
+                }
             }
         }
         
-        setIsStreamingResponse(false);
+        if (activeSessionIdRef.current === currentSessionId) {
+            setIsStreamingResponse(false);
+        }
 
     }, [userInput, attachedImage, attachedAudio, isStreamingResponse, ai, questionLogs, reports, preferences, secondaryModelId, userProfile, contextScope, chatHistory, useWebSearch, useDeepThinking, apiKey]);
 
@@ -644,13 +665,9 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
                     </button>
                 </div>
                 <div className="p-2 min-w-[16rem] space-y-2">
-                    <button onClick={handleNewChat} className="w-full flex items-center justify-center gap-2 bg-cyan-600/20 hover:bg-cyan-600/40 text-cyan-400 border border-cyan-500/30 rounded-lg py-2 text-sm font-bold transition-colors">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" /></svg>
+                    <button onClick={handleNewChat} className="w-full flex items-center justify-start gap-3 px-3 py-2 text-sm font-medium text-gray-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
                         New Chat
-                    </button>
-                    <button onClick={() => downloadChatHistoryAsJSON(chatHistory)} className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-gray-300 border border-slate-600 rounded-lg py-2 text-sm font-bold transition-colors">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
-                        Export Backup
                     </button>
                 </div>
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1 min-w-[16rem]">
@@ -680,9 +697,30 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
                         </button>
                         {isModelSelectorOpen && (
                             <div className="absolute top-full left-0 mt-2 w-72 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 animate-scale-in overflow-hidden max-h-[400px] overflow-y-auto custom-scrollbar">
-                                <div className="px-3 py-2 text-xs font-bold text-gray-500 uppercase bg-slate-900/50 border-b border-slate-700">Google Native</div>
                                 <button onClick={() => handleModelChange('none')} className={`w-full text-left p-3 flex items-center gap-3 hover:bg-slate-700/50 transition-colors ${preferences.model === 'none' ? 'bg-slate-700/30' : ''}`}><span className="text-xl">○</span><p className="text-sm font-bold text-gray-200">No Selection</p>{preferences.model === 'none' && <span className="ml-auto text-cyan-400 font-bold">✓</span>}</button>
-                                {PRIMARY_MODELS.map(model => (
+                                
+                                <div className="px-3 py-2 text-xs font-bold text-gray-500 uppercase bg-slate-900/50 border-y border-slate-700">Google Native</div>
+                                {GOOGLE_MODELS.map(model => (
+                                    <ModelDropdownItem 
+                                        key={model.id} 
+                                        model={model} 
+                                        isSelected={preferences.model === model.id} 
+                                        onClick={() => handleModelChange(model.id)} 
+                                    />
+                                ))}
+
+                                <div className="px-3 py-2 text-xs font-bold text-gray-500 uppercase bg-slate-900/50 border-y border-slate-700">Groq (Ultra-Fast)</div>
+                                {GROQ_MODELS.map(model => (
+                                    <ModelDropdownItem 
+                                        key={model.id} 
+                                        model={model} 
+                                        isSelected={preferences.model === model.id} 
+                                        onClick={() => handleModelChange(model.id)} 
+                                    />
+                                ))}
+
+                                <div className="px-3 py-2 text-xs font-bold text-gray-500 uppercase bg-slate-900/50 border-y border-slate-700">OpenRouter (Free)</div>
+                                {OPENROUTER_MODELS.map(model => (
                                     <ModelDropdownItem 
                                         key={model.id} 
                                         model={model} 
@@ -701,9 +739,20 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
                         </button>
                         {isSecondarySelectorOpen && (
                             <div className="absolute top-full left-0 mt-2 w-80 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 animate-scale-in overflow-hidden max-h-[400px] overflow-y-auto custom-scrollbar">
-                                <div className="px-3 py-2 text-xs font-bold text-gray-500 uppercase bg-slate-900/50 border-b border-slate-700">Fallback Models</div>
                                 <button onClick={() => handleSecondaryModelChange('none')} className={`w-full text-left p-3 flex items-center gap-3 hover:bg-slate-700/50 transition-colors ${secondaryModelId === 'none' ? 'bg-slate-700/30' : ''}`}><span className="text-xl">○</span><p className="text-sm font-bold text-gray-200">No Selection</p>{secondaryModelId === 'none' && <span className="ml-auto text-cyan-400 font-bold">✓</span>}</button>
-                                {SECONDARY_MODELS.map(model => (
+                                
+                                <div className="px-3 py-2 text-xs font-bold text-gray-500 uppercase bg-slate-900/50 border-y border-slate-700">Groq (Ultra-Fast)</div>
+                                {GROQ_MODELS.map(model => (
+                                    <ModelDropdownItem 
+                                        key={model.id} 
+                                        model={model} 
+                                        isSelected={secondaryModelId === model.id} 
+                                        onClick={() => handleSecondaryModelChange(model.id)} 
+                                    />
+                                ))}
+
+                                <div className="px-3 py-2 text-xs font-bold text-gray-500 uppercase bg-slate-900/50 border-y border-slate-700">OpenRouter (Free)</div>
+                                {OPENROUTER_MODELS.map(model => (
                                     <ModelDropdownItem 
                                         key={model.id} 
                                         model={model} 
@@ -792,7 +841,12 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
                     </div>
                     {!isInputExpanded && (
                         <div className="absolute bottom-6 right-6 z-30 animate-scale-in">
-                            <button onClick={() => setIsInputExpanded(true)} className="group relative w-16 h-16 bg-gradient-to-br from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 rounded-full flex items-center justify-center shadow-[0_8px_30px_rgba(34,211,238,0.4)] text-white transition-all duration-500 ease-out hover:scale-110 hover:rotate-3 ring-2 ring-white/20 overflow-hidden"><div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-8 h-8 drop-shadow-md transform transition-transform group-hover:scale-110"><path fillRule="evenodd" d="M4.804 21.644A6.707 6.707 0 006 21.75a6.721 6.721 0 003.583-1.029c.774.182 1.584.279 2.417.279 5.322 0 9.75-3.97 9.75-9 0-5.03-4.428-9-9.75-9s-9.75 3.97-9.75 9c0 2.409 1.025 4.587 2.674 6.192.232.226.277.428.254.543a3.73 3.73 0 01-.814 1.686.75.75 0 00.44 1.223zM8.25 10.875a1.125 1.125 0 100 2.25 1.125 1.125 0 000-2.25zM10.875 12a1.125 1.125 0 112.25 0 1.125 1.125 0 01-2.25 0zm4.875-1.125a1.125 1.125 0 100 2.25 1.125 1.125 0 000-2.25z" clipRule="evenodd" /></svg></button>
+                            <button onClick={() => setIsInputExpanded(true)} className="px-4 py-2 bg-slate-800/80 hover:bg-slate-700 text-gray-300 hover:text-white rounded-full flex items-center gap-2 shadow-sm border border-slate-700/50 backdrop-blur-sm transition-all text-sm font-medium" title="Show Chat">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+                                    <path fillRule="evenodd" d="M4.804 21.644A6.707 6.707 0 006 21.75a6.721 6.721 0 003.583-1.029c.774.182 1.584.279 2.417.279 5.322 0 9.75-3.97 9.75-9 0-5.03-4.428-9-9.75-9s-9.75 3.97-9.75 9c0 2.409 1.025 4.587 2.674 6.192.232.226.277.428.254.543a3.73 3.73 0 01-.814 1.686.75.75 0 00.44 1.223zM8.25 10.875a1.125 1.125 0 100 2.25 1.125 1.125 0 000-2.25zM10.875 12a1.125 1.125 0 112.25 0 1.125 1.125 0 01-2.25 0zm4.875-1.125a1.125 1.125 0 100 2.25 1.125 1.125 0 000-2.25z" clipRule="evenodd" />
+                                </svg>
+                                Open Chat
+                            </button>
                         </div>
                     )}
                     {isInputExpanded && (<div className="absolute bottom-[88px] right-6 z-30"><button onClick={() => setIsInputExpanded(false)} className="w-8 h-8 bg-slate-800/50 hover:bg-slate-700 text-gray-400 hover:text-white rounded-full flex items-center justify-center backdrop-blur border border-slate-600/50 transition-all" title="Minimize Input"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg></button></div>)}

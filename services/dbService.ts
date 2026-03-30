@@ -127,6 +127,11 @@ class DBService {
     });
   }
 
+  private trackChange() {
+    const current = parseInt(localStorage.getItem('unsaved_changes_count') || '0', 10);
+    localStorage.setItem('unsaved_changes_count', (current + 1).toString());
+  }
+
   public async put<T>(storeName: StoreName, item: T, key?: IDBValidKey): Promise<void> {
     return new Promise(async (resolve, reject) => {
         const db = await this.initDB();
@@ -134,7 +139,10 @@ class DBService {
         const store = transaction.objectStore(storeName);
         store.put(item, key);
 
-        transaction.oncomplete = () => resolve();
+        transaction.oncomplete = () => {
+            this.trackChange();
+            resolve();
+        };
         transaction.onerror = (event) => {
             console.error(`Error putting item into ${storeName}`, event);
             reject(`Error putting item into ${storeName}`);
@@ -161,7 +169,10 @@ class DBService {
         items.forEach(item => store.put(item));
       }
 
-      transaction.oncomplete = () => resolve();
+      transaction.oncomplete = () => {
+          this.trackChange();
+          resolve();
+      };
       transaction.onerror = (event) => {
         console.error(`Error putting bulk items into ${storeName}`, event);
         reject(`Error putting bulk items into ${storeName}`);
@@ -186,7 +197,10 @@ class DBService {
         items.forEach(item => store.put(item));
       }
       
-      transaction.oncomplete = () => resolve();
+      transaction.oncomplete = () => {
+          this.trackChange();
+          resolve();
+      };
       transaction.onerror = (event) => {
           console.error(`Error syncing store ${storeName}`, event);
           reject(`Error syncing store ${storeName}`)
@@ -204,7 +218,10 @@ class DBService {
             store.clear();
         });
 
-        transaction.oncomplete = () => resolve();
+        transaction.oncomplete = () => {
+            this.trackChange();
+            resolve();
+        };
         transaction.onerror = (event) => {
             console.error(`Error clearing all stores`, event);
             reject(`Error clearing all stores`);
@@ -219,7 +236,10 @@ class DBService {
             const store = transaction.objectStore(storeName);
             store.clear();
 
-            transaction.oncomplete = () => resolve();
+            transaction.oncomplete = () => {
+                this.trackChange();
+                resolve();
+            };
             transaction.onerror = (event) => {
                 console.error(`Error clearing store ${storeName}`, event);
                 reject(`Error clearing store ${storeName}`);
