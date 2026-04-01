@@ -1,10 +1,7 @@
 import type { SubjectData, QuestionLog } from '../types';
 import { QuestionType, QuestionStatus } from '../types';
 
-export const calculateMetrics = (subjectData: SubjectData | null | undefined, totalQuestions: number = 25) => {
-    if (!subjectData || (subjectData.marks === 0 && subjectData.correct === 0 && subjectData.wrong === 0 && subjectData.unanswered === 0)) {
-        return null;
-    }
+export const calculateMetrics = (subjectData: SubjectData, totalQuestions: number = 25) => {
     const { correct, wrong, partial, marks } = subjectData;
     const attempted = correct + wrong + partial;
     
@@ -66,4 +63,10 @@ export const calculateMarks = (status: QuestionStatus | string, questionType: st
         default:
             return null;
     }
+};
+
+export const isValidSubjectForReport = (subject: string): boolean => {
+    if (!subject) return false;
+    const normalized = subject.toLowerCase().trim();
+    return ['physics', 'chemistry', 'maths', 'mathematics', 'biology', 'botany', 'zoology'].includes(normalized);
 };
