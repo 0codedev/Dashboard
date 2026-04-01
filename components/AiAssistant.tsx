@@ -841,11 +841,10 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
                     </div>
                     {!isInputExpanded && (
                         <div className="absolute bottom-6 right-6 z-30 animate-scale-in">
-                            <button onClick={() => setIsInputExpanded(true)} className="px-4 py-2 bg-slate-800/80 hover:bg-slate-700 text-gray-300 hover:text-white rounded-full flex items-center gap-2 shadow-sm border border-slate-700/50 backdrop-blur-sm transition-all text-sm font-medium" title="Show Chat">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+                            <button onClick={() => setIsInputExpanded(true)} className="w-12 h-12 bg-slate-800 hover:bg-slate-700 text-white rounded-full flex items-center justify-center shadow-lg border border-slate-700 transition-all duration-300 hover:scale-105" title="Show Chat">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
                                     <path fillRule="evenodd" d="M4.804 21.644A6.707 6.707 0 006 21.75a6.721 6.721 0 003.583-1.029c.774.182 1.584.279 2.417.279 5.322 0 9.75-3.97 9.75-9 0-5.03-4.428-9-9.75-9s-9.75 3.97-9.75 9c0 2.409 1.025 4.587 2.674 6.192.232.226.277.428.254.543a3.73 3.73 0 01-.814 1.686.75.75 0 00.44 1.223zM8.25 10.875a1.125 1.125 0 100 2.25 1.125 1.125 0 000-2.25zM10.875 12a1.125 1.125 0 112.25 0 1.125 1.125 0 01-2.25 0zm4.875-1.125a1.125 1.125 0 100 2.25 1.125 1.125 0 000-2.25z" clipRule="evenodd" />
                                 </svg>
-                                Open Chat
                             </button>
                         </div>
                     )}

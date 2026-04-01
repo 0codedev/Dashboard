@@ -9,6 +9,7 @@ import CustomTooltip from './common/CustomTooltip';
 import { LongTermGoal, QuestionLog, ExamStrategy, Reflection } from '../types';
 import { CalibrationMatrix } from './visualizations/CalibrationMatrix';
 import { formatNumber, formatPercent, formatRank } from '../utils/formatters';
+import { isValidSubjectForReport } from '../utils/metrics';
 
 // --- Tooltips ---
 const CustomRadarTooltip = ({ active, payload }: any) => {
@@ -858,9 +859,9 @@ export const SubjectRelativityWidget: React.FC<{ reports: any[] }> = ({ reports 
         if (reports.length === 0) return null;
         let p = 0, c = 0, m = 0;
         reports.forEach(r => {
-            p += (r.physics?.marks || 0);
-            c += (r.chemistry?.marks || 0);
-            m += (r.maths?.marks || 0);
+            if (isValidSubjectForReport(r, 'physics')) p += (r.physics?.marks || 0);
+            if (isValidSubjectForReport(r, 'chemistry')) c += (r.chemistry?.marks || 0);
+            if (isValidSubjectForReport(r, 'maths')) m += (r.maths?.marks || 0);
         });
         const total = p + c + m;
         if (total === 0) return null;
@@ -905,16 +906,16 @@ export const AvgMarksBarWidget: React.FC<{ reports: any[] }> = ({ reports }) => 
     const data = useMemo(() => {
         if (reports.length === 0) return [];
         let p = 0, c = 0, m = 0;
+        let pCount = 0, cCount = 0, mCount = 0;
         reports.forEach(r => {
-            p += (r.physics?.marks || 0);
-            c += (r.chemistry?.marks || 0);
-            m += (r.maths?.marks || 0);
+            if (isValidSubjectForReport(r, 'physics')) { p += (r.physics?.marks || 0); pCount++; }
+            if (isValidSubjectForReport(r, 'chemistry')) { c += (r.chemistry?.marks || 0); cCount++; }
+            if (isValidSubjectForReport(r, 'maths')) { m += (r.maths?.marks || 0); mCount++; }
         });
-        const count = reports.length;
         return [
-            { subject: 'Physics', avg: Math.round(p / count), total: p, count, fill: SUBJECT_CONFIG.physics.color },
-            { subject: 'Chemistry', avg: Math.round(c / count), total: c, count, fill: SUBJECT_CONFIG.chemistry.color },
-            { subject: 'Maths', avg: Math.round(m / count), total: m, count, fill: SUBJECT_CONFIG.maths.color }
+            { subject: 'Physics', avg: pCount > 0 ? Math.round(p / pCount) : 0, total: p, count: pCount, fill: SUBJECT_CONFIG.physics.color },
+            { subject: 'Chemistry', avg: cCount > 0 ? Math.round(c / cCount) : 0, total: c, count: cCount, fill: SUBJECT_CONFIG.chemistry.color },
+            { subject: 'Maths', avg: mCount > 0 ? Math.round(m / mCount) : 0, total: m, count: mCount, fill: SUBJECT_CONFIG.maths.color }
         ];
     }, [reports]);
 
@@ -945,28 +946,28 @@ export const WeakestLinkWidget: React.FC<{ reports: any[] }> = ({ reports }) => 
         if (reports.length === 0) return null;
         let p = 0, c = 0, m = 0;
         let pNeg = 0, cNeg = 0, mNeg = 0;
+        let pCount = 0, cCount = 0, mCount = 0;
         reports.forEach(r => {
-            p += (r.physics?.marks || 0);
-            c += (r.chemistry?.marks || 0);
-            m += (r.maths?.marks || 0);
-            pNeg += (r.physics?.wrong || 0);
-            cNeg += (r.chemistry?.wrong || 0);
-            mNeg += (r.maths?.wrong || 0);
+            if (isValidSubjectForReport(r, 'physics')) { p += (r.physics?.marks || 0); pNeg += (r.physics?.wrong || 0); pCount++; }
+            if (isValidSubjectForReport(r, 'chemistry')) { c += (r.chemistry?.marks || 0); cNeg += (r.chemistry?.wrong || 0); cCount++; }
+            if (isValidSubjectForReport(r, 'maths')) { m += (r.maths?.marks || 0); mNeg += (r.maths?.wrong || 0); mCount++; }
         });
         
         const subjects = [
-            { name: 'Physics', marks: p, neg: pNeg, color: 'text-purple-400', bg: 'bg-purple-500/20' },
-            { name: 'Chemistry', marks: c, neg: cNeg, color: 'text-emerald-400', bg: 'bg-emerald-500/20' },
-            { name: 'Maths', marks: m, neg: mNeg, color: 'text-cyan-400', bg: 'bg-cyan-500/20' }
-        ];
+            { name: 'Physics', marks: p, neg: pNeg, count: pCount, color: 'text-purple-400', bg: 'bg-purple-500/20' },
+            { name: 'Chemistry', marks: c, neg: cNeg, count: cCount, color: 'text-emerald-400', bg: 'bg-emerald-500/20' },
+            { name: 'Maths', marks: m, neg: mNeg, count: mCount, color: 'text-cyan-400', bg: 'bg-cyan-500/20' }
+        ].filter(s => s.count > 0);
         
+        if (subjects.length === 0) return null;
+
         subjects.sort((a, b) => a.marks - b.marks);
         const weakest = subjects[0];
         
         let reason = "Low overall accuracy.";
-        if (weakest.neg > (reports.length * 5)) {
+        if (weakest.neg > (weakest.count * 5)) {
             reason = "High negative marking is dragging your score down.";
-        } else if (weakest.marks < (reports.length * 10)) {
+        } else if (weakest.marks < (weakest.count * 10)) {
             reason = "Very low attempt rate or conceptual gaps.";
         }
 

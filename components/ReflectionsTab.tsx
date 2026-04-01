@@ -13,6 +13,9 @@ interface ReflectionsTabProps {
 export const ReflectionsTab: React.FC<ReflectionsTabProps> = ({ apiKey, reflections, setReflections }) => {
     const [selectedReflection, setSelectedReflection] = useState<Reflection | null>(null);
     const [isCreating, setIsCreating] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
+    const [editingContent, setEditingContent] = useState('');
+    const [shouldReanalyze, setShouldReanalyze] = useState(false);
     const [newContent, setNewContent] = useState('');
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
@@ -52,6 +55,37 @@ export const ReflectionsTab: React.FC<ReflectionsTabProps> = ({ apiKey, reflecti
             setIsCreating(false);
             setNewContent('');
             setSelectedReflection(newReflection);
+        } finally {
+            setIsAnalyzing(false);
+        }
+    };
+
+    const handleUpdate = async () => {
+        if (!editingContent.trim() || !selectedReflection) return;
+        setIsAnalyzing(true);
+        
+        try {
+            let updatedReflection = { ...selectedReflection, content: editingContent };
+            
+            if (shouldReanalyze) {
+                const analysis = await analyzeReflection(editingContent, apiKey);
+                updatedReflection = {
+                    ...updatedReflection,
+                    tags: analysis.tags,
+                    aiSummary: analysis.summary,
+                    actionItems: analysis.actionItems,
+                    relatedTopics: analysis.relatedTopics,
+                    mood: analysis.mood
+                };
+            }
+
+            setReflections(prev => prev.map(r => r.id === updatedReflection.id ? updatedReflection : r));
+            setSelectedReflection(updatedReflection);
+            setIsEditing(false);
+            setEditingContent('');
+            setShouldReanalyze(false);
+        } catch (error) {
+            console.error("Failed to update reflection", error);
         } finally {
             setIsAnalyzing(false);
         }
@@ -197,58 +231,112 @@ export const ReflectionsTab: React.FC<ReflectionsTabProps> = ({ apiKey, reflecti
                                     ))}
                                 </div>
                             </div>
-                            <button 
-                                onClick={() => handleDelete(selectedReflection.id)}
-                                className="text-slate-500 hover:text-red-400 transition-colors p-2"
-                                title="Delete Reflection"
-                            >
-                                <Trash2 className="w-5 h-5" />
-                            </button>
-                        </div>
-
-                        <div className="bg-slate-900/50 rounded-xl p-5 border border-slate-700/50 mb-6">
-                            <p className="text-slate-200 whitespace-pre-wrap leading-relaxed">{selectedReflection.content}</p>
-                        </div>
-
-                        {selectedReflection.aiSummary && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="bg-indigo-900/20 rounded-xl p-5 border border-indigo-500/20">
-                                    <h3 className="text-indigo-300 font-semibold flex items-center gap-2 mb-3">
-                                        <Sparkles className="w-4 h-4" /> AI Summary
-                                    </h3>
-                                    <p className="text-sm text-indigo-100/80">{selectedReflection.aiSummary}</p>
-                                </div>
-                                
-                                {selectedReflection.actionItems && selectedReflection.actionItems.length > 0 && (
-                                    <div className="bg-emerald-900/20 rounded-xl p-5 border border-emerald-500/20">
-                                        <h3 className="text-emerald-300 font-semibold flex items-center gap-2 mb-3">
-                                            <Target className="w-4 h-4" /> Action Items
-                                        </h3>
-                                        <ul className="space-y-2">
-                                            {selectedReflection.actionItems.map((item, i) => (
-                                                <li key={i} className="text-sm text-emerald-100/80 flex items-start gap-2">
-                                                    <span className="text-emerald-500 mt-0.5">•</span> {item}
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </div>
-                                )}
-
-                                {selectedReflection.relatedTopics && selectedReflection.relatedTopics.length > 0 && (
-                                    <div className="bg-cyan-900/20 rounded-xl p-5 border border-cyan-500/20 md:col-span-2">
-                                        <h3 className="text-cyan-300 font-semibold flex items-center gap-2 mb-3">
-                                            <LinkIcon className="w-4 h-4" /> Related Topics
-                                        </h3>
-                                        <div className="flex flex-wrap gap-2">
-                                            {selectedReflection.relatedTopics.map((topic, i) => (
-                                                <span key={i} className="text-xs bg-cyan-900/40 text-cyan-200 px-2 py-1 rounded">
-                                                    {topic}
-                                                </span>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
+                            <div className="flex items-center gap-2">
+                                <button 
+                                    onClick={() => { setIsEditing(true); setEditingContent(selectedReflection.content); setShouldReanalyze(false); }}
+                                    className="text-slate-500 hover:text-indigo-400 transition-colors p-2"
+                                    title="Edit Reflection"
+                                >
+                                    <PenTool className="w-5 h-5" />
+                                </button>
+                                <button 
+                                    onClick={() => handleDelete(selectedReflection.id)}
+                                    className="text-slate-500 hover:text-red-400 transition-colors p-2"
+                                    title="Delete Reflection"
+                                >
+                                    <Trash2 className="w-5 h-5" />
+                                </button>
                             </div>
+                        </div>
+
+                        {isEditing ? (
+                            <div className="flex flex-col h-full">
+                                <textarea
+                                    value={editingContent}
+                                    onChange={(e) => setEditingContent(e.target.value)}
+                                    className="flex-1 bg-slate-900 border border-slate-700 rounded-xl p-4 text-white resize-none focus:outline-none focus:border-indigo-500 custom-scrollbar mb-4"
+                                />
+                                <div className="flex items-center gap-4 mb-4">
+                                    <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={shouldReanalyze}
+                                            onChange={(e) => setShouldReanalyze(e.target.checked)}
+                                            className="accent-indigo-600"
+                                        />
+                                        Re-analyze with AI
+                                    </label>
+                                </div>
+                                <div className="flex justify-end gap-2">
+                                    <button 
+                                        onClick={() => setIsEditing(false)}
+                                        className="bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded-lg font-semibold transition-colors"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button 
+                                        onClick={handleUpdate}
+                                        disabled={isAnalyzing || !editingContent.trim()}
+                                        className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 disabled:text-slate-500 text-white px-6 py-2 rounded-lg font-semibold transition-colors flex items-center gap-2"
+                                    >
+                                        {isAnalyzing ? (
+                                            <>
+                                                <Sparkles className="w-4 h-4 animate-spin" />
+                                                Analyzing & Saving...
+                                            </>
+                                        ) : (
+                                            'Save Changes'
+                                        )}
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="bg-slate-900/50 rounded-xl p-5 border border-slate-700/50 mb-6">
+                                    <p className="text-slate-200 whitespace-pre-wrap leading-relaxed">{selectedReflection.content}</p>
+                                </div>
+
+                                {selectedReflection.aiSummary && (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="bg-indigo-900/20 rounded-xl p-5 border border-indigo-500/20">
+                                            <h3 className="text-indigo-300 font-semibold flex items-center gap-2 mb-3">
+                                                <Sparkles className="w-4 h-4" /> AI Summary
+                                            </h3>
+                                            <p className="text-sm text-indigo-100/80">{selectedReflection.aiSummary}</p>
+                                        </div>
+                                        
+                                        {selectedReflection.actionItems && selectedReflection.actionItems.length > 0 && (
+                                            <div className="bg-emerald-900/20 rounded-xl p-5 border border-emerald-500/20">
+                                                <h3 className="text-emerald-300 font-semibold flex items-center gap-2 mb-3">
+                                                    <Target className="w-4 h-4" /> Action Items
+                                                </h3>
+                                                <ul className="space-y-2">
+                                                    {selectedReflection.actionItems.map((item, i) => (
+                                                        <li key={i} className="text-sm text-emerald-100/80 flex items-start gap-2">
+                                                            <span className="text-emerald-500 mt-0.5">•</span> {item}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
+
+                                        {selectedReflection.relatedTopics && selectedReflection.relatedTopics.length > 0 && (
+                                            <div className="bg-cyan-900/20 rounded-xl p-5 border border-cyan-500/20 md:col-span-2">
+                                                <h3 className="text-cyan-300 font-semibold flex items-center gap-2 mb-3">
+                                                    <LinkIcon className="w-4 h-4" /> Related Topics
+                                                </h3>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {selectedReflection.relatedTopics.map((topic, i) => (
+                                                        <span key={i} className="text-xs bg-cyan-900/40 text-cyan-200 px-2 py-1 rounded">
+                                                            {topic}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </>
                         )}
                     </div>
                 ) : (

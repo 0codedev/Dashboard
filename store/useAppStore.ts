@@ -72,7 +72,7 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
     apiKey: null,
     userProfile: defaultUserProfile,
     gamificationState: initialGamificationState,
-    globalFilter: { type: 'all', subType: 'all', startDate: '', endDate: '' },
+    globalFilter: { subjects: [], types: [], subTypes: [], startDate: '', endDate: '' },
     aiPreferences: { model: 'gemini-3.1-flash-lite-preview', responseLength: 'medium', tone: 'encouraging' },
     notificationPreferences: { achievements: true, proactiveInsights: true, proactiveInsightSensitivity: 'medium', flashcardReminders: true, bioCheckReminders: true },
     appearancePreferences: { disableParticles: true, reduceMotion: false, highContrast: false, largeText: false, dyslexicFont: false },

@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 import type { TestReport, QuestionLog, LongTermGoal, TestSubType, ErrorReason } from '../types';
 import { SUBJECT_CONFIG, TOPIC_WEIGHTAGE } from '../constants';
 import { QuestionStatus } from '../types';
+import { isValidSubjectForReport } from '../utils/metrics';
 
 // Helper for Normal Distribution (Box-Muller transform)
 function randn_bm() {
@@ -55,10 +56,14 @@ export const useDashboardKpis = (
     
     const latestReport = processedReports[processedReports.length - 1];
     
+    const validPhysics = processedReports.filter(r => isValidSubjectForReport(r, 'physics'));
+    const validChemistry = processedReports.filter(r => isValidSubjectForReport(r, 'chemistry'));
+    const validMaths = processedReports.filter(r => isValidSubjectForReport(r, 'maths'));
+
     const avgScores = {
-        physics: processedReports.reduce((sum, r) => sum + r.physics.marks, 0) / processedReports.length,
-        chemistry: processedReports.reduce((sum, r) => sum + r.chemistry.marks, 0) / processedReports.length,
-        maths: processedReports.reduce((sum, r) => sum + r.maths.marks, 0) / processedReports.length,
+        physics: validPhysics.length > 0 ? validPhysics.reduce((sum, r) => sum + r.physics.marks, 0) / validPhysics.length : 0,
+        chemistry: validChemistry.length > 0 ? validChemistry.reduce((sum, r) => sum + r.chemistry.marks, 0) / validChemistry.length : 0,
+        maths: validMaths.length > 0 ? validMaths.reduce((sum, r) => sum + r.maths.marks, 0) / validMaths.length : 0,
     };
 
     const strongestSubject = Object.entries(avgScores).reduce((strongest, [subject, avgScore]) => 
@@ -347,12 +352,14 @@ export const useDashboardKpis = (
          if (recentReports.length === 0) return [];
 
          return subjects.map(subject => {
+             const validReports = recentReports.filter(r => isValidSubjectForReport(r, subject));
+             
              // Calculate Average Score for this subject
-             const totalScore = recentReports.reduce((sum, r) => sum + r[subject].marks, 0);
-             const avgScore = totalScore / recentReports.length;
+             const totalScore = validReports.reduce((sum, r) => sum + r[subject].marks, 0);
+             const avgScore = validReports.length > 0 ? totalScore / validReports.length : 0;
              
              // Calculate Max Mark (Dynamic based on max in recent tests)
-             const maxMark = Math.max(...recentReports.map(r => r[subject].maxMarks || 60), 60);
+             const maxMark = Math.max(...validReports.map(r => r[subject].maxMarks || 60), 60);
 
              return {
                  subject: SUBJECT_CONFIG[subject].name,

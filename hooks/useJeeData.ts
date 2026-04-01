@@ -135,8 +135,14 @@ export const useJeeData = () => {
         const availableSubTypes = Array.from(new Set(reports.map(r => r.subType).filter(Boolean))) as string[];
         
         const globallyFilteredReports = reports.filter(report => {
-            const typeMatch = globalFilter.type === 'all' || report.type === globalFilter.type;
-            const subTypeMatch = globalFilter.subType === 'all' || report.subType === globalFilter.subType;
+            const typeMatch = globalFilter.type === 'all' || 
+                (Array.isArray(globalFilter.type) 
+                    ? (globalFilter.type.length === 0 || globalFilter.type.includes(report.type as any))
+                    : report.type === globalFilter.type);
+            const subTypeMatch = globalFilter.subType === 'all' || 
+                (Array.isArray(globalFilter.subType)
+                    ? (globalFilter.subType.length === 0 || globalFilter.subType.includes(report.subType as any))
+                    : report.subType === globalFilter.subType);
             
             const dateMatch = (() => {
                 if (!globalFilter.startDate && !globalFilter.endDate) return true;
@@ -153,7 +159,13 @@ export const useJeeData = () => {
         });
         
         const filteredReportIds = new Set(globallyFilteredReports.map(r => r.id));
-        const correspondingLogs = questionLogs.filter(log => filteredReportIds.has(log.testId));
+        const correspondingLogs = questionLogs.filter(log => {
+            if (!filteredReportIds.has(log.testId)) return false;
+            if (globalFilter.subjects && globalFilter.subjects.length > 0) {
+                if (!globalFilter.subjects.includes(log.subject)) return false;
+            }
+            return true;
+        });
 
         return {
             filteredReports: globallyFilteredReports,

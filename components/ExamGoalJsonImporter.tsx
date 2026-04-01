@@ -3,7 +3,7 @@ import { Info, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useJeeStore } from '../store/useJeeStore';
-import { QuestionLog, QuestionStatus, TestReport, SubjectData } from '../types';
+import { QuestionLog, QuestionStatus, TestReport, SubjectData, TestType, TestSubType } from '../types';
 
 const GUIDE_CONTENT = `
 ### 🕵️‍♂️ The ExamGOAL "Hacker" Guide: Extracting Test Data
@@ -89,6 +89,23 @@ export const ExamGoalJsonImporter: React.FC<ExamGoalJsonImporterProps> = ({ onIm
             const testTitle = attemptData.data.title || "ExamGoal Imported Test";
             const testDate = attemptData.data.time || new Date().toISOString();
 
+            // Detect Type and SubType
+            let type: TestType = TestType.ChapterTest;
+            let subType: TestSubType = TestSubType.JEEAdvanced;
+
+            const lowerTitle = testTitle.toLowerCase();
+            if (lowerTitle.includes('mains') || lowerTitle.includes('main')) {
+                subType = TestSubType.JEEMains;
+            } else if (lowerTitle.includes('advanced')) {
+                subType = TestSubType.JEEAdvanced;
+            }
+
+            if (lowerTitle.includes('full syllabus') || lowerTitle.includes('mock')) {
+                type = TestType.FullSyllabusMock;
+            } else if (lowerTitle.includes('pyq') || lowerTitle.includes('previous year')) {
+                type = TestType.PreviousYearPaper;
+            }
+
             const logs: QuestionLog[] = [];
             
             let physicsCorrect = 0, physicsWrong = 0, physicsUnanswered = 0, physicsMarks = 0;
@@ -109,9 +126,19 @@ export const ExamGoalJsonImporter: React.FC<ExamGoalJsonImporterProps> = ({ onIm
                     let subjectRaw = (batchQuestion.subject || "").toLowerCase();
                     let subject: "physics" | "chemistry" | "maths" = "physics";
                     
-                    if (subjectRaw.includes('physic')) subject = 'physics';
-                    else if (subjectRaw.includes('chemist')) subject = 'chemistry';
-                    else if (subjectRaw.includes('math')) subject = 'maths';
+                    if (subjectRaw.includes('physic')) {
+                        subject = 'physics';
+                    } else if (subjectRaw.includes('chemist')) {
+                        subject = 'chemistry';
+                    } else if (subjectRaw.includes('math') || subjectRaw.includes('mathematic')) {
+                        subject = 'maths';
+                    } else {
+                        // Fallback: try to infer from chapter or topic if subject is missing/unrecognized
+                        const combined = (batchQuestion.chapter + " " + batchQuestion.topic).toLowerCase();
+                        if (combined.includes('physic')) subject = 'physics';
+                        else if (combined.includes('chemist')) subject = 'chemistry';
+                        else if (combined.includes('math') || combined.includes('mathematic')) subject = 'maths';
+                    }
                     
                     const positiveMarks = batchQuestion.marks || 4;
                     const negativeMarks = batchQuestion.negMarks || 1;
@@ -146,10 +173,21 @@ export const ExamGoalJsonImporter: React.FC<ExamGoalJsonImporterProps> = ({ onIm
                         questionType = "Integer (+4, -1)";
                     }
 
+                    // Fix question numbering: ensure it's 1-based and correctly extracted
+                    let qNum = 0;
+                    if (stateData.position !== undefined) {
+                        qNum = Number(stateData.position) + 1;
+                    } else if (batchQuestion.position !== undefined) {
+                        qNum = Number(batchQuestion.position) + 1;
+                    } else {
+                        // Fallback to index if no position found
+                        qNum = logs.length + 1;
+                    }
+
                     logs.push({
                         testId,
                         subject,
-                        questionNumber: (stateData.position || 0) + 1,
+                        questionNumber: qNum,
                         questionType,
                         status,
                         marksAwarded,
@@ -208,6 +246,8 @@ export const ExamGoalJsonImporter: React.FC<ExamGoalJsonImporterProps> = ({ onIm
                 id: testId,
                 testDate,
                 testName: testTitle,
+                type,
+                subType,
                 physics: createSubjectData(physicsMarks, physicsCorrect, physicsWrong, physicsUnanswered),
                 chemistry: createSubjectData(chemistryMarks, chemistryCorrect, chemistryWrong, chemistryUnanswered),
                 maths: createSubjectData(mathsMarks, mathsCorrect, mathsWrong, mathsUnanswered),

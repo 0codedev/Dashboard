@@ -66,6 +66,7 @@ export enum TestType {
   ChapterTest = 'Chapter Test',
   PreviousYearPaper = 'Previous Year Paper',
   PartTest = 'Part Test',
+  SubjectTest = 'Subject Test',
 }
 
 export enum TestSubType {
@@ -76,8 +77,9 @@ export enum TestSubType {
 export type DifficultyLevel = 'Easy' | 'Medium' | 'Hard';
 
 export interface GlobalFilter {
-  type: TestType | 'all';
-  subType: TestSubType | 'all';
+  type: TestType | 'all' | string[];
+  subType: TestSubType | 'all' | string[];
+  subjects?: ('physics' | 'chemistry' | 'maths')[];
   startDate?: string;
   endDate?: string;
 }

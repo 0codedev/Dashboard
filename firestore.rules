@@ -63,10 +63,17 @@ service cloud.firestore {
 
     // Domain Validators
     function isValidBackup(data) {
-      return hasOnlyAllowedFields(['uid', 'data', 'updatedAt']) &&
+      return (hasOnlyAllowedFields(['uid', 'data', 'updatedAt']) || hasOnlyAllowedFields(['uid', 'totalChunks', 'updatedAt'])) &&
              data.uid is string && data.uid.size() > 0 && data.uid.size() < 100 &&
-             data.data is string && data.data.size() < 1000000 && // 1MB limit for stringified JSON
+             (!('data' in data) || (data.data is string && data.data.size() < 1000000)) &&
+             (!('totalChunks' in data) || (data.totalChunks is number && data.totalChunks > 0 && data.totalChunks < 100)) &&
              isValidDateString(data.updatedAt);
+    }
+
+    function isValidChunk(data) {
+      return hasOnlyAllowedFields(['index', 'data']) &&
+             data.index is number && data.index >= 0 &&
+             data.data is string && data.data.size() < 1000000;
     }
 
     match /backups/{userId} {
@@ -74,6 +81,11 @@ service cloud.firestore {
       allow create: if isOwner(userId) && isValidBackup(request.resource.data) && uidUnchanged();
       allow update: if isOwner(userId) && isValidBackup(request.resource.data) && uidNotModified();
       allow delete: if isOwner(userId);
+      
+      match /chunks/{chunkId} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId) && isValidChunk(request.resource.data);
+      }
     }
   }
 }

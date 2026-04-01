@@ -14,10 +14,11 @@ import {
     parseReportsFromCsv, 
     parseLogsFromCsv 
 } from '../services/sheetParser';
-import { auth, db, signInWithGoogle, logout } from '../services/firebase';
+import { auth, db, storage, signInWithGoogle, logout } from '../services/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { ref, getDownloadURL } from 'firebase/storage';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { backupFullDataToFirebase } from '../services/backupService';
+import { backupFullDataToFirebase, restoreDataFromFirebase } from '../services/backupService';
 
 interface SettingsProps {
     apiKey: string;
@@ -918,21 +919,19 @@ const DataSettings: React.FC<Pick<SettingsProps, 'handleFullReset' | 'handleRepo
         if (!currentUser) return;
         setIsFirebaseSyncing(true);
         try {
-            const docSnap = await getDoc(doc(db, 'backups', currentUser.uid));
-            if (docSnap.exists()) {
-                const data = JSON.parse(docSnap.data().data);
-                onSyncData(data);
-                addToast({ title: 'Success', message: 'Data restored from Firebase Cloud', icon: '✅' });
-            } else {
-                addToast({ title: 'Info', message: 'No backup found in Firebase Cloud', icon: 'ℹ️' });
-            }
+            // 1. Call our new secure cloud function
+            const cloudData = await restoreDataFromFirebase();
+            
+            // 2. Sync it to your app using your existing prop
+            onSyncData(cloudData);
+            
+            addToast({ title: 'Success', message: 'Data restored from Firebase Cloud', icon: '✅' });
         } catch (err: any) {
-            addToast({ title: 'Error', message: 'Firebase restore failed: ' + err.message, icon: '❌' });
+            addToast({ title: 'Error', message: 'Firebase restore failed. Ensure you have backed up first.', icon: '❌' });
         } finally {
             setIsFirebaseSyncing(false);
         }
     };
-
     const handleCsvExportReports = () => {
         exportReportsToCsv(reports);
         addToast({ title: 'Exported', message: 'Reports CSV downloaded.', icon: 'dowload' });

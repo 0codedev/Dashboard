@@ -25,8 +25,8 @@ interface DailyPlannerProps {
   userProfile: UserProfile;
   prefilledTask: Partial<DailyTask> | null;
   setPrefilledTask: (task: Partial<DailyTask> | null) => void;
-  dailyTasks: DailyTask[];
-  setDailyTasks: React.Dispatch<React.SetStateAction<DailyTask[]>>;
+  tasks?: DailyTask[];
+  onUpdateTasks?: React.Dispatch<React.SetStateAction<DailyTask[]>>;
   modelName?: string;
   bioStats: JeeState['bioStats'];
   setBioStats: JeeActions['setBioStats'];
@@ -354,7 +354,7 @@ const TimeBlockSchedule: React.FC<{ tasks: DailyTask[]; onDropTask: (taskId: str
 };
 
 export const DailyPlanner: React.FC<DailyPlannerProps> = ({ 
-    goals, setGoals, apiKey, logs, proactiveInsight, onAcceptPlan, onDismissInsight, addXp, userProfile, prefilledTask, setPrefilledTask, dailyTasks, setDailyTasks, modelName,
+    goals, setGoals, apiKey, logs, proactiveInsight, onAcceptPlan, onDismissInsight, addXp, userProfile, prefilledTask, setPrefilledTask, tasks: dailyTasks = [], onUpdateTasks: setDailyTasks = () => {}, modelName,
     bioStats, setBioStats, dailyQuote: quote, setDailyQuote: setQuote, streakData, setStreakData, endOfDaySummaries: summaries, setEndOfDaySummaries: setSummaries, dailyPlansHistory: planHistory, setDailyPlansHistory: setPlanHistory
 }) => {
     const [currentTime, setCurrentTime] = useState(new Date());
@@ -836,7 +836,7 @@ export const DailyPlanner: React.FC<DailyPlannerProps> = ({
         handleTimerReset(); 
     };
 
-    const totalPlannedTime = useMemo(() => dailyTasks.reduce((sum, task) => sum + (task.estimatedTime || 0), 0), [dailyTasks]);
+    const totalPlannedTime = useMemo(() => (dailyTasks || []).reduce((sum, task) => sum + (task.estimatedTime || 0), 0), [dailyTasks]);
     
     const totalDuration = timerMode === 'custom' ? customTime * 60 : (activeTask && activeTask.estimatedTime > 0 ? activeTask.estimatedTime * 60 : timerModes[timerMode]);
     const progress = totalDuration > 0 ? ((totalDuration - timeLeft) / totalDuration) : 0;

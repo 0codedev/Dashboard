@@ -56,8 +56,20 @@ const NavItem: React.FC<{
     );
 };
 
+interface NavItemData {
+    id: string;
+    label: string;
+    icon: React.ReactNode;
+}
+
+interface NavGroupData {
+    title: string;
+    icon: React.ReactNode;
+    items: NavItemData[];
+}
+
 const NavGroup: React.FC<{
-    group: any;
+    group: NavGroupData;
     isSidebarCollapsed: boolean;
     currentView: View;
     setView: (view: View) => void;
@@ -95,10 +107,10 @@ const NavGroup: React.FC<{
                 className={`overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}
             >
                 <div className="flex flex-col gap-y-1 mt-1">
-                    {group.items.map((item: any) => (
+                    {group.items.map((item) => (
                         <NavItem 
                             key={item.id} 
-                            viewId={item.id} 
+                            viewId={item.id as View} 
                             label={item.label} 
                             currentView={currentView} 
                             setView={setView} 
@@ -281,7 +293,7 @@ export const AppShell: React.FC<AppShellProps> = ({ view, setView, userProfile, 
     const dynamicBottomItems = bottomItems;
 
     return (
-        <div className="relative z-10 flex h-full w-full bg-slate-900">
+        <div className="relative z-10 flex h-full w-full bg-slate-900 overflow-x-hidden">
             <ToastContainer toasts={toasts} setToasts={setToasts} />
             <CommandPalette isOpen={isPaletteOpen} onClose={() => setIsPaletteOpen(false)} setView={setView} />
             
@@ -356,7 +368,7 @@ export const AppShell: React.FC<AppShellProps> = ({ view, setView, userProfile, 
                     </button>
 
                     {/* Centered Filter Bar */}
-                    <div className="flex-1 flex justify-center px-2 overflow-x-auto md:overflow-visible hide-scrollbar">
+                    <div className="flex-1 flex justify-center px-2 overflow-visible md:overflow-visible hide-scrollbar z-50">
                         <GlobalFilterBar filter={globalFilter} setFilter={setGlobalFilter} testTypes={availableTestTypes} subTypes={availableSubTypes} />
                     </div>
                     
@@ -387,7 +399,7 @@ export const AppShell: React.FC<AppShellProps> = ({ view, setView, userProfile, 
                     </div>
                 </header>
 
-                <main id="main-content" className="flex-1 overflow-y-auto p-4 md:p-6 bg-transparent focus:outline-none">
+                <main id="main-content" className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 bg-transparent focus:outline-none">
                     {children}
                 </main>
             </div>

@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect, useCallback, Suspense, useMemo } from 'react';
 import type { AiFilter, RootCauseFilter, Toast, DailyTask, View, TestReport, QuestionLog } from './types';
-import { TaskType, QuestionStatus, TaskEffort } from './types';
+import { TaskType, QuestionStatus, TaskEffort, TestType, TestSubType } from './types';
 import { ApiKeyManager } from './components/ApiKeyManager';
 import { LoginScreen } from './components/LoginScreen';
 import { AppShell } from './components/layout/AppShell';
@@ -109,8 +109,14 @@ const App: React.FC = () => {
         const availableSubTypes = Array.from(new Set(reports.map(r => r.subType).filter(Boolean))) as string[];
         
         const globallyFilteredReports = reports.filter(report => {
-            const typeMatch = globalFilter.type === 'all' || report.type === globalFilter.type;
-            const subTypeMatch = globalFilter.subType === 'all' || report.subType === globalFilter.subType;
+            const typeMatch = globalFilter.type === 'all' || 
+                (Array.isArray(globalFilter.type) 
+                    ? (globalFilter.type.length === 0 || globalFilter.type.includes(report.type as any))
+                    : report.type === globalFilter.type);
+            const subTypeMatch = globalFilter.subType === 'all' || 
+                (Array.isArray(globalFilter.subType)
+                    ? (globalFilter.subType.length === 0 || globalFilter.subType.includes(report.subType as any))
+                    : report.subType === globalFilter.subType);
             
             const dateMatch = (() => {
                 if (!globalFilter.startDate && !globalFilter.endDate) return true;
@@ -126,7 +132,13 @@ const App: React.FC = () => {
         });
         
         const filteredReportIds = new Set(globallyFilteredReports.map(r => r.id));
-        const correspondingLogs = questionLogs.filter(log => filteredReportIds.has(log.testId));
+        const correspondingLogs = questionLogs.filter(log => {
+            if (!filteredReportIds.has(log.testId)) return false;
+            if (globalFilter.subjects && globalFilter.subjects.length > 0) {
+                if (!globalFilter.subjects.includes(log.subject)) return false;
+            }
+            return true;
+        });
 
         return {
             filteredReports: globallyFilteredReports,
@@ -251,6 +263,11 @@ const App: React.FC = () => {
     }, [notificationPreferences.bioCheckReminders]);
 
     // Auto-Backup and Unsaved Changes Reminder
+    const backupStateRef = useRef({ testReports, questionLogs, userProfile, aiPreferences, notificationPreferences, appearancePreferences, gamificationState, studyGoals, longTermGoals, chatHistory, dailyTasks, reflections, endOfDaySummaries, dailyPlansHistory });
+    useEffect(() => {
+        backupStateRef.current = { testReports, questionLogs, userProfile, aiPreferences, notificationPreferences, appearancePreferences, gamificationState, studyGoals, longTermGoals, chatHistory, dailyTasks, reflections, endOfDaySummaries, dailyPlansHistory };
+    });
+
     useEffect(() => {
         if (!currentUser) return;
 
@@ -279,23 +296,24 @@ const App: React.FC = () => {
             if (hoursSinceBackup >= 24 && unsavedCount > 0) {
                 try {
                     const { backupFullDataToFirebase } = await import('./services/backupService');
+                    const state = backupStateRef.current;
                     const exportData = {
                         version: 1,
                         date: new Date().toISOString(),
-                        reports: testReports,
-                        logs: questionLogs,
-                        userProfile,
-                        aiPreferences,
-                        notificationPreferences,
-                        appearancePreferences,
-                        gamificationState,
-                        studyGoals,
-                        longTermGoals,
-                        chatHistory,
-                        dailyTasks,
-                        reflections,
-                        endOfDaySummaries,
-                        dailyPlansHistory
+                        reports: state.testReports,
+                        logs: state.questionLogs,
+                        userProfile: state.userProfile,
+                        aiPreferences: state.aiPreferences,
+                        notificationPreferences: state.notificationPreferences,
+                        appearancePreferences: state.appearancePreferences,
+                        gamificationState: state.gamificationState,
+                        studyGoals: state.studyGoals,
+                        longTermGoals: state.longTermGoals,
+                        chatHistory: state.chatHistory,
+                        dailyTasks: state.dailyTasks,
+                        reflections: state.reflections,
+                        endOfDaySummaries: state.endOfDaySummaries,
+                        dailyPlansHistory: state.dailyPlansHistory
                     };
                     await backupFullDataToFirebase(exportData);
                     toastCounter.current += 1;
@@ -320,7 +338,7 @@ const App: React.FC = () => {
             clearInterval(interval);
             clearTimeout(initialTimeout);
         };
-    }, [currentUser, testReports, questionLogs, userProfile, aiPreferences, notificationPreferences, appearancePreferences, gamificationState, studyGoals, longTermGoals, chatHistory, dailyTasks, reflections, endOfDaySummaries, dailyPlansHistory]);
+    }, [currentUser]);
 
     // --- Handlers ---
 
@@ -405,7 +423,30 @@ const App: React.FC = () => {
     };
 
     const handleDataSync = (data: any) => {
-        if (data.reports) setTestReports(data.reports);
+        if (data.reports) {
+            // Repair missing types/subTypes in restored data
+            const repairedReports = data.reports.map((report: any) => {
+                let type = report.type;
+                let subType = report.subType;
+                
+                if (!type || !subType) {
+                    const lowerTitle = (report.testName || "").toLowerCase();
+                    if (!subType) {
+                        if (lowerTitle.includes('mains') || lowerTitle.includes('main')) subType = TestSubType.JEEMains;
+                        else if (lowerTitle.includes('advanced')) subType = TestSubType.JEEAdvanced;
+                        else subType = TestSubType.JEEMains; // Default
+                    }
+                    if (!type) {
+                        if (lowerTitle.includes('full syllabus') || lowerTitle.includes('mock')) type = TestType.FullSyllabusMock;
+                        else if (lowerTitle.includes('pyq') || lowerTitle.includes('previous year')) type = TestType.PreviousYearPaper;
+                        else type = TestType.ChapterTest; // Default
+                    }
+                }
+                
+                return { ...report, type, subType };
+            });
+            setTestReports(repairedReports);
+        }
         if (data.logs) setQuestionLogs(data.logs);
         if (data.userProfile) updateUserProfile(data.userProfile);
         if (data.studyGoals) setStudyGoals(data.studyGoals);
@@ -446,7 +487,7 @@ const App: React.FC = () => {
                 setToasts={setToasts}
             >
                 <Suspense fallback={<PageLoader />}>
-                    {view === 'daily-planner' && <DailyPlanner goals={studyGoals} setGoals={setStudyGoals} apiKey={apiKey || ''} logs={questionLogs} proactiveInsight={proactiveInsight} onAcceptPlan={handleAcceptPlan} onDismissInsight={handleDismissInsight} addXp={() => addXp('completeTask')} userProfile={userProfile} prefilledTask={prefilledTask} setPrefilledTask={setPrefilledTask} dailyTasks={dailyTasks} setDailyTasks={setDailyTasks} modelName={aiPreferences.model} bioStats={bioStats} setBioStats={setBioStats} dailyQuote={dailyQuote} setDailyQuote={setDailyQuote} streakData={streakData} setStreakData={setStreakData} endOfDaySummaries={endOfDaySummaries} setEndOfDaySummaries={setEndOfDaySummaries} dailyPlansHistory={dailyPlansHistory} setDailyPlansHistory={setDailyPlansHistory} />}
+                    {view === 'daily-planner' && <DailyPlanner goals={studyGoals} setGoals={setStudyGoals} apiKey={apiKey || ''} logs={questionLogs} proactiveInsight={proactiveInsight} onAcceptPlan={handleAcceptPlan} onDismissInsight={handleDismissInsight} addXp={() => addXp('completeTask')} userProfile={userProfile} prefilledTask={prefilledTask} setPrefilledTask={setPrefilledTask} tasks={dailyTasks} onUpdateTasks={setDailyTasks} modelName={aiPreferences.model} bioStats={bioStats} setBioStats={setBioStats} dailyQuote={dailyQuote} setDailyQuote={setDailyQuote} streakData={streakData} setStreakData={setStreakData} endOfDaySummaries={endOfDaySummaries} setEndOfDaySummaries={setEndOfDaySummaries} dailyPlansHistory={dailyPlansHistory} setDailyPlansHistory={setDailyPlansHistory} />}
                     {view === 'dashboard' && <Dashboard reports={filteredReports} logs={filteredLogs} apiKey={apiKey} setView={setView} setRootCauseFilter={setRootCauseFilter} onStartFocusSession={handleStartFocusSession} longTermGoals={longTermGoals} modelName={aiPreferences.model} userProfile={userProfile} onUpdateProfile={updateUserProfile} />}
                     {view === 'syllabus' && <Syllabus userProfile={userProfile} setUserProfile={updateUserProfile} questionLogs={questionLogs} reports={filteredReports} apiKey={apiKey} onStartFocusSession={handleStartFocusSession} setView={setView} addTasksToPlanner={addTasksToPlanner} modelName={aiPreferences.model} />}
                     {view === 'detailed-reports' && <DetailedReportsView allReports={testReports} filteredReports={filteredReports} setReports={setTestReports} onViewQuestionLog={handleViewQuestionLogForTest} onDeleteReport={handleDeleteReport} apiKey={apiKey} logs={questionLogs} />}

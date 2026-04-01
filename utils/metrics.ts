@@ -1,7 +1,10 @@
 import type { SubjectData, QuestionLog } from '../types';
 import { QuestionType, QuestionStatus } from '../types';
 
-export const calculateMetrics = (subjectData: SubjectData, totalQuestions: number = 25) => {
+export const calculateMetrics = (subjectData: SubjectData | null | undefined, totalQuestions: number = 25) => {
+    if (!subjectData || (subjectData.marks === 0 && subjectData.correct === 0 && subjectData.wrong === 0 && subjectData.unanswered === 0)) {
+        return null;
+    }
     const { correct, wrong, partial, marks } = subjectData;
     const attempted = correct + wrong + partial;
     
