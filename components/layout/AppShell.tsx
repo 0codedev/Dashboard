@@ -356,7 +356,7 @@ export const AppShell: React.FC<AppShellProps> = ({ view, setView, userProfile, 
             </aside>
             
             <div className="flex-1 flex flex-col overflow-hidden relative">
-                <header className="h-16 glass-panel border-b border-slate-800 flex-shrink-0 flex items-center px-4 z-30 relative justify-between">
+                <header className="h-16 glass-panel border-b border-slate-800 flex-shrink-0 flex items-center px-4 z-30 relative justify-between overflow-visible">
                     {/* Mobile Menu Button */}
                     <button 
                         className="md:hidden text-gray-400 hover:text-white p-2 -ml-2"

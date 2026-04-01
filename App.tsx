@@ -105,7 +105,7 @@ const App: React.FC = () => {
 
     const { filteredReports, filteredLogs, availableTestTypes, availableSubTypes } = useMemo(() => {
         const reports = reportsWithMetrics;
-        const availableTestTypes = Array.from(new Set(reports.map(r => r.type).filter(Boolean))) as string[];
+        const availableTestTypes = Array.from(new Set([...reports.map(r => r.type).filter(Boolean), ...Object.values(TestType)])) as string[];
         const availableSubTypes = Array.from(new Set(reports.map(r => r.subType).filter(Boolean))) as string[];
         
         const globallyFilteredReports = reports.filter(report => {
