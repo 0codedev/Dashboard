@@ -1,4 +1,4 @@
-import type { SubjectData, QuestionLog } from '../types';
+import type { SubjectData, QuestionLog, TestReport } from '../types';
 import { QuestionType, QuestionStatus } from '../types';
 
 export const calculateMetrics = (subjectData: SubjectData, totalQuestions: number = 25) => {
@@ -65,8 +65,7 @@ export const calculateMarks = (status: QuestionStatus | string, questionType: st
     }
 };
 
-export const isValidSubjectForReport = (subject: string): boolean => {
-    if (!subject) return false;
-    const normalized = subject.toLowerCase().trim();
-    return ['physics', 'chemistry', 'maths', 'mathematics', 'biology', 'botany', 'zoology'].includes(normalized);
+export const isValidSubjectForReport = (report: TestReport, subject: 'physics' | 'chemistry' | 'maths'): boolean => {
+    if (!report || !subject) return false;
+    return !!report[subject];
 };

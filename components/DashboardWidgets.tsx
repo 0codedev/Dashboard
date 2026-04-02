@@ -6,10 +6,11 @@ import {
 } from 'recharts';
 import { SUBJECT_CONFIG } from '../constants';
 import CustomTooltip from './common/CustomTooltip';
-import { LongTermGoal, QuestionLog, ExamStrategy, Reflection } from '../types';
+import { LongTermGoal, QuestionLog, ExamStrategy, Reflection, TestReport } from '../types';
 import { CalibrationMatrix } from './visualizations/CalibrationMatrix';
 import { formatNumber, formatPercent, formatRank } from '../utils/formatters';
 import { isValidSubjectForReport } from '../utils/metrics';
+import { StrategicROIPoint } from '../hooks/useDashboardAnalytics';
 
 // --- Tooltips ---
 const CustomRadarTooltip = ({ active, payload }: any) => {
@@ -300,7 +301,7 @@ export const PaperStrategyWidget: React.FC<{
 };
 
 
-export const StrategicROIWidget: React.FC<{ data: any[], onPointClick: (topic: string) => void }> = ({ data, onPointClick }) => (
+export const StrategicROIWidget: React.FC<{ data: StrategicROIPoint[], onPointClick: (topic: string) => void }> = ({ data, onPointClick }) => (
     <div className="h-full w-full flex flex-col">
         <div className="flex justify-between items-center px-4 pb-2 text-xs text-gray-400">
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-green-500"></span>Quick Wins</div>
@@ -425,7 +426,7 @@ export const VolatilityWidget: React.FC<{ volatilityMetrics: any }> = ({ volatil
     </div>
 );
 
-export const PerformanceTrendWidget: React.FC<{ data: any[], aiSummary?: string }> = ({ data, aiSummary }) => (
+export const PerformanceTrendWidget: React.FC<{ data: TestReport[], aiSummary?: string }> = ({ data, aiSummary }) => (
     <div className="h-full flex flex-col">
         <ResponsiveContainer width="100%" height="100%">
             <LineChart data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
@@ -440,7 +441,7 @@ export const PerformanceTrendWidget: React.FC<{ data: any[], aiSummary?: string 
     </div>
 );
 
-export const SubjectComparisonWidget: React.FC<{ data: any[], aiSummary?: string }> = ({ data, aiSummary }) => (
+export const SubjectComparisonWidget: React.FC<{ data: TestReport[], aiSummary?: string }> = ({ data, aiSummary }) => (
     <div className="h-full flex flex-col">
         <ResponsiveContainer width="100%" height="100%">
             <BarChart data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
@@ -458,7 +459,7 @@ export const SubjectComparisonWidget: React.FC<{ data: any[], aiSummary?: string
     </div>
 );
 
-export const SubjectRadarWidget: React.FC<{ data: any[] }> = ({ data }) => {
+export const SubjectRadarWidget: React.FC<{ data: { subject: string, A: number, fullMark: number }[] }> = ({ data }) => {
     return (
         <ResponsiveContainer width="100%" height="100%">
             <RadarChart cx="50%" cy="50%" outerRadius="70%" data={data}>
@@ -476,7 +477,7 @@ export const SubjectRadarWidget: React.FC<{ data: any[] }> = ({ data }) => {
     );
 };
 
-export const CalendarHeatmapWidget: React.FC<{ reports: any[] }> = ({ reports }) => {
+export const CalendarHeatmapWidget: React.FC<{ reports: TestReport[] }> = ({ reports }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [containerWidth, setContainerWidth] = useState(0);
 
@@ -696,7 +697,7 @@ export const ReflectionsWidget: React.FC<{ reflections: Reflection[] }> = ({ ref
 };
 
 // --- NEW WIDGET: Weakness Heatmap ---
-export const WeaknessHeatmapWidget: React.FC<{ logs: any[] }> = ({ logs }) => {
+export const WeaknessHeatmapWidget: React.FC<{ logs: QuestionLog[] }> = ({ logs }) => {
     const topicStats = useMemo(() => {
         const stats = new Map<string, { attempts: number, wrong: number, subject: string }>();
         logs.forEach(log => {
@@ -854,7 +855,7 @@ const CustomNegativeMarksTooltip = ({ active, payload, label }: any) => {
 };
 
 // --- NEW WIDGET: Subject Relativity ---
-export const SubjectRelativityWidget: React.FC<{ reports: any[] }> = ({ reports }) => {
+export const SubjectRelativityWidget: React.FC<{ reports: TestReport[] }> = ({ reports }) => {
     const stats = useMemo(() => {
         if (reports.length === 0) return null;
         let p = 0, c = 0, m = 0;
@@ -902,7 +903,7 @@ export const SubjectRelativityWidget: React.FC<{ reports: any[] }> = ({ reports 
 };
 
 // --- NEW WIDGET: Avg Marks Bar Graph ---
-export const AvgMarksBarWidget: React.FC<{ reports: any[] }> = ({ reports }) => {
+export const AvgMarksBarWidget: React.FC<{ reports: TestReport[] }> = ({ reports }) => {
     const data = useMemo(() => {
         if (reports.length === 0) return [];
         let p = 0, c = 0, m = 0;
@@ -941,7 +942,7 @@ export const AvgMarksBarWidget: React.FC<{ reports: any[] }> = ({ reports }) => 
 };
 
 // --- NEW WIDGET: Weakest Link Analysis ---
-export const WeakestLinkWidget: React.FC<{ reports: any[] }> = ({ reports }) => {
+export const WeakestLinkWidget: React.FC<{ reports: TestReport[] }> = ({ reports }) => {
     const analysis = useMemo(() => {
         if (reports.length === 0) return null;
         let p = 0, c = 0, m = 0;
@@ -1045,7 +1046,7 @@ export const TimeAllocationWidget: React.FC<{ logs: QuestionLog[] }> = ({ logs }
 };
 
 // --- NEW WIDGET: Negative Marks Impact ---
-export const NegativeMarksWidget: React.FC<{ reports: any[] }> = ({ reports }) => {
+export const NegativeMarksWidget: React.FC<{ reports: TestReport[] }> = ({ reports }) => {
     const data = useMemo(() => {
         if (reports.length === 0) return [];
         return reports.slice(-5).map((r, i) => {

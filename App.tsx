@@ -111,11 +111,11 @@ const App: React.FC = () => {
         const globallyFilteredReports = reports.filter(report => {
             const typeMatch = globalFilter.type === 'all' || 
                 (Array.isArray(globalFilter.type) 
-                    ? (globalFilter.type.length === 0 || globalFilter.type.includes(report.type as any))
+                    ? (globalFilter.type.length === 0 || (globalFilter.type as string[]).includes(report.type as string))
                     : report.type === globalFilter.type);
             const subTypeMatch = globalFilter.subType === 'all' || 
                 (Array.isArray(globalFilter.subType)
-                    ? (globalFilter.subType.length === 0 || globalFilter.subType.includes(report.subType as any))
+                    ? (globalFilter.subType.length === 0 || (globalFilter.subType as string[]).includes(report.subType as string))
                     : report.subType === globalFilter.subType);
             
             const dateMatch = (() => {
@@ -219,7 +219,7 @@ const App: React.FC = () => {
                 if (!storedCardsStr) return;
                 const cards = JSON.parse(storedCardsStr);
                 const now = new Date();
-                const dueCount = cards.filter((c: any) => new Date(c.nextReview) <= now && c.back !== '__STUB__').length;
+                const dueCount = cards.filter((c: { nextReview: string | number | Date, back: string }) => new Date(c.nextReview) <= now && c.back !== '__STUB__').length;
                 
                 if (dueCount > 0) {
                     toastCounter.current += 1;
@@ -263,9 +263,9 @@ const App: React.FC = () => {
     }, [notificationPreferences.bioCheckReminders]);
 
     // Auto-Backup and Unsaved Changes Reminder
-    const backupStateRef = useRef({ testReports, questionLogs, userProfile, aiPreferences, notificationPreferences, appearancePreferences, gamificationState, studyGoals, longTermGoals, chatHistory, dailyTasks, reflections, endOfDaySummaries, dailyPlansHistory });
+    const backupStateRef = useRef({ testReports, questionLogs, userProfile, aiPreferences, notificationPreferences, appearancePreferences, gamificationState, studyGoals, longTermGoals, chatHistory, dailyTasks, reflections, endOfDaySummaries, dailyPlansHistory, globalFilter });
     useEffect(() => {
-        backupStateRef.current = { testReports, questionLogs, userProfile, aiPreferences, notificationPreferences, appearancePreferences, gamificationState, studyGoals, longTermGoals, chatHistory, dailyTasks, reflections, endOfDaySummaries, dailyPlansHistory };
+        backupStateRef.current = { testReports, questionLogs, userProfile, aiPreferences, notificationPreferences, appearancePreferences, gamificationState, studyGoals, longTermGoals, chatHistory, dailyTasks, reflections, endOfDaySummaries, dailyPlansHistory, globalFilter };
     });
 
     useEffect(() => {
@@ -313,7 +313,8 @@ const App: React.FC = () => {
                         dailyTasks: state.dailyTasks,
                         reflections: state.reflections,
                         endOfDaySummaries: state.endOfDaySummaries,
-                        dailyPlansHistory: state.dailyPlansHistory
+                        dailyPlansHistory: state.dailyPlansHistory,
+                        globalFilter: state.globalFilter
                     };
                     await backupFullDataToFirebase(exportData);
                     toastCounter.current += 1;
@@ -448,6 +449,7 @@ const App: React.FC = () => {
             setTestReports(repairedReports);
         }
         if (data.logs) setQuestionLogs(data.logs);
+        if (data.globalFilter) setGlobalFilter(data.globalFilter);
         if (data.userProfile) updateUserProfile(data.userProfile);
         if (data.studyGoals) setStudyGoals(data.studyGoals);
         if (data.longTermGoals) setLongTermGoals(data.longTermGoals);
@@ -520,7 +522,7 @@ const App: React.FC = () => {
                             setUserProfile={updateUserProfile} 
                             theme={theme} 
                             setTheme={setTheme} 
-                            addToast={(toast: any) => {
+                            addToast={(toast: Omit<Toast, 'id'>) => {
                                 toastCounter.current += 1;
                                 setToasts(p => [...p, { ...toast, id: Date.now() + toastCounter.current }]);
                             }} 

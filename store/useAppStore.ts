@@ -52,7 +52,7 @@ interface AppActions {
 const initialGamificationState: GamificationState = {
     level: 1,
     xp: 0,
-    unlockedAchievements: {} as any,
+    unlockedAchievements: {} as Record<string, { unlockedAt: string; tier?: number }>,
     completedTasks: 0,
     streakData: { count: 0, date: '' },
     events: {},
@@ -72,7 +72,7 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
     apiKey: null,
     userProfile: defaultUserProfile,
     gamificationState: initialGamificationState,
-    globalFilter: { subjects: [], types: [], subTypes: [], startDate: '', endDate: '' },
+    globalFilter: { subjects: [], type: 'all', subType: 'all', startDate: '', endDate: '' },
     aiPreferences: { model: 'gemini-3.1-flash-lite-preview', responseLength: 'medium', tone: 'encouraging' },
     notificationPreferences: { achievements: true, proactiveInsights: true, proactiveInsightSensitivity: 'medium', flashcardReminders: true, bioCheckReminders: true },
     appearancePreferences: { disableParticles: true, reduceMotion: false, highContrast: false, largeText: false, dyslexicFont: false },
